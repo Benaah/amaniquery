@@ -26,6 +26,13 @@ class Source(BaseModel):
     publication_date: Optional[str] = None
     relevance_score: Optional[float] = None
     excerpt: Optional[str] = None
+    sentiment_label: Optional[str] = None  # New: sentiment for news sources
+    sentiment_polarity: Optional[float] = None  # New
+    # YouTube video metadata
+    video_id: Optional[str] = None
+    timestamp_url: Optional[str] = None
+    timestamp_formatted: Optional[str] = None
+    start_time_seconds: Optional[float] = None
 
 
 class QueryResponse(BaseModel):
@@ -94,3 +101,22 @@ class AlignmentResponse(BaseModel):
     constitution_context: List[ConstitutionContext] = Field(default_factory=list, description="Constitution chunks used")
     metadata: AlignmentMetadata = Field(..., description="Analysis metadata")
     query_time: Optional[float] = None
+
+
+class SentimentRequest(BaseModel):
+    """Request model for sentiment analysis"""
+    topic: str = Field(..., description="Topic to analyze sentiment for", min_length=1)
+    category: Optional[str] = Field(None, description="Filter by category (Kenyan News, Global Trend)")
+    days: int = Field(30, description="Number of days to look back", ge=1, le=365)
+
+
+class SentimentResponse(BaseModel):
+    """Response model for sentiment analysis"""
+    topic: str
+    sentiment_percentages: dict = Field(..., description="Percentage breakdown (positive, negative, neutral)")
+    sentiment_distribution: dict = Field(..., description="Count of articles by sentiment")
+    average_polarity: float = Field(..., description="Average polarity score (-1.0 to 1.0)")
+    average_subjectivity: float = Field(..., description="Average subjectivity score (0.0 to 1.0)")
+    total_articles: int = Field(..., description="Total articles analyzed")
+    category_filter: Optional[str] = None
+    time_period_days: int

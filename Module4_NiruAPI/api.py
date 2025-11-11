@@ -8,13 +8,17 @@ from typing import Optional
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request, Form
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 from loguru import logger
 
 from Module4_NiruAPI.rag_pipeline import RAGPipeline
 from Module4_NiruAPI.alignment_pipeline import ConstitutionalAlignmentPipeline
+from Module4_NiruAPI.sms_pipeline import SMSPipeline
+from Module4_NiruAPI.sms_service import AfricasTalkingSMSService
+from Module3_NiruDB.vector_store import VectorStore
+from Module3_NiruDB.metadata_manager import MetadataManager
 from Module4_NiruAPI.models import (
     QueryRequest,
     QueryResponse,
@@ -26,8 +30,9 @@ from Module4_NiruAPI.models import (
     BillContext,
     ConstitutionContext,
     AlignmentMetadata,
+    SentimentRequest,
+    SentimentResponse,
 )
-from Module3_NiruDB import VectorStore
 from Module5_NiruShare.api import router as share_router
 
 # Load environment
@@ -56,17 +61,23 @@ app.include_router(share_router)
 vector_store = None
 rag_pipeline = None
 alignment_pipeline = None
+sms_pipeline = None
+sms_service = None
+metadata_manager = None
 
 
 @app.on_event("startup")
 async def startup_event():
     """Initialize on startup"""
-    global vector_store, rag_pipeline, alignment_pipeline
+    global vector_store, rag_pipeline, alignment_pipeline, sms_pipeline, sms_service, metadata_manager
     
     logger.info("Starting AmaniQuery API")
     
     # Initialize vector store
     vector_store = VectorStore()
+    
+    # Initialize metadata manager
+    metadata_manager = MetadataManager()
     
     # Initialize RAG pipeline
     llm_provider = os.getenv("LLM_PROVIDER", "moonshot")
@@ -84,6 +95,19 @@ async def startup_event():
         rag_pipeline=rag_pipeline,
     )
     
+    # Initialize SMS Pipeline
+    sms_pipeline = SMSPipeline(
+        vector_store=vector_store,
+        llm_service=rag_pipeline.llm_service
+    )
+    
+    # Initialize Africa's Talking SMS Service
+    sms_service = AfricasTalkingSMSService()
+    if sms_service.available:
+        logger.info("✓ Africa's Talking SMS service initialized")
+    else:
+        logger.warning("⚠ SMS service not available (install africastalking)")
+    
     logger.info("AmaniQuery API ready")
 
 
@@ -98,6 +122,10 @@ async def root():
             "query": "POST /query",
             "alignment_check": "POST /alignment-check",
             "quick_alignment": "POST /alignment-quick-check",
+            "sentiment": "GET /sentiment",
+            "sms_webhook": "POST /sms-webhook",
+            "sms_send": "POST /sms-send",
+            "sms_query_preview": "GET /sms-query",
             "health": "GET /health",
             "stats": "GET /stats",
             "share": "POST /share/*",
@@ -297,6 +325,316 @@ async def quick_alignment_check(bill_name: str, constitutional_topic: str):
         
     except Exception as e:
         logger.error(f"Error in quick alignment check: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/sentiment", response_model=SentimentResponse, tags=["Sentiment Analysis"])
+async def get_topic_sentiment(
+    topic: str,
+    category: Optional[str] = None,
+    days: int = 30
+):
+    """
+    Public Sentiment Gauge - Analyze sentiment for a topic from news sources
+    
+    This endpoint analyzes the sentiment of news articles discussing a specific topic.
+    It aggregates sentiment scores from all relevant articles and returns a percentage
+    breakdown of positive, negative, and neutral coverage.
+    
+    **Use Cases:**
+    - Track public sentiment on legislation (e.g., "Finance Bill")
+    - Monitor news tone on policies or events
+    - Understand media coverage sentiment
+    
+    **Example queries:**
+    - topic: "Finance Bill"
+    - topic: "Housing Levy"  
+    - topic: "Climate Policy"
+    - topic: "Healthcare Reform"
+    
+    **Parameters:**
+    - topic: The topic to analyze (e.g., "Finance Bill", "Housing Policy")
+    - category: Filter by category ("Kenyan News" or "Global Trend")
+    - days: Number of days to look back (default: 30)
+    
+    **Returns:**
+    - Sentiment percentages (positive, negative, neutral)
+    - Average polarity score (-1.0 to 1.0)
+    - Total articles analyzed
+    """
+    if vector_store is None:
+        raise HTTPException(status_code=503, detail="Service not initialized")
+    
+    try:
+        from datetime import datetime, timedelta
+        import time
+        
+        # Calculate date range
+        end_date = datetime.utcnow()
+        start_date = end_date - timedelta(days=days)
+        
+        # Build filter
+        filter_dict = {}
+        if category:
+            filter_dict["category"] = category
+        else:
+            # Only analyze news categories
+            filter_dict["category"] = {"$in": ["Kenyan News", "Global Trend"]}
+        
+        # Search for relevant articles
+        results = vector_store.search(
+            query_text=topic,
+            top_k=100,  # Get up to 100 articles
+            filter_dict=filter_dict
+        )
+        
+        if not results:
+            return SentimentResponse(
+                topic=topic,
+                sentiment_percentages={"positive": 0.0, "negative": 0.0, "neutral": 0.0},
+                sentiment_distribution={"positive": 0, "negative": 0, "neutral": 0},
+                average_polarity=0.0,
+                average_subjectivity=0.0,
+                total_articles=0,
+                category_filter=category,
+                time_period_days=days
+            )
+        
+        # Extract sentiment data
+        sentiments = []
+        for chunk in results:
+            metadata = chunk.get("metadata", {})
+            if "sentiment_polarity" in metadata:
+                sentiments.append({
+                    "polarity": metadata["sentiment_polarity"],
+                    "subjectivity": metadata.get("sentiment_subjectivity", 0.0),
+                    "label": metadata.get("sentiment_label", "neutral")
+                })
+        
+        if not sentiments:
+            return SentimentResponse(
+                topic=topic,
+                sentiment_percentages={"positive": 0.0, "negative": 0.0, "neutral": 0.0},
+                sentiment_distribution={"positive": 0, "negative": 0, "neutral": 0},
+                average_polarity=0.0,
+                average_subjectivity=0.0,
+                total_articles=len(results),
+                category_filter=category,
+                time_period_days=days
+            )
+        
+        # Calculate aggregates
+        avg_polarity = sum(s["polarity"] for s in sentiments) / len(sentiments)
+        avg_subjectivity = sum(s["subjectivity"] for s in sentiments) / len(sentiments)
+        
+        # Count labels
+        label_counts = {
+            "positive": sum(1 for s in sentiments if s["label"] == "positive"),
+            "negative": sum(1 for s in sentiments if s["label"] == "negative"),
+            "neutral": sum(1 for s in sentiments if s["label"] == "neutral"),
+        }
+        
+        # Calculate percentages
+        total = len(sentiments)
+        percentages = {
+            "positive": round((label_counts["positive"] / total) * 100, 1),
+            "negative": round((label_counts["negative"] / total) * 100, 1),
+            "neutral": round((label_counts["neutral"] / total) * 100, 1),
+        }
+        
+        return SentimentResponse(
+            topic=topic,
+            sentiment_percentages=percentages,
+            sentiment_distribution=label_counts,
+            average_polarity=round(avg_polarity, 3),
+            average_subjectivity=round(avg_subjectivity, 3),
+            total_articles=total,
+            category_filter=category,
+            time_period_days=days
+        )
+        
+    except Exception as e:
+        logger.error(f"Error analyzing sentiment: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/sms-webhook", tags=["SMS Gateway"])
+async def sms_webhook(
+    request: Request,
+    from_: str = Form(..., alias="from"),
+    to: str = Form(...),
+    text: str = Form(...),
+    date: str = Form(None),
+    id_: str = Form(None, alias="id"),
+    linkId: str = Form(None),
+    networkCode: str = Form(None)
+):
+    """
+    Africa's Talking SMS Webhook
+    
+    Receives incoming SMS messages and sends intelligent responses.
+    This endpoint is called by Africa's Talking when an SMS is received.
+    
+    **How it works:**
+    1. User sends SMS to your Africa's Talking shortcode/number
+    2. Africa's Talking forwards the SMS to this webhook
+    3. AmaniQuery processes the query using RAG pipeline
+    4. Response is sent back via SMS (max 160 characters)
+    
+    **Example SMS queries:**
+    - "What is the Finance Bill about?"
+    - "Latest news on housing"
+    - "Constitution Article 10"
+    
+    **Setup:**
+    1. Sign up at https://africastalking.com
+    2. Get API key and username
+    3. Set environment variables: AT_USERNAME, AT_API_KEY
+    4. Configure webhook URL in Africa's Talking dashboard
+    5. Webhook URL: https://your-domain.com/sms-webhook
+    """
+    if sms_pipeline is None or sms_service is None:
+        logger.error("SMS services not initialized")
+        return {"status": "error", "message": "SMS service unavailable"}
+    
+    try:
+        # Parse incoming SMS
+        phone_number = sms_service.format_kenyan_phone(from_)
+        query_text = text.strip()
+        
+        logger.info(f"📱 Incoming SMS from {phone_number}: {query_text}")
+        
+        # Detect language (basic detection)
+        language = "sw" if any(word in query_text.lower() for word in ["nini", "habari", "tafadhali", "je"]) else "en"
+        
+        # Process query through SMS-optimized RAG
+        result = sms_pipeline.process_sms_query(
+            query=query_text,
+            language=language,
+            phone_number=phone_number
+        )
+        
+        response_text = result["response"]
+        
+        # Send SMS response
+        if sms_service.available:
+            send_result = sms_service.send_sms(phone_number, response_text)
+            
+            if send_result.get("success"):
+                logger.info(f"✓ SMS sent to {phone_number}")
+                return {
+                    "status": "success",
+                    "message": "Response sent",
+                    "response_text": response_text,
+                    "query_type": result.get("query_type"),
+                    "message_id": send_result.get("message_id")
+                }
+            else:
+                logger.error(f"Failed to send SMS: {send_result.get('error')}")
+                return {
+                    "status": "error",
+                    "message": "Failed to send response",
+                    "error": send_result.get("error")
+                }
+        else:
+            # SMS service not available, just log
+            logger.warning(f"SMS service unavailable. Would send: {response_text}")
+            return {
+                "status": "success",
+                "message": "Query processed (SMS sending disabled)",
+                "response_text": response_text,
+                "query_type": result.get("query_type")
+            }
+            
+    except Exception as e:
+        logger.error(f"Error handling SMS webhook: {e}")
+        return {
+            "status": "error",
+            "message": str(e)
+        }
+
+
+@app.post("/sms-send", tags=["SMS Gateway"])
+async def send_sms_manual(phone_number: str, message: str):
+    """
+    Send SMS manually (for testing)
+    
+    **Parameters:**
+    - phone_number: Recipient phone number (+254XXXXXXXXX)
+    - message: SMS message text (max 160 characters recommended)
+    
+    **Example:**
+    ```
+    POST /sms-send
+    {
+        "phone_number": "+254712345678",
+        "message": "Finance Bill 2025 aims to raise revenue through new taxes on digital services."
+    }
+    ```
+    """
+    if sms_service is None or not sms_service.available:
+        raise HTTPException(status_code=503, detail="SMS service not available")
+    
+    try:
+        # Format phone number
+        formatted_phone = sms_service.format_kenyan_phone(phone_number)
+        
+        # Send SMS
+        result = sms_service.send_sms(formatted_phone, message)
+        
+        if result.get("success"):
+            return {
+                "status": "success",
+                "phone_number": formatted_phone,
+                "message": message,
+                "message_id": result.get("message_id"),
+                "cost": result.get("cost")
+            }
+        else:
+            raise HTTPException(status_code=500, detail=result.get("error"))
+            
+    except Exception as e:
+        logger.error(f"Error sending manual SMS: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/sms-query", tags=["SMS Gateway"])
+async def sms_query_preview(query: str, language: str = "en"):
+    """
+    Preview SMS response without sending
+    
+    Test what response would be sent via SMS for a given query.
+    Useful for testing before deploying webhook.
+    
+    **Parameters:**
+    - query: Question to ask
+    - language: Response language ('en' or 'sw')
+    
+    **Example:**
+    - query: "What is the Finance Bill?"
+    - language: "en"
+    """
+    if sms_pipeline is None:
+        raise HTTPException(status_code=503, detail="SMS pipeline not initialized")
+    
+    try:
+        result = sms_pipeline.process_sms_query(
+            query=query,
+            language=language
+        )
+        
+        return {
+            "query": query,
+            "response": result["response"],
+            "character_count": len(result["response"]),
+            "within_sms_limit": len(result["response"]) <= 160,
+            "query_type": result.get("query_type"),
+            "sources": result.get("sources", []),
+            "language": language
+        }
+        
+    except Exception as e:
+        logger.error(f"Error previewing SMS query: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

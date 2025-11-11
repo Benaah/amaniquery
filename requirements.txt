@@ -16,16 +16,20 @@ langchain==0.1.0
 langchain-community==0.0.10
 sentence-transformers==2.2.2
 tiktoken==0.5.2  # Token counting
+textblob==0.17.1  # Sentiment analysis
+youtube-transcript-api==0.6.1  # YouTube transcript extraction
 
 # Module 3: NiruDB (Vector Store)
 chromadb==0.4.22
 faiss-cpu==1.7.4  # Alternative: faiss-gpu for GPU support
+loguru
 
 # Module 4: NiruAPI (RAG Interface)
 fastapi==0.109.0
 uvicorn[standard]==0.27.0
 pydantic==2.5.3
 python-multipart==0.0.6
+africastalking==1.2.7  # SMS gateway for Kenya
 
 # LLM Integration
 openai==1.10.0  # For OpenAI models and Moonshot AI (compatible API)

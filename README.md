@@ -1,6 +1,57 @@
 # AmaniQuery 🇰🇪
 
-A Retrieval-Augmented Generation (RAG) system for Kenyan legal, parliamentary, and news intelligence with **Constitutional Alignment Analysis** and social media sharing capabilities.
+A Retrieval-Augmented Generation (RAG) system for Kenyan legal, parliamentary, and news intelligence with **three unique "wow" features**: Constitutional Alignment Analysis, Public Sentiment Gauge, InfoSMS Gateway, and Parliament Video Indexer.
+
+## 🌟 Unique Features (Hackathon Differentiators)
+
+### 1. 📊 Public Sentiment Gauge
+**Track public sentiment on trending topics from news coverage**
+
+- Sentiment analysis on all news articles (positive/negative/neutral)
+- Real-time aggregation by topic with percentage breakdowns
+- Visual sentiment distribution for policies, bills, and events
+- Example: "Finance Bill: 70% negative, 20% neutral, 10% positive"
+
+```bash
+GET /sentiment?topic=Finance%20Bill&days=30
+```
+
+### 2. 📱 InfoSMS Gateway (Kabambe Accessibility)
+**SMS-based queries for feature phone users**
+
+- 160-character intelligent responses via SMS
+- English and Swahili language support
+- Africa's Talking integration for Kenya
+- Automatic query type detection (legal/parliament/news)
+- Works on feature phones without internet
+
+```bash
+User SMS: "Finance Bill"
+AmaniQuery: "Finance Bill 2025 raises revenue through digital service tax..."
+```
+
+### 3. 🎥 Parliament Video Indexer
+**Searchable YouTube transcripts with timestamp citations**
+
+- Automatic transcript extraction from Parliament YouTube channels
+- Timestamp-based citations (jump to exact moment)
+- 60-second chunks with contextual overlap
+- Vector search for semantic matching
+- Direct YouTube links with `&t=XXs` parameters
+
+```bash
+Query: "budget allocation for education"
+Response: "At 15:42 in the Finance Committee session..."
+Link: https://youtube.com/watch?v=abc123&t=942s
+```
+
+### 4. ⚖️ Constitutional Alignment Analysis
+**Compare Bills and Acts against the Constitution**
+
+- Dual-retrieval RAG system (Bill + Constitution chunks separately)
+- Granular legal metadata extraction (articles, clauses)
+- Structured comparative analysis with citations
+- Quick-check endpoint for specific constitutional topics
 
 ## 🏛️ Architecture
 
@@ -149,7 +200,10 @@ print(share.json()["content"])
 - ✅ Intelligent text processing & chunking
 - ✅ Vector embeddings for semantic search
 - ✅ RAG-powered Q&A with Moonshot AI
-- ✅ **Constitutional Alignment Analysis** (dual-retrieval comparative analysis)
+- ✅ **Public Sentiment Gauge** - Track news sentiment by topic
+- ✅ **InfoSMS Gateway** - SMS queries via Africa's Talking (kabambe accessibility)
+- ✅ **Parliament Video Indexer** - Searchable YouTube transcripts with timestamps
+- ✅ **Constitutional Alignment Analysis** - Dual-retrieval Bill-Constitution comparison
 - ✅ Source citation & verification
 - ✅ Social media sharing (Twitter/X, LinkedIn, Facebook)
 - ✅ REST API with interactive documentation
@@ -161,9 +215,91 @@ print(share.json()["content"])
 3. **Vector DB**: ChromaDB / FAISS
 4. **LLM**: Moonshot AI (default), OpenAI, Anthropic, or Local models
 
-## 🏛️ Constitutional Alignment Module (Core Feature)
+## 📊 Feature Details
 
-AmaniQuery's **unique value proposition**: Dual-retrieval RAG for constitutional compliance analysis.
+### Public Sentiment Gauge
+Analyze news sentiment on any topic:
+
+```python
+# Get sentiment breakdown
+GET /sentiment?topic=Finance%20Bill&days=30
+
+# Response
+{
+  "sentiment_percentages": {
+    "positive": 15.0,
+    "negative": 70.0,
+    "neutral": 15.0
+  },
+  "average_polarity": -0.35,
+  "total_articles": 20
+}
+```
+
+**Use Cases:**
+- Track public reaction to legislation
+- Monitor news tone on policies
+- Identify controversial topics
+- Compare Kenyan vs Global coverage sentiment
+
+### InfoSMS Gateway
+Query AmaniQuery via SMS (no internet needed):
+
+```python
+# Webhook for incoming SMS
+POST /sms-webhook
+
+# Preview SMS response (testing)
+GET /sms-query?query=Finance%20Bill&language=en
+
+# Manual SMS send
+POST /sms-send?phone_number=+254712345678&message=...
+```
+
+**Setup:**
+1. Sign up at https://africastalking.com
+2. Set environment variables: `AT_USERNAME`, `AT_API_KEY`
+3. Configure webhook URL in Africa's Talking dashboard
+4. Users send SMS to your shortcode
+
+**Features:**
+- 160-character concise responses
+- English and Swahili support
+- ~KES 0.80 per SMS in Kenya
+- Feature phone accessibility (kabambe)
+
+### Parliament Video Indexer
+Search Parliament YouTube videos with timestamp citations:
+
+```python
+# Search videos
+POST /query
+{
+  "query": "budget allocation for education",
+  "category": "Parliamentary Record"
+}
+
+# Response includes timestamp URLs
+{
+  "sources": [{
+    "title": "Finance Committee Session",
+    "timestamp_url": "https://youtube.com/watch?v=abc&t=942s",
+    "timestamp_formatted": "15:42",
+    "excerpt": "Budget allocation discussion..."
+  }]
+}
+```
+
+**How it works:**
+1. Spider scrapes Parliament YouTube channels
+2. youtube-transcript-api extracts transcripts with timestamps
+3. 60-second chunks with 10-second overlap
+4. Each chunk indexed with `start_time_seconds`
+5. Citations include YouTube links with `&t=XXs` parameter
+
+## 🏛️ Constitutional Alignment Module
+
+AmaniQuery's **core legal feature**: Dual-retrieval RAG for constitutional compliance analysis.
 
 **How it works:**
 1. Analyzes query to identify Bill and constitutional concepts
@@ -190,7 +326,32 @@ response = requests.post("http://localhost:8000/alignment-check", json={
 
 See [Constitutional Alignment Guide](docs/CONSTITUTIONAL_ALIGNMENT.md) for details.
 
-## 📱 Social Media Sharing
+## � API Endpoints Summary
+
+### Core Query Endpoints
+- `POST /query` - General RAG query with filters
+- `GET /health` - API health check
+- `GET /stats` - Database statistics
+
+### Unique Feature Endpoints
+- `GET /sentiment` - Public sentiment analysis by topic
+- `POST /sms-webhook` - Africa's Talking SMS webhook
+- `POST /sms-send` - Manual SMS sending
+- `GET /sms-query` - Preview SMS response
+- `POST /alignment-check` - Full constitutional alignment analysis
+- `POST /alignment-quick-check` - Quick bill vs concept check
+
+### Social Media Sharing
+- `POST /share/format` - Format for specific platform
+- `POST /share/preview` - Preview all platforms
+- `POST /share/generate-link` - Get shareable link
+- `GET /share/platforms` - List supported platforms
+
+### Documentation
+- `GET /docs` - Interactive API documentation (Swagger UI)
+- `GET /redoc` - Alternative documentation (ReDoc)
+
+## �📱 Social Media Sharing
 
 Module 5 provides intelligent formatting for:
 

@@ -6,14 +6,25 @@ from datetime import datetime
 from loguru import logger
 import re
 
+# Import sentiment analyzer
+try:
+    from Module2_NiruParser.enrichers.sentiment_analyzer import SentimentAnalyzer
+    SENTIMENT_AVAILABLE = True
+except ImportError:
+    SENTIMENT_AVAILABLE = False
+    logger.warning("SentimentAnalyzer not available")
+
 
 class MetadataEnricher:
     """Enrich chunks with additional metadata"""
     
-    def __init__(self):
-        pass
+    def __init__(self, enable_sentiment: bool = True):
+        self.enable_sentiment = enable_sentiment and SENTIMENT_AVAILABLE
+        if self.enable_sentiment:
+            self.sentiment_analyzer = SentimentAnalyzer()
+            logger.info("Sentiment analysis enabled")
     
-    def enrich(self, chunk: Dict) -> Dict:
+    def enrich(self, chunk: Dict, full_document_text: str = None) -> Dict:
         """
         Enrich a single chunk with metadata
         
@@ -39,6 +50,18 @@ class MetadataEnricher:
             # Calculate text statistics
             chunk["char_count"] = len(chunk.get("text", ""))
             chunk["word_count"] = len(chunk.get("text", "").split())
+            
+            # Add sentiment analysis for news articles
+            if self.enable_sentiment and chunk.get("category") in ["Kenyan News", "Global Trend"]:
+                # Use full document if available, otherwise chunk text
+                text_to_analyze = full_document_text if full_document_text else chunk.get("text", "")
+                
+                if text_to_analyze:
+                    sentiment = self.sentiment_analyzer.analyze(text_to_analyze)
+                    chunk["sentiment_polarity"] = sentiment["polarity"]
+                    chunk["sentiment_subjectivity"] = sentiment["subjectivity"]
+                    chunk["sentiment_label"] = sentiment["sentiment_label"]
+                    logger.debug(f"Sentiment: {sentiment['sentiment_label']} ({sentiment['polarity']:.2f})")
             
             # Ensure required fields exist
             chunk.setdefault("source_url", "unknown")

@@ -28,7 +28,7 @@ pydantic==2.5.3
 python-multipart==0.0.6
 
 # LLM Integration
-openai==1.10.0  # For OpenAI models
+openai==1.10.0  # For OpenAI models and Moonshot AI (compatible API)
 anthropic==0.8.1  # For Claude
 huggingface-hub==0.20.2
 

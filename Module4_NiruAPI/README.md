@@ -7,7 +7,7 @@ This module provides a FastAPI-based REST API for querying the AmaniQuery knowle
 - **RAG Pipeline**: Combines vector search with LLM generation
 - **Source Citations**: Always includes source references
 - **REST API**: Easy integration with any client
-- **Multiple LLM Support**: OpenAI, Anthropic, or local models
+- **Multiple LLM Support**: Moonshot AI (default), OpenAI, Anthropic, or local models
 - **Filtering**: Query by category, source, date range
 
 ## Components
@@ -90,7 +90,13 @@ curl -X POST http://localhost:8000/query \
 ## Configuration
 
 Set in `.env`:
-- `LLM_PROVIDER`: openai, anthropic, or local
-- `OPENAI_API_KEY`: Your OpenAI API key
-- `DEFAULT_MODEL`: Model to use (gpt-3.5-turbo, gpt-4, etc.)
+- `LLM_PROVIDER`: moonshot (default), openai, anthropic, or local
+- `MOONSHOT_API_KEY`: Your Moonshot AI API key
+- `MOONSHOT_BASE_URL`: Moonshot API endpoint (default: https://api.moonshot.cn/v1)
+- `DEFAULT_MODEL`: Model to use (moonshot-v1-8k, moonshot-v1-32k, moonshot-v1-128k)
 - `API_PORT`: Port to run on (default: 8000)
+
+**Available Moonshot Models:**
+- `moonshot-v1-8k`: 8K context window (fastest, most cost-effective)
+- `moonshot-v1-32k`: 32K context window (balanced)
+- `moonshot-v1-128k`: 128K context window (maximum context)

@@ -134,8 +134,8 @@ rag:
     rerank: true
     
   generation:
-    provider: "openai"  # openai, anthropic, local
-    model: "gpt-3.5-turbo"
+    provider: "moonshot"  # openai, anthropic, moonshot, local
+    model: "moonshot-v1-8k"  # moonshot-v1-8k, moonshot-v1-32k, moonshot-v1-128k
     max_tokens: 1500
     temperature: 0.7
     

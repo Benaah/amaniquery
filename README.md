@@ -1,15 +1,16 @@
 # AmaniQuery 🇰🇪
 
-A Retrieval-Augmented Generation (RAG) system for Kenyan legal, parliamentary, and news intelligence.
+A Retrieval-Augmented Generation (RAG) system for Kenyan legal, parliamentary, and news intelligence with social media sharing capabilities.
 
 ## 🏛️ Architecture
 
-AmaniQuery is built as a 4-module pipeline:
+AmaniQuery is built as a 5-module pipeline:
 
 1. **NiruSpider** - Web crawler for data ingestion
 2. **NiruParser** - ETL pipeline with embedding generation
 3. **NiruDB** - Vector database with metadata storage
-4. **NiruAPI** - RAG-powered query interface
+4. **NiruAPI** - RAG-powered query interface (Moonshot AI)
+5. **NiruShare** - Social media sharing service
 
 ## 📂 Project Structure
 
@@ -35,6 +36,13 @@ AmaniQuery/
 │   ├── api.py
 │   ├── rag_pipeline.py
 │   └── models/
+├── Module5_NiruShare/           # Social media sharing
+│   ├── formatters/
+│   │   ├── twitter_formatter.py
+│   │   ├── linkedin_formatter.py
+│   │   └── facebook_formatter.py
+│   ├── service.py
+│   └── api.py
 ├── data/                        # Data storage
 │   ├── raw/
 │   ├── processed/
@@ -80,8 +88,29 @@ python -m Module2_NiruParser.process_pipeline
 
 # Module 3: Initialize database (automatic)
 
-# Module 4: Start API server
+# Module 4 & 5: Start API server (includes sharing endpoints)
 python -m Module4_NiruAPI.api
+```
+
+### 4. Query and Share
+
+```python
+import requests
+
+# Query AmaniQuery
+response = requests.post("http://localhost:8000/query", json={
+    "query": "What does the Constitution say about freedom of expression?"
+})
+result = response.json()
+
+# Share to Twitter
+share = requests.post("http://localhost:8000/share/format", json={
+    "answer": result["answer"],
+    "sources": result["sources"],
+    "platform": "twitter",
+    "query": "Constitutional rights"
+})
+print(share.json()["content"])
 ```
 
 ## 🎯 Data Sources
@@ -111,12 +140,38 @@ python -m Module4_NiruAPI.api
   - Al Jazeera (Politics)
 - **Strategy**: Daily RSS feed parsing
 
+## 🚀 Features
+
+- ✅ Automated web crawling from Kenyan sources
+- ✅ Intelligent text processing & chunking
+- ✅ Vector embeddings for semantic search
+- ✅ RAG-powered Q&A with Moonshot AI
+- ✅ Source citation & verification
+- ✅ Social media sharing (Twitter/X, LinkedIn, Facebook)
+- ✅ REST API with interactive documentation
+
 ## 🧠 RAG Pipeline
 
 1. **Chunking**: 500-1000 characters with 100-char overlap
 2. **Embedding Model**: all-MiniLM-L6-v2
 3. **Vector DB**: ChromaDB / FAISS
-4. **LLM**: Configurable (OpenAI, Anthropic, Local)
+4. **LLM**: Moonshot AI (default), OpenAI, Anthropic, or Local models
+
+## 📱 Social Media Sharing
+
+Module 5 provides intelligent formatting for:
+
+- **Twitter/X**: Auto-threading for long content (280 char limit)
+- **LinkedIn**: Professional posts with key takeaways (3000 char)
+- **Facebook**: Engaging posts with call-to-action
+
+**API Endpoints:**
+- `POST /share/format` - Format for specific platform
+- `POST /share/preview` - Preview all platforms
+- `POST /share/generate-link` - Get shareable link
+- `GET /share/platforms` - List supported platforms
+
+See [Sharing Guide](docs/SHARING_GUIDE.md) for details.
 
 ## 📊 Metadata Structure
 
@@ -156,7 +211,23 @@ See `scripts/scheduler_setup.md` for details.
 - User-agent identification
 - Rate limiting on RSS feeds
 
-## 📝 License
+## � Documentation
+
+- [Quick Start Guide](QUICKSTART.md) - Step-by-step setup
+- [Moonshot AI Setup](docs/MOONSHOT_SETUP.md) - LLM configuration
+- [Social Media Sharing](docs/SHARING_GUIDE.md) - Sharing guide
+- [API Documentation](http://localhost:8000/docs) - Interactive docs
+
+## 💡 Use Cases
+
+- 📚 Legal research & constitutional queries
+- 🏛️ Parliamentary proceedings analysis
+- 📰 News aggregation & summarization
+- 🌍 Policy & global trend tracking
+- 📱 Social media content creation
+- 🎓 Educational resource for Kenyan civics
+
+## �📝 License
 
 MIT License - See LICENSE file
 

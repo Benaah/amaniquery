@@ -21,15 +21,15 @@ class RAGPipeline:
     def __init__(
         self,
         vector_store: Optional[VectorStore] = None,
-        llm_provider: str = "openai",
-        model: str = "gpt-3.5-turbo",
+        llm_provider: str = "moonshot",
+        model: str = "moonshot-v1-8k",
     ):
         """
         Initialize RAG pipeline
         
         Args:
             vector_store: VectorStore instance (creates new if None)
-            llm_provider: LLM provider (openai, anthropic, local)
+            llm_provider: LLM provider (openai, anthropic, moonshot, local)
             model: Model name to use
         """
         # Initialize vector store
@@ -50,10 +50,23 @@ class RAGPipeline:
             if not api_key:
                 raise ValueError("ANTHROPIC_API_KEY not set in environment")
             self.client = Anthropic(api_key=api_key)
+        elif llm_provider == "moonshot":
+            api_key = os.getenv("MOONSHOT_API_KEY")
+            base_url = os.getenv("MOONSHOT_BASE_URL", "https://api.moonshot.cn/v1")
+            if not api_key:
+                raise ValueError("MOONSHOT_API_KEY not set in environment")
+            self.client = OpenAI(
+                api_key=api_key,
+                base_url=base_url
+            )
+            logger.info(f"Using Moonshot AI at {base_url}")
         else:
             # Local model support can be added here
-            logger.warning(f"Local models not yet implemented, defaulting to OpenAI")
-            self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+            logger.warning(f"Unknown provider {llm_provider}, defaulting to Moonshot")
+            self.client = OpenAI(
+                api_key=os.getenv("MOONSHOT_API_KEY"),
+                base_url=os.getenv("MOONSHOT_BASE_URL", "https://api.moonshot.cn/v1")
+            )
         
         logger.info(f"RAG Pipeline initialized with {llm_provider}/{model}")
     
@@ -174,7 +187,8 @@ Question: {query}
 Please provide a detailed answer based on the context above. Include source citations using [Source #] notation."""
 
         try:
-            if self.llm_provider == "openai":
+            if self.llm_provider in ["openai", "moonshot"]:
+                # Both OpenAI and Moonshot use the same API format
                 response = self.client.chat.completions.create(
                     model=self.model,
                     messages=[

@@ -5,7 +5,7 @@
 - Python 3.8 or higher
 - 4GB+ RAM (for embedding model)
 - Internet connection (for crawling and LLM API)
-- OpenAI API key (or Anthropic for Claude)
+- Moonshot AI API key (or OpenAI/Anthropic as alternatives)
 
 ## Installation
 
@@ -41,11 +41,14 @@ source venv/bin/activate
 
 ### 4. Configure Environment
 
-Edit `.env` file and add your API key:
+Edit `.env` file and add your Moonshot AI API key:
 
 ```env
-OPENAI_API_KEY=your-key-here
+MOONSHOT_API_KEY=your-moonshot-api-key-here
+MOONSHOT_BASE_URL=https://api.moonshot.cn/v1
 ```
+
+**Get your Moonshot AI API key from:** https://platform.moonshot.cn/
 
 ## Running the Pipeline
 
@@ -118,7 +121,7 @@ This will:
 
 Visit http://localhost:8000/docs and use the interactive Swagger UI.
 
-### Using cURL
+### Query AmaniQuery
 
 ```bash
 curl -X POST http://localhost:8000/query \
@@ -126,11 +129,26 @@ curl -X POST http://localhost:8000/query \
   -d "{\"query\": \"What does the Kenyan Constitution say about freedom of speech?\"}"
 ```
 
+### Share to Social Media
+
+```bash
+# Preview on all platforms
+curl -X POST http://localhost:8000/share/preview \
+  -H "Content-Type: application/json" \
+  -d "{\"answer\": \"Your answer\", \"sources\": [], \"query\": \"Your question\"}"
+
+# Format for Twitter
+curl -X POST http://localhost:8000/share/format \
+  -H "Content-Type: application/json" \
+  -d "{\"answer\": \"Your answer\", \"sources\": [], \"platform\": \"twitter\"}"
+```
+
 ### Using Python
 
 ```python
 import requests
 
+# Query AmaniQuery
 response = requests.post(
     "http://localhost:8000/query",
     json={
@@ -142,9 +160,23 @@ response = requests.post(
 
 result = response.json()
 print(result["answer"])
-print("\nSources:")
-for source in result["sources"]:
-    print(f"- {source['title']}")
+
+# Share to Twitter
+share_response = requests.post(
+    "http://localhost:8000/share/format",
+    json={
+        "answer": result["answer"],
+        "sources": result["sources"],
+        "platform": "twitter",
+        "query": "Recent parliamentary debates on finance"
+    }
+)
+
+formatted = share_response.json()
+print("\nTwitter Thread:")
+for i, tweet in enumerate(formatted["content"], 1):
+    print(f"\nTweet {i}:")
+    print(tweet)
 ```
 
 ## Scheduled Crawling
@@ -177,9 +209,11 @@ crontab -e
 
 This is just a linting warning. The code will work when you install dependencies.
 
-### "OPENAI_API_KEY not set"
+### "MOONSHOT_API_KEY not set"
 
-Edit `.env` file and add your OpenAI API key.
+Edit `.env` file and add your Moonshot AI API key. Get it from https://platform.moonshot.cn/
+
+**Alternative:** You can also use OpenAI or Anthropic by changing `LLM_PROVIDER` in `.env`
 
 ### "No data files found"
 

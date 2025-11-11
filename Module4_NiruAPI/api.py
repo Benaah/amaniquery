@@ -22,6 +22,7 @@ from Module4_NiruAPI.models import (
     StatsResponse,
 )
 from Module3_NiruDB import VectorStore
+from Module5_NiruShare.api import router as share_router
 
 # Load environment
 load_dotenv()
@@ -42,6 +43,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Include sharing router
+app.include_router(share_router)
+
 # Initialize components
 vector_store = None
 rag_pipeline = None
@@ -58,8 +62,8 @@ async def startup_event():
     vector_store = VectorStore()
     
     # Initialize RAG pipeline
-    llm_provider = os.getenv("LLM_PROVIDER", "openai")
-    model = os.getenv("DEFAULT_MODEL", "gpt-3.5-turbo")
+    llm_provider = os.getenv("LLM_PROVIDER", "moonshot")
+    model = os.getenv("DEFAULT_MODEL", "moonshot-v1-8k")
     
     rag_pipeline = RAGPipeline(
         vector_store=vector_store,
@@ -98,7 +102,7 @@ async def health_check():
         status="healthy",
         database_chunks=stats["total_chunks"],
         embedding_model=os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2"),
-        llm_provider=os.getenv("LLM_PROVIDER", "openai"),
+        llm_provider=os.getenv("LLM_PROVIDER", "moonshot"),
     )
 
 
@@ -203,7 +207,7 @@ if __name__ == "__main__":
     print("=" * 60)
     print(f"📍 Server: http://{host}:{port}")
     print(f"📚 Docs: http://{host}:{port}/docs")
-    print(f"🔧 Provider: {os.getenv('LLM_PROVIDER', 'openai')}")
+    print(f"🔧 Provider: {os.getenv('LLM_PROVIDER', 'moonshot')}")
     print("=" * 60)
     
     uvicorn.run(

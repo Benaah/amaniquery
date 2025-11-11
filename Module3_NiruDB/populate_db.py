@@ -9,7 +9,7 @@ from tqdm import tqdm
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from Module3_NiruDB import VectorStore
+from Module3_NiruDB.vector_store import VectorStore
 
 
 def main():

@@ -12,7 +12,8 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from Module3_NiruDB import VectorStore, MetadataManager
+from Module3_NiruDB.vector_store import VectorStore
+from Module3_NiruDB.metadata_manager import MetadataManager
 
 
 class RAGPipeline:

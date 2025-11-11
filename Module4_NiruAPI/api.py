@@ -162,7 +162,7 @@ async def get_stats():
     stats = vector_store.get_stats()
     
     # Get categories and sources
-    from Module3_NiruDB import MetadataManager
+    from Module3_NiruDB.metadata_manager import MetadataManager
     meta_manager = MetadataManager(vector_store)
     
     categories_list = meta_manager.get_categories()
@@ -224,7 +224,7 @@ async def get_categories():
     if vector_store is None:
         raise HTTPException(status_code=503, detail="Service not initialized")
     
-    from Module3_NiruDB import MetadataManager
+    from Module3_NiruDB.metadata_manager import MetadataManager
     meta_manager = MetadataManager(vector_store)
     
     return {"categories": meta_manager.get_categories()}
@@ -236,7 +236,7 @@ async def get_sources():
     if vector_store is None:
         raise HTTPException(status_code=503, detail="Service not initialized")
     
-    from Module3_NiruDB import MetadataManager
+    from Module3_NiruDB.metadata_manager import MetadataManager
     meta_manager = MetadataManager(vector_store)
     
     return {"sources": meta_manager.get_sources()}

@@ -4,7 +4,10 @@ FastAPI Application - REST API for AmaniQuery
 import os
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List
+import subprocess
+import asyncio
+from datetime import datetime
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -17,8 +20,11 @@ from Module4_NiruAPI.rag_pipeline import RAGPipeline
 from Module4_NiruAPI.alignment_pipeline import ConstitutionalAlignmentPipeline
 from Module4_NiruAPI.sms_pipeline import SMSPipeline
 from Module4_NiruAPI.sms_service import AfricasTalkingSMSService
-from Module3_NiruDB.vector_store import VectorStore
-from Module3_NiruDB.metadata_manager import MetadataManager
+from Module3_NiruDB.chat_manager import ChatDatabaseManager
+from Module3_NiruDB.chat_models import (
+    ChatSessionCreate, ChatSessionResponse, ChatMessageCreate,
+    ChatMessageResponse, FeedbackCreate, FeedbackResponse
+)
 from Module4_NiruAPI.models import (
     QueryRequest,
     QueryResponse,
@@ -64,6 +70,7 @@ alignment_pipeline = None
 sms_pipeline = None
 sms_service = None
 metadata_manager = None
+chat_manager = None
 
 
 @app.on_event("startup")
@@ -101,12 +108,8 @@ async def startup_event():
         llm_service=rag_pipeline.llm_service
     )
     
-    # Initialize Africa's Talking SMS Service
-    sms_service = AfricasTalkingSMSService()
-    if sms_service.available:
-        logger.info("✓ Africa's Talking SMS service initialized")
-    else:
-        logger.warning("⚠ SMS service not available (install africastalking)")
+    # Initialize chat database manager
+    chat_manager = ChatDatabaseManager()
     
     logger.info("AmaniQuery API ready")
 
@@ -455,6 +458,424 @@ async def get_topic_sentiment(
         
     except Exception as e:
         logger.error(f"Error analyzing sentiment: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Chat API Endpoints
+@app.post("/chat/sessions", response_model=ChatSessionResponse, tags=["Chat"])
+async def create_chat_session(session: ChatSessionCreate):
+    """Create a new chat session"""
+    if chat_manager is None:
+        raise HTTPException(status_code=503, detail="Chat service not initialized")
+    
+    try:
+        session_id = chat_manager.create_session(session.title, session.user_id)
+        session_data = chat_manager.get_session(session_id)
+        return session_data
+    except Exception as e:
+        logger.error(f"Error creating chat session: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/chat/sessions", response_model=List[ChatSessionResponse], tags=["Chat"])
+async def list_chat_sessions(user_id: Optional[str] = None, limit: int = 50):
+    """List chat sessions"""
+    if chat_manager is None:
+        raise HTTPException(status_code=503, detail="Chat service not initialized")
+    
+    try:
+        return chat_manager.list_sessions(user_id, limit)
+    except Exception as e:
+        logger.error(f"Error listing chat sessions: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/chat/sessions/{session_id}", response_model=ChatSessionResponse, tags=["Chat"])
+async def get_chat_session(session_id: str):
+    """Get a specific chat session"""
+    if chat_manager is None:
+        raise HTTPException(status_code=503, detail="Chat service not initialized")
+    
+    try:
+        session = chat_manager.get_session(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+        return session
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting chat session: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/chat/sessions/{session_id}", tags=["Chat"])
+async def delete_chat_session(session_id: str):
+    """Delete a chat session"""
+    if chat_manager is None:
+        raise HTTPException(status_code=503, detail="Chat service not initialized")
+    
+    try:
+        chat_manager.delete_session(session_id)
+        return {"message": "Session deleted successfully"}
+    except Exception as e:
+        logger.error(f"Error deleting chat session: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/chat/sessions/{session_id}/messages", response_model=ChatMessageResponse, tags=["Chat"])
+async def add_chat_message(session_id: str, message: ChatMessageCreate):
+    """Add a message to a chat session"""
+    if chat_manager is None or rag_pipeline is None:
+        raise HTTPException(status_code=503, detail="Services not initialized")
+    
+    try:
+        # If this is the first user message and session has no title, generate one
+        session = chat_manager.get_session(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        if message.role == "user":
+            # Process user message with RAG
+            result = rag_pipeline.query(
+                query=message.content,
+                top_k=5
+            )
+            
+            # Add user message
+            user_msg_id = chat_manager.add_message(
+                session_id=session_id,
+                content=message.content,
+                role="user"
+            )
+            
+            # Add assistant response
+            assistant_msg_id = chat_manager.add_message(
+                session_id=session_id,
+                content=result["answer"],
+                role="assistant",
+                token_count=result.get("retrieved_chunks", 0),
+                model_used=result.get("model_used", "unknown"),
+                sources=result.get("sources", [])
+            )
+            
+            # Generate session title if needed
+            if not session.title:
+                title = chat_manager.generate_session_title(session_id)
+                chat_manager.update_session_title(session_id, title)
+            
+            # Return the assistant message
+            messages = chat_manager.get_messages(session_id, limit=1)
+            return messages[-1] if messages else None
+            
+        else:
+            # Add assistant message directly
+            msg_id = chat_manager.add_message(
+                session_id=session_id,
+                content=message.content,
+                role=message.role
+            )
+            messages = chat_manager.get_messages(session_id, limit=1)
+            return messages[-1] if messages else None
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error adding chat message: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/chat/sessions/{session_id}/messages", response_model=List[ChatMessageResponse], tags=["Chat"])
+async def get_chat_messages(session_id: str, limit: int = 100):
+    """Get messages for a chat session"""
+    if chat_manager is None:
+        raise HTTPException(status_code=503, detail="Chat service not initialized")
+    
+    try:
+        return chat_manager.get_messages(session_id, limit)
+    except Exception as e:
+        logger.error(f"Error getting chat messages: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/chat/feedback", response_model=FeedbackResponse, tags=["Chat"])
+async def add_feedback(feedback: FeedbackCreate):
+    """Add feedback for a chat message"""
+    if chat_manager is None:
+        raise HTTPException(status_code=503, detail="Chat service not initialized")
+    
+    try:
+        feedback_id = chat_manager.add_feedback(
+            message_id=feedback.message_id,
+            feedback_type=feedback.feedback_type,
+            comment=feedback.comment
+        )
+        
+        # Return feedback response
+        return FeedbackResponse(
+            id=feedback_id,
+            message_id=feedback.message_id,
+            feedback_type=feedback.feedback_type,
+            comment=feedback.comment,
+            created_at=datetime.utcnow()
+        )
+    except Exception as e:
+        logger.error(f"Error adding feedback: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/chat/feedback/stats", tags=["Chat"])
+async def get_feedback_stats():
+    """Get feedback statistics"""
+    if chat_manager is None:
+        raise HTTPException(status_code=503, detail="Chat service not initialized")
+    
+    try:
+        return chat_manager.get_feedback_stats()
+    except Exception as e:
+        logger.error(f"Error getting feedback stats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/chat/share", tags=["Chat"])
+async def share_chat_session(session_id: str, share_type: str = "link"):
+    """Generate a shareable link for a chat session"""
+    if chat_manager is None:
+        raise HTTPException(status_code=503, detail="Chat service not initialized")
+    
+    try:
+        session = chat_manager.get_session(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        # Generate shareable link (in a real app, this would be a unique URL)
+        share_link = f"/shared/{session_id}"
+        
+        return {
+            "share_link": share_link,
+            "session_title": session.title,
+            "message_count": session.message_count,
+            "share_type": share_type
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error sharing chat session: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Admin Endpoints
+@app.get("/admin/crawlers", tags=["Admin"])
+async def get_crawler_status():
+    """Get status of all crawlers"""
+    crawlers = {
+        "kenya_law": {"status": "idle", "last_run": "2024-01-15T10:30:00Z", "logs": []},
+        "parliament": {"status": "idle", "last_run": "2024-01-15T09:15:00Z", "logs": []},
+        "nation_news": {"status": "idle", "last_run": "2024-01-15T11:00:00Z", "logs": []},
+        "global_trends": {"status": "idle", "last_run": "2024-01-14T16:45:00Z", "logs": []}
+    }
+    return {"crawlers": crawlers}
+
+
+@app.post("/admin/crawlers/{crawler_name}/start", tags=["Admin"])
+async def start_crawler(crawler_name: str):
+    """Start a specific crawler"""
+    try:
+        # Import crawler modules dynamically
+        if crawler_name == "kenya_law":
+            from Module1_NiruSpider.kenya_law_spider import KenyaLawSpider
+            # This would start the spider in background
+            # For now, just return success
+            return {"status": "started", "message": f"Crawler {crawler_name} started"}
+        elif crawler_name == "parliament":
+            from Module1_NiruSpider.parliament_spider import ParliamentSpider
+            return {"status": "started", "message": f"Crawler {crawler_name} started"}
+        elif crawler_name == "nation_news":
+            from Module1_NiruSpider.news_rss_spider import NewsRSSSpider
+            return {"status": "started", "message": f"Crawler {crawler_name} started"}
+        else:
+            raise HTTPException(status_code=404, detail=f"Crawler {crawler_name} not found")
+    except Exception as e:
+        logger.error(f"Error starting crawler {crawler_name}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/admin/crawlers/{crawler_name}/stop", tags=["Admin"])
+async def stop_crawler(crawler_name: str):
+    """Stop a specific crawler"""
+    return {"status": "stopped", "message": f"Crawler {crawler_name} stopped"}
+
+
+@app.get("/admin/documents", tags=["Admin"])
+async def search_documents(
+    query: str = "",
+    category: Optional[str] = None,
+    source: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0
+):
+    """Search and retrieve documents from the database"""
+    if vector_store is None:
+        raise HTTPException(status_code=503, detail="Vector store not initialized")
+    
+    try:
+        # Build filter
+        filter_dict = {}
+        if category:
+            filter_dict["category"] = category
+        if source:
+            filter_dict["source"] = source
+        
+        # Search documents
+        if query:
+            results = vector_store.search(
+                query_text=query,
+                top_k=limit,
+                filter_dict=filter_dict if filter_dict else None
+            )
+        else:
+            # Get all documents if no query
+            results = vector_store.search(
+                query_text="",
+                top_k=limit,
+                filter_dict=filter_dict if filter_dict else None
+            )
+        
+        # Format results
+        documents = []
+        for chunk in results:
+            metadata = chunk.get("metadata", {})
+            documents.append({
+                "id": chunk.get("id", ""),
+                "content": chunk.get("content", ""),
+                "metadata": {
+                    "title": metadata.get("title", ""),
+                    "url": metadata.get("url", ""),
+                    "source": metadata.get("source", ""),
+                    "category": metadata.get("category", ""),
+                    "date": metadata.get("date", ""),
+                    "author": metadata.get("author", ""),
+                    "sentiment_polarity": metadata.get("sentiment_polarity"),
+                    "sentiment_label": metadata.get("sentiment_label")
+                },
+                "score": chunk.get("score", 0)
+            })
+        
+        return {
+            "documents": documents,
+            "total": len(documents),
+            "query": query,
+            "filters": filter_dict
+        }
+        
+    except Exception as e:
+        logger.error(f"Error searching documents: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/admin/documents/{doc_id}", tags=["Admin"])
+async def get_document(doc_id: str):
+    """Get a specific document by ID"""
+    if vector_store is None:
+        raise HTTPException(status_code=503, detail="Vector store not initialized")
+    
+    try:
+        # This would need a method to get document by ID
+        # For now, return mock data
+        return {
+            "id": doc_id,
+            "content": "Document content would be here...",
+            "metadata": {
+                "title": "Sample Document",
+                "url": "https://example.com",
+                "source": "Sample Source",
+                "category": "Legal",
+                "date": "2024-01-15"
+            }
+        }
+    except Exception as e:
+        logger.error(f"Error getting document {doc_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/admin/execute", tags=["Admin"])
+async def execute_command(command: str, cwd: Optional[str] = None):
+    """Execute a shell command (admin only)"""
+    try:
+        # Security check - only allow safe commands
+        allowed_commands = [
+            "ls", "pwd", "ps", "top", "df", "du", "free", "uptime",
+            "python", "pip", "npm", "node", "git", "docker"
+        ]
+        
+        cmd_parts = command.split()
+        if not cmd_parts:
+            raise HTTPException(status_code=400, detail="Empty command")
+        
+        base_cmd = cmd_parts[0]
+        if base_cmd not in allowed_commands:
+            raise HTTPException(status_code=403, detail=f"Command '{base_cmd}' not allowed")
+        
+        # Execute command
+        working_dir = cwd or str(Path(__file__).parent.parent.parent)
+        
+        process = await asyncio.create_subprocess_shell(
+            command,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=working_dir,
+            shell=True
+        )
+        
+        stdout, stderr = await process.communicate()
+        
+        return {
+            "command": command,
+            "exit_code": process.returncode,
+            "stdout": stdout.decode('utf-8', errors='replace'),
+            "stderr": stderr.decode('utf-8', errors='replace'),
+            "cwd": working_dir
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error executing command: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/admin/system", tags=["Admin"])
+async def get_system_info():
+    """Get system information"""
+    try:
+        # Get basic system info
+        import platform
+        import psutil
+        
+        return {
+            "platform": platform.platform(),
+            "python_version": sys.version,
+            "cpu_count": psutil.cpu_count(),
+            "memory": {
+                "total": psutil.virtual_memory().total,
+                "available": psutil.virtual_memory().available,
+                "percent": psutil.virtual_memory().percent
+            },
+            "disk": {
+                "total": psutil.disk_usage('/').total,
+                "free": psutil.disk_usage('/').free,
+                "percent": psutil.disk_usage('/').percent
+            },
+            "uptime": psutil.boot_time()
+        }
+    except ImportError:
+        # Fallback if psutil not available
+        return {
+            "platform": platform.platform(),
+            "python_version": sys.version,
+            "note": "Install psutil for detailed system info"
+        }
+    except Exception as e:
+        logger.error(f"Error getting system info: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

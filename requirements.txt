@@ -24,6 +24,11 @@ chromadb==0.4.22
 faiss-cpu==1.7.4  # Alternative: faiss-gpu for GPU support
 loguru
 
+# Database (PostgreSQL for sessions, feedback, chat history)
+psycopg2-binary==2.9.9
+sqlalchemy==2.0.23
+alembic==1.13.1  # Database migrations
+
 # Module 4: NiruAPI (RAG Interface)
 fastapi==0.109.0
 uvicorn[standard]==0.27.0
@@ -44,6 +49,7 @@ tqdm==4.66.1
 schedule==1.2.0  # For automated crawling
 colorama==0.4.6  # Colored terminal output
 loguru==0.7.2  # Advanced logging
+psutil==5.9.8  # System monitoring
 
 # Development
 pytest==7.4.4

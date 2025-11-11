@@ -5,7 +5,7 @@ import scrapy
 import feedparser
 from datetime import datetime
 from dateutil import parser as date_parser
-from niruspider.items import RSSItem, DocumentItem
+from ..items import RSSItem, DocumentItem
 
 
 class GlobalTrendsSpider(scrapy.Spider):

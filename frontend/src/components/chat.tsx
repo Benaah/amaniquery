@@ -127,12 +127,12 @@ export function Chat() {
     setIsLoading(true)
 
     try {
-      const response = await fetch("http://localhost:8000/chat/message", {
+      const response = await fetch(`http://localhost:8000/chat/sessions/${sessionId}/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          session_id: sessionId,
-          message: content.trim()
+          content: content.trim(),
+          role: "user"
         })
       })
 
@@ -208,8 +208,12 @@ export function Chat() {
     if (!currentSessionId) return
     
     try {
-      const response = await fetch(`http://localhost:8000/chat/sessions/${currentSessionId}/share`, {
-        method: "POST"
+      const response = await fetch("http://localhost:8000/chat/share", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          session_id: currentSessionId
+        })
       })
       if (response.ok) {
         const data = await response.json()

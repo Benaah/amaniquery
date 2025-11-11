@@ -3,7 +3,7 @@ Kenya Law Spider - Crawls kenyalaw.org for Constitution and Acts
 """
 import scrapy
 from datetime import datetime
-from niruspider.items import DocumentItem
+from ..items import DocumentItem
 
 
 class KenyaLawSpider(scrapy.Spider):

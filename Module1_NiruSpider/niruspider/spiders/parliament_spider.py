@@ -4,7 +4,7 @@ Parliament Spider - Crawls parliament.go.ke for Hansards and Bills
 import scrapy
 from datetime import datetime
 import re
-from niruspider.items import DocumentItem
+from ..items import DocumentItem
 
 
 class ParliamentSpider(scrapy.Spider):

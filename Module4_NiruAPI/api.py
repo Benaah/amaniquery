@@ -670,7 +670,7 @@ async def get_crawler_status():
     crawlers = {
         "kenya_law": {"status": "idle", "last_run": "2024-01-15T10:30:00Z", "logs": []},
         "parliament": {"status": "idle", "last_run": "2024-01-15T09:15:00Z", "logs": []},
-        "nation_news": {"status": "idle", "last_run": "2024-01-15T11:00:00Z", "logs": []},
+        "news_rss": {"status": "idle", "last_run": "2024-01-15T11:00:00Z", "logs": []},
         "global_trends": {"status": "idle", "last_run": "2024-01-14T16:45:00Z", "logs": []}
     }
     return {"crawlers": crawlers}
@@ -681,19 +681,95 @@ async def start_crawler(crawler_name: str):
     """Start a specific crawler"""
     try:
         # Import crawler modules dynamically
-        if crawler_name == "kenya_law":
-            from Module1_NiruSpider.kenya_law_spider import KenyaLawSpider
-            # This would start the spider in background
-            # For now, just return success
-            return {"status": "started", "message": f"Crawler {crawler_name} started"}
-        elif crawler_name == "parliament":
-            from Module1_NiruSpider.parliament_spider import ParliamentSpider
-            return {"status": "started", "message": f"Crawler {crawler_name} started"}
-        elif crawler_name == "nation_news":
-            from Module1_NiruSpider.news_rss_spider import NewsRSSSpider
-            return {"status": "started", "message": f"Crawler {crawler_name} started"}
-        else:
-            raise HTTPException(status_code=404, detail=f"Crawler {crawler_name} not found")
+        try:
+            if crawler_name == "kenya_law":
+                # Run Kenya Law spider using subprocess
+                import subprocess
+                import sys
+                from pathlib import Path
+
+                # Get the spider directory
+                spider_dir = Path(__file__).parent.parent / "Module1_NiruSpider"
+
+                # Run scrapy crawl command as separate process
+                cmd = [sys.executable, "-m", "scrapy", "crawl", "kenya_law", "-L", "INFO"]
+
+                # Start subprocess
+                process = subprocess.Popen(
+                    cmd,
+                    cwd=str(spider_dir),
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
+                )
+
+                logger.info(f"Started Kenya Law crawler subprocess (PID: {process.pid})")
+                return {"status": "started", "message": f"Crawler {crawler_name} started successfully", "pid": process.pid}
+
+            elif crawler_name == "parliament":
+                # Run Parliament spider using subprocess
+                import subprocess
+                import sys
+                from pathlib import Path
+
+                spider_dir = Path(__file__).parent.parent / "Module1_NiruSpider"
+
+                cmd = [sys.executable, "-m", "scrapy", "crawl", "parliament", "-L", "INFO"]
+
+                process = subprocess.Popen(
+                    cmd,
+                    cwd=str(spider_dir),
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
+                )
+
+                logger.info(f"Started Parliament crawler subprocess (PID: {process.pid})")
+                return {"status": "started", "message": f"Crawler {crawler_name} started successfully", "pid": process.pid}
+
+            elif crawler_name == "news_rss":
+                # Run News RSS spider using subprocess
+                import subprocess
+                import sys
+                from pathlib import Path
+
+                spider_dir = Path(__file__).parent.parent / "Module1_NiruSpider"
+
+                cmd = [sys.executable, "-m", "scrapy", "crawl", "news_rss", "-L", "INFO"]
+
+                process = subprocess.Popen(
+                    cmd,
+                    cwd=str(spider_dir),
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
+                )
+
+                logger.info(f"Started News RSS crawler subprocess (PID: {process.pid})")
+                return {"status": "started", "message": f"Crawler {crawler_name} started successfully", "pid": process.pid}
+
+            elif crawler_name == "global_trends":
+                # Run Global Trends spider using subprocess
+                import subprocess
+                import sys
+                from pathlib import Path
+
+                spider_dir = Path(__file__).parent.parent / "Module1_NiruSpider"
+
+                cmd = [sys.executable, "-m", "scrapy", "crawl", "global_trends", "-L", "INFO"]
+
+                process = subprocess.Popen(
+                    cmd,
+                    cwd=str(spider_dir),
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
+                )
+
+                logger.info(f"Started Global Trends crawler subprocess (PID: {process.pid})")
+                return {"status": "started", "message": f"Crawler {crawler_name} started successfully", "pid": process.pid}
+
+            else:
+                raise HTTPException(status_code=404, detail=f"Crawler {crawler_name} not found")
+        except Exception as e:
+            logger.error(f"Error starting crawler {crawler_name}: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to start crawler: {str(e)}")
     except Exception as e:
         logger.error(f"Error starting crawler {crawler_name}: {e}")
         raise HTTPException(status_code=500, detail=str(e))

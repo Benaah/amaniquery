@@ -25,6 +25,7 @@ from Module3_NiruDB.chat_manager import ChatDatabaseManager
 from Module3_NiruDB.vector_store import VectorStore
 from Module3_NiruDB.metadata_manager import MetadataManager
 from Module3_NiruDB.chat_models import (
+    ChatSession, ChatMessage, UserFeedback,  # SQLAlchemy models
     ChatSessionCreate, ChatSessionResponse, ChatMessageCreate,
     ChatMessageResponse, FeedbackCreate, FeedbackResponse
 )
@@ -487,7 +488,8 @@ async def list_chat_sessions(user_id: Optional[str] = None, limit: int = 50):
         return chat_manager.list_sessions(user_id, limit)
     except Exception as e:
         logger.error(f"Error listing chat sessions: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        # Return empty list instead of crashing
+        return []
 
 
 @app.get("/chat/sessions/{session_id}", response_model=ChatSessionResponse, tags=["Chat"])
@@ -535,10 +537,13 @@ async def add_chat_message(session_id: str, message: ChatMessageCreate):
             raise HTTPException(status_code=404, detail="Session not found")
         
         if message.role == "user":
-            # Process user message with RAG
+            # Process user message with RAG (optimized for chat)
             result = rag_pipeline.query(
                 query=message.content,
-                top_k=5
+                top_k=3,  # Reduced for faster chat responses
+                max_tokens=1000,  # Shorter responses for chat
+                max_context_length=2000,  # Smaller context for chat
+                temperature=0.7
             )
             
             # Add user message
@@ -604,6 +609,13 @@ async def add_feedback(feedback: FeedbackCreate):
         raise HTTPException(status_code=503, detail="Chat service not initialized")
     
     try:
+        # First check if the message exists
+        with chat_manager.get_db_session() as db:
+            message = db.query(ChatMessage).filter(ChatMessage.id == feedback.message_id).first()
+            if not message:
+                logger.error(f"Message {feedback.message_id} not found in database")
+                raise HTTPException(status_code=404, detail="Message not found")
+        
         feedback_id = chat_manager.add_feedback(
             message_id=feedback.message_id,
             feedback_type=feedback.feedback_type,
@@ -618,6 +630,8 @@ async def add_feedback(feedback: FeedbackCreate):
             comment=feedback.comment,
             created_at=datetime.utcnow()
         )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error adding feedback: {e}")
         raise HTTPException(status_code=500, detail=str(e))

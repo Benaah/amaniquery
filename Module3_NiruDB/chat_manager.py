@@ -27,6 +27,13 @@ class ChatDatabaseManager:
         """
         if database_url is None:
             database_url = os.getenv("DATABASE_URL", "postgresql://localhost/amaniquery")
+            
+            # For Neon databases, use unpooled connection to avoid parameter restrictions
+            if "neon.tech" in database_url and "pooler" in database_url:
+                unpooled_url = os.getenv("DATABASE_URL_UNPOOLED")
+                if unpooled_url:
+                    database_url = unpooled_url
+                    logger.info("Using unpooled Neon connection for chat database")
 
         self.database_url = database_url
         self.engine = create_database_engine(database_url)
@@ -80,28 +87,55 @@ class ChatDatabaseManager:
                 db.commit()
                 logger.info(f"Updated session {session_id} title to: {title}")
 
+    def generate_session_title(self, session_id: str) -> str:
+        """Generate a title for the session based on the first user message"""
+        with get_db_session(self.engine) as db:
+            # Get the first user message
+            first_message = db.query(ChatMessage).filter(
+                ChatMessage.session_id == session_id,
+                ChatMessage.role == "user"
+            ).order_by(ChatMessage.created_at).first()
+            
+            if first_message:
+                content = first_message.content.strip()
+                # Create a title from the first 50 characters, ending at word boundary
+                if len(content) <= 50:
+                    title = content
+                else:
+                    title = content[:50].rsplit(' ', 1)[0] + "..."
+                
+                # Update the session title
+                self.update_session_title(session_id, title)
+                return title
+            
+            return "New Chat"
+
     def list_sessions(self, user_id: Optional[str] = None, limit: int = 50) -> List[ChatSessionResponse]:
         """List chat sessions"""
-        with get_db_session(self.engine) as db:
-            query = db.query(ChatSession)
-            if user_id:
-                query = query.filter(ChatSession.user_id == user_id)
+        try:
+            with get_db_session(self.engine) as db:
+                query = db.query(ChatSession)
+                if user_id:
+                    query = query.filter(ChatSession.user_id == user_id)
 
-            sessions = query.order_by(ChatSession.updated_at.desc()).limit(limit).all()
+                sessions = query.order_by(ChatSession.updated_at.desc()).limit(limit).all()
 
-            result = []
-            for session in sessions:
-                message_count = db.query(ChatMessage).filter(ChatMessage.session_id == session.id).count()
-                result.append(ChatSessionResponse(
-                    id=session.id,
-                    title=session.title,
-                    created_at=session.created_at,
-                    updated_at=session.updated_at,
-                    is_active=session.is_active,
-                    message_count=message_count
-                ))
+                result = []
+                for session in sessions:
+                    message_count = db.query(ChatMessage).filter(ChatMessage.session_id == session.id).count()
+                    result.append(ChatSessionResponse(
+                        id=session.id,
+                        title=session.title,
+                        created_at=session.created_at,
+                        updated_at=session.updated_at,
+                        is_active=session.is_active,
+                        message_count=message_count
+                    ))
 
-            return result
+                return result
+        except Exception as e:
+            logger.error(f"Database error in list_sessions: {e}")
+            return []  # Return empty list on error
 
     def add_message(self, session_id: str, content: str, role: str,
                    token_count: Optional[int] = None, model_used: Optional[str] = None,
@@ -153,33 +187,46 @@ class ChatDatabaseManager:
     def add_feedback(self, message_id: str, feedback_type: str, comment: Optional[str] = None,
                     user_id: Optional[str] = None) -> int:
         """Add feedback for a message"""
-        with get_db_session(self.engine) as db:
-            # Update message feedback
-            message = db.query(ChatMessage).filter(ChatMessage.id == message_id).first()
-            if message:
-                message.feedback_type = feedback_type
-                message.feedback_comment = comment
-                message.feedback_at = datetime.utcnow()
-
-            # Add to feedback table
-            feedback = UserFeedback(
-                user_id=user_id,
-                message_id=message_id,
-                feedback_type=feedback_type,
-                content=comment
-            )
-            db.add(feedback)
-            db.commit()
-
-            logger.info(f"Added {feedback_type} feedback for message {message_id}")
-            return feedback.id
+        try:
+            with get_db_session(self.engine) as db:
+                # Check if feedback already exists for this message
+                existing_feedback = db.query(UserFeedback).filter(
+                    UserFeedback.message_id == message_id,
+                    UserFeedback.feedback_type == feedback_type
+                ).first()
+                
+                if existing_feedback:
+                    # Update existing feedback
+                    if comment is not None:
+                        existing_feedback.content = comment
+                    existing_feedback.feedback_at = datetime.utcnow()
+                    db.commit()
+                    logger.info(f"Updated {feedback_type} feedback for message {message_id}")
+                    return existing_feedback.id
+                
+                # Add new feedback
+                feedback = UserFeedback(
+                    user_id=user_id,
+                    message_id=message_id,
+                    feedback_type=feedback_type,
+                    content=comment
+                )
+                db.add(feedback)
+                db.commit()
+                
+                logger.info(f"Added {feedback_type} feedback for message {message_id}")
+                return feedback.id
+        except Exception as e:
+            logger.error(f"Database error in add_feedback: {e}")
+            raise
 
     def get_feedback_stats(self) -> Dict[str, int]:
         """Get feedback statistics"""
         with get_db_session(self.engine) as db:
+            from sqlalchemy import func
             feedback_counts = db.query(
                 UserFeedback.feedback_type,
-                db.func.count(UserFeedback.id)
+                func.count(UserFeedback.id)
             ).group_by(UserFeedback.feedback_type).all()
 
             return {feedback_type: count for feedback_type, count in feedback_counts}
@@ -194,19 +241,6 @@ class ChatDatabaseManager:
                 db.commit()
                 logger.info(f"Deleted chat session: {session_id}")
 
-    def generate_session_title(self, session_id: str) -> str:
-        """Generate a title for the session based on the first user message"""
-        with get_db_session(self.engine) as db:
-            first_message = db.query(ChatMessage).filter(
-                ChatMessage.session_id == session_id,
-                ChatMessage.role == "user"
-            ).order_by(ChatMessage.created_at).first()
-
-            if first_message:
-                # Take first 50 characters and clean it up
-                title = first_message.content[:50].strip()
-                if len(first_message.content) > 50:
-                    title += "..."
-                return title
-
-        return f"Chat Session {session_id[:8]}"
+    def get_db_session(self):
+        """Get database session for external use"""
+        return get_db_session(self.engine)

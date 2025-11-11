@@ -87,6 +87,8 @@ class ChatMessageResponse(BaseModel):
     sources: Optional[List[dict]]
     feedback_type: Optional[str]
 
+    model_config = {"protected_namespaces": ()}
+
 class FeedbackCreate(BaseModel):
     message_id: str
     feedback_type: str  # "like", "dislike", "share", "copy"
@@ -101,8 +103,16 @@ class FeedbackResponse(BaseModel):
 
 # Database connection and session management
 def create_database_engine(database_url: str):
-    """Create SQLAlchemy engine"""
-    return create_engine(database_url, echo=False)
+    """Create SQLAlchemy engine with connection pooling"""
+    return create_engine(
+        database_url, 
+        echo=False,
+        pool_pre_ping=True,  # Check connection before using
+        pool_recycle=300,    # Recycle connections every 5 minutes
+        connect_args={
+            "connect_timeout": 10
+        }
+    )
 
 def create_tables(engine):
     """Create all tables"""

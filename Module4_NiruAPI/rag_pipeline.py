@@ -120,6 +120,7 @@ class RAGPipeline:
         source: Optional[str] = None,
         temperature: float = 0.7,
         max_tokens: int = 1500,
+        max_context_length: int = 3000,
     ) -> Dict:
         """
         Run RAG query
@@ -162,7 +163,7 @@ class RAGPipeline:
             }
         
         # 2. Prepare context
-        context = self._prepare_context(retrieved_docs)
+        context = self._prepare_context(retrieved_docs, max_context_length)
         
         # 3. Generate answer
         logger.info("Generating answer with LLM")
@@ -183,20 +184,31 @@ class RAGPipeline:
             "model_used": self.model,
         }
     
-    def _prepare_context(self, docs: List[Dict]) -> str:
+    def _prepare_context(self, docs: List[Dict], max_context_length: int = 3000) -> str:
         """Prepare context from retrieved documents"""
         context_parts = []
+        total_length = 0
         
         for i, doc in enumerate(docs, 1):
             meta = doc["metadata"]
             text = doc["text"]
+            
+            # Truncate individual document text if too long
+            if len(text) > 500:
+                text = text[:500] + "..."
             
             # Format: [Source #] Title - Category\nText
             context_part = (
                 f"[Source {i}] {meta.get('title', 'Untitled')} "
                 f"({meta.get('category', 'Unknown')})\n{text}\n"
             )
+            
+            # Check if adding this would exceed max length
+            if total_length + len(context_part) > max_context_length:
+                break
+                
             context_parts.append(context_part)
+            total_length += len(context_part)
         
         return "\n---\n".join(context_parts)
     
@@ -213,11 +225,12 @@ class RAGPipeline:
         system_prompt = """You are AmaniQuery, an AI assistant specialized in Kenyan law, parliamentary proceedings, and current affairs.
 
 Your role is to provide accurate, well-sourced answers based on the provided context. Always:
-1. Base your answer on the provided context
-2. Cite sources using [Source #] notation
+1. Base your answer primarily on the provided context when available
+2. Cite sources using [Source #] notation when using information from context
 3. Be precise and factual
-4. If the context doesn't contain enough information, say so
-5. Use clear, professional language"""
+4. If the context contains relevant information, use it with citations
+5. If the context doesn't contain enough specific information, provide general knowledge about the topic while noting the limitation
+6. Use clear, professional language"""
 
         # User prompt
         user_prompt = f"""Context from relevant documents:
@@ -226,7 +239,7 @@ Your role is to provide accurate, well-sourced answers based on the provided con
 
 Question: {query}
 
-Please provide a detailed answer based on the context above. Include source citations using [Source #] notation."""
+Please provide a detailed answer based on the context above. If the context contains relevant information, cite sources using [Source #] notation. If the context doesn't provide specific details, use your general knowledge to provide a helpful answer while noting that the information comes from general knowledge rather than the provided documents."""
 
         try:
             if self.llm_provider in ["openai", "moonshot"]:
@@ -240,7 +253,12 @@ Please provide a detailed answer based on the context above. Include source cita
                     temperature=temperature,
                     max_tokens=max_tokens,
                 )
-                return response.choices[0].message.content
+                answer = response.choices[0].message.content
+                logger.info(f"LLM response length: {len(answer) if answer else 0}")
+                if not answer or not answer.strip():
+                    logger.warning("LLM returned empty or whitespace-only response")
+                    return "I apologize, but I was unable to generate a response. Please try rephrasing your question."
+                return answer
             
             elif self.llm_provider == "anthropic":
                 response = self.client.messages.create(
@@ -252,7 +270,12 @@ Please provide a detailed answer based on the context above. Include source cita
                         {"role": "user", "content": user_prompt}
                     ],
                 )
-                return response.content[0].text
+                answer = response.content[0].text
+                logger.info(f"LLM response length: {len(answer) if answer else 0}")
+                if not answer or not answer.strip():
+                    logger.warning("LLM returned empty or whitespace-only response")
+                    return "I apologize, but I was unable to generate a response. Please try rephrasing your question."
+                return answer
             
             else:
                 return "LLM provider not supported"

@@ -49,3 +49,41 @@ class PreviewResponse(BaseModel):
     twitter: Dict
     linkedin: Dict
     facebook: Dict
+
+
+class PostRequest(BaseModel):
+    """Request to post to a platform"""
+    platform: str = Field(..., description="Target platform (twitter, linkedin, facebook)")
+    content: Union[str, List[str]] = Field(..., description="Content to post")
+    message_id: Optional[str] = Field(None, description="Chat message ID for tracking")
+
+
+class PostResponse(BaseModel):
+    """Response from posting to a platform"""
+    platform: str
+    post_id: Optional[str] = None
+    status: str  # "success", "error"
+    message: str
+    url: Optional[str] = None
+    metadata: Dict = Field(default_factory=dict)
+
+
+class AuthRequest(BaseModel):
+    """Request for platform authentication"""
+    platform: str = Field(..., description="Platform to authenticate with")
+
+
+class AuthResponse(BaseModel):
+    """Authentication response"""
+    platform: str
+    auth_url: Optional[str] = None
+    status: str  # "authenticated", "needs_auth", "error"
+    message: str
+    user_info: Optional[Dict] = None
+
+
+class AuthCallbackRequest(BaseModel):
+    """OAuth callback request"""
+    platform: str
+    code: str
+    state: Optional[str] = None

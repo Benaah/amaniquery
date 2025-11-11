@@ -5,12 +5,12 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Textarea } from "@/components/ui/textarea"
+import Link from "next/link"
 import { 
   Send, Bot, User, Settings, ThumbsUp, ThumbsDown, 
-  Copy, Share2, History, MessageSquare, Plus
+  Copy, Share2, History, MessageSquare, Plus, ChevronDown, ChevronUp, ExternalLink, Trash2
 } from "lucide-react"
-import Link from "next/link"
+import { toast } from "sonner"
 
 interface Message {
   id: string
@@ -52,7 +52,7 @@ export function Chat() {
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null)
   const [chatHistory, setChatHistory] = useState<ChatSession[]>([])
   const [showHistory, setShowHistory] = useState(false)
-  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null)
+  const [showSources, setShowSources] = useState(false)
 
   // Load chat history on component mount
   useEffect(() => {
@@ -138,16 +138,18 @@ export function Chat() {
 
       if (response.ok) {
         const data = await response.json()
+        console.log("API response data:", data)
         const assistantMessage: Message = {
-          id: (Date.now() + 1).toString(),
-          session_id: sessionId,
-          role: "assistant",
-          content: data.response,
-          created_at: new Date().toISOString(),
+          id: data.id,
+          session_id: data.session_id,
+          role: data.role,
+          content: data.content,
+          created_at: data.created_at,
           token_count: data.token_count,
           model_used: data.model_used,
           sources: data.sources
         }
+        console.log("Assistant message created with ID:", assistantMessage.id)
         setMessages(prev => [...prev, assistantMessage])
         loadChatHistory() // Refresh history to update message count
       } else {
@@ -176,8 +178,9 @@ export function Chat() {
   }
 
   const submitFeedback = async (messageId: string, feedbackType: "like" | "dislike") => {
+    console.log("Submitting feedback for message:", messageId, "type:", feedbackType)
     try {
-      await fetch("http://localhost:8000/chat/feedback", {
+      const response = await fetch("http://localhost:8000/chat/feedback", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -185,10 +188,16 @@ export function Chat() {
           feedback_type: feedbackType
         })
       })
-      // Update local message state
-      setMessages(prev => prev.map(msg => 
-        msg.id === messageId ? { ...msg, feedback_type: feedbackType } : msg
-      ))
+      
+      if (response.ok) {
+        console.log("Feedback submitted successfully")
+        // Update local message state
+        setMessages(prev => prev.map(msg => 
+          msg.id === messageId ? { ...msg, feedback_type: feedbackType } : msg
+        ))
+      } else {
+        console.error("Feedback submission failed:", response.status, await response.text())
+      }
     } catch (error) {
       console.error("Failed to submit feedback:", error)
     }
@@ -197,10 +206,36 @@ export function Chat() {
   const copyToClipboard = async (text: string, messageId: string) => {
     try {
       await navigator.clipboard.writeText(text)
-      setCopiedMessageId(messageId)
-      setTimeout(() => setCopiedMessageId(null), 2000)
+      toast.success("Message copied to clipboard!")
     } catch (error) {
       console.error("Failed to copy to clipboard:", error)
+      toast.error("Failed to copy to clipboard")
+    }
+  }
+
+  const deleteSession = async (sessionId: string) => {
+    if (!confirm("Are you sure you want to delete this chat session? This action cannot be undone.")) {
+      return
+    }
+
+    try {
+      const response = await fetch(`http://localhost:8000/chat/sessions/${sessionId}`, {
+        method: "DELETE"
+      })
+      
+      if (response.ok) {
+        // Remove from local state
+        setChatHistory(prev => prev.filter(session => session.id !== sessionId))
+        // If current session was deleted, clear it
+        if (currentSessionId === sessionId) {
+          setCurrentSessionId(null)
+          setMessages([])
+        }
+      } else {
+        console.error("Failed to delete session:", response.status)
+      }
+    } catch (error) {
+      console.error("Failed to delete session:", error)
     }
   }
 
@@ -217,11 +252,15 @@ export function Chat() {
       })
       if (response.ok) {
         const data = await response.json()
-        await navigator.clipboard.writeText(data.share_url)
-        alert("Share link copied to clipboard!")
+        await navigator.clipboard.writeText(`${window.location.origin}${data.share_link}`)
+        toast.success("Share link copied to clipboard!")
+      } else {
+        console.error("Failed to generate share link:", response.status)
+        toast.error("Failed to generate share link")
       }
     } catch (error) {
       console.error("Failed to generate share link:", error)
+      toast.error("Failed to generate share link")
     }
   }
 
@@ -282,22 +321,31 @@ export function Chat() {
           </div>
           <div className="p-2 space-y-1">
             {chatHistory.map((session) => (
-              <Button
-                key={session.id}
-                variant={currentSessionId === session.id ? "secondary" : "ghost"}
-                className="w-full justify-start text-left h-auto p-3"
-                onClick={() => loadSession(session.id)}
-              >
-                <MessageSquare className="w-4 h-4 mr-2 flex-shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <div className="font-medium truncate">
-                    {session.title || `Chat ${session.id.slice(-8)}`}
+              <div key={session.id} className="flex items-center space-x-2 p-1">
+                <Button
+                  variant={currentSessionId === session.id ? "secondary" : "ghost"}
+                  className="flex-1 justify-start text-left h-auto p-3"
+                  onClick={() => loadSession(session.id)}
+                >
+                  <MessageSquare className="w-4 h-4 mr-2 flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium truncate">
+                      {session.title || `Chat ${session.id.slice(-8)}`}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {session.message_count} messages
+                    </div>
                   </div>
-                  <div className="text-xs text-muted-foreground">
-                    {session.message_count} messages
-                  </div>
-                </div>
-              </Button>
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-muted-foreground hover:text-destructive"
+                  onClick={() => deleteSession(session.id)}
+                >
+                  <Trash2 className="w-4 h-4" />
+                </Button>
+              </div>
             ))}
           </div>
         </div>
@@ -403,7 +451,6 @@ export function Chat() {
                         onClick={() => copyToClipboard(message.content, message.id)}
                       >
                         <Copy className="w-4 h-4" />
-                        {copiedMessageId === message.id && <span className="ml-1 text-xs">Copied!</span>}
                       </Button>
                     </div>
                   )}
@@ -434,26 +481,42 @@ export function Chat() {
 
         {/* Sources */}
         {messages.length > 0 && messages[messages.length - 1].sources && messages[messages.length - 1].sources!.length > 0 && (
-          <div className="border-t p-4 bg-muted/50">
-            <h3 className="font-semibold mb-2">Sources</h3>
-            <div className="space-y-2">
-              {messages[messages.length - 1].sources!.map((source, index) => (
-                <div key={index} className="flex items-start space-x-2">
-                  <sup className="text-primary font-semibold">{index + 1}</sup>
-                  <div className="flex-1">
-                    <a
-                      href={source.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-sm font-medium hover:underline"
-                    >
-                      {source.title}
-                    </a>
-                    <p className="text-xs text-muted-foreground mt-1">{source.url}</p>
+          <div className="border-t bg-muted/50">
+            <Button
+              variant="ghost"
+              className="w-full justify-between p-4 hover:bg-muted/70"
+              onClick={() => setShowSources(!showSources)}
+            >
+              <span className="font-semibold">Sources ({messages[messages.length - 1].sources!.length})</span>
+              {showSources ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+            </Button>
+            {showSources && (
+              <div className="px-4 pb-4 space-y-3">
+                {messages[messages.length - 1].sources!.map((source, index) => (
+                  <div key={index} className="flex items-start space-x-3 p-3 bg-background rounded-lg border">
+                    <div className="flex-shrink-0 w-6 h-6 bg-primary text-primary-foreground rounded-full flex items-center justify-center text-xs font-semibold">
+                      {index + 1}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <a
+                        href={source.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm font-medium hover:underline flex items-center gap-1"
+                      >
+                        {source.title}
+                        <ExternalLink className="w-3 h-3" />
+                      </a>
+                      <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{source.excerpt}</p>
+                      <div className="flex items-center gap-2 mt-2">
+                        <Badge variant="outline" className="text-xs">{source.category}</Badge>
+                        <span className="text-xs text-muted-foreground">{source.source_name}</span>
+                      </div>
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 

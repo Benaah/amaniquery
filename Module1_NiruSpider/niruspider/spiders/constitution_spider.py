@@ -10,10 +10,8 @@ class ConstitutionSpider(scrapy.Spider):
     name = "constitution"
     allowed_domains = [
         "kenyalaw.org",
-        "klrc.go.ke",
+        "parliament.go.ke",
         "constitutionnet.org",
-        "katiba.go.ke",
-        "parliament.go.ke"
     ]
 
     # Start URLs - Constitution sources
@@ -22,18 +20,13 @@ class ConstitutionSpider(scrapy.Spider):
         "http://kenyalaw.org/kl/index.php?id=398",  # Constitution main page
         "http://kenyalaw.org/lex/actview.xql?actid=Const2010",  # Constitution 2010
 
-        # Kenya Law Reform Commission (KLRC)
-        "https://klrc.go.ke/index.php/constitution-of-kenya/2010-constitution-of-kenya",
-        "https://klrc.go.ke/index.php/constitution-of-kenya/constitutional-amendments",
-
-        # Katiba Institute
-        "https://katiba.go.ke/",
 
         # Parliament - Constitutional Bills
         "https://www.parliament.go.ke/the-national-assembly/house-business/bills?field_bill_category_tid=All&field_bill_status_value=All&keys=constitution",
 
-        # ConstitutionNet
+        # ConstitutionNet - Reliable source for full constitution
         "https://constitutionnet.org/country/kenya",
+        "http://constitutionnet.org/sites/default/files/final_constitution_of_kenya_2010.pdf",  # Direct PDF link
     ]
 
     custom_settings = {
@@ -44,6 +37,11 @@ class ConstitutionSpider(scrapy.Spider):
     def parse(self, response):
         """Parse constitution-related pages"""
         self.logger.info(f"Parsing constitution page: {response.url}")
+
+        # Handle direct PDF links
+        if response.url.endswith('.pdf'):
+            yield from self.parse_constitution_document(response)
+            return
 
         # Handle different sources
         if "kenyalaw.org" in response.url:
@@ -132,10 +130,12 @@ class ConstitutionSpider(scrapy.Spider):
 
     def parse_constitution_net(self, response):
         """Parse ConstitutionNet Kenya content"""
-        # Kenya-specific content
+        # Kenya-specific content - filter out mailto links
         kenya_links = response.css('a[href*="kenya"]::attr(href)').getall()
-
+        
         for link in kenya_links:
+            if link.startswith('mailto:'):
+                continue  # Skip email links
             if link.startswith('/'):
                 link = f"https://constitutionnet.org{link}"
             yield response.follow(link, callback=self.parse_constitution_document)
@@ -163,50 +163,60 @@ class ConstitutionSpider(scrapy.Spider):
         """Parse individual constitution document"""
         self.logger.info(f"Parsing constitution document: {response.url}")
 
-        # Extract title
-        title_selectors = [
-            'h1::text',
-            'h2::text',
-            'title::text',
-            '.page-title::text',
-            '.entry-title::text',
-        ]
+        # Check if this is a PDF response
+        content_type_header = response.headers.get('Content-Type', b'').decode('utf-8').lower()
+        is_pdf = (response.url.endswith('.pdf') or 
+                 'pdf' in response.url or 
+                 'application/pdf' in content_type_header)
 
-        title = None
-        for selector in title_selectors:
-            title = response.css(selector).get()
-            if title:
-                title = title.strip()
-                break
-
-        if not title:
-            title = "Constitution Document"
-
-        # Extract content
-        content_selectors = [
-            'article p::text',
-            '.content p::text',
-            '#content p::text',
-            'main p::text',
-            '.post-content p::text',
-            '.entry-content p::text',
-            'p::text',  # Fallback
-        ]
-
-        content_parts = []
-        for selector in content_selectors:
-            parts = response.css(selector).getall()
-            if parts:
-                content_parts.extend(parts)
-                break
-
-        full_content = '\n'.join([part.strip() for part in content_parts if part.strip()])
-
-        # Check for PDF
-        if response.url.endswith('.pdf') or 'pdf' in response.url:
+        if is_pdf:
+            # For PDFs, let the pipeline handle the content extraction
+            title = "The Constitution of Kenya, 2010" if "final_constitution_of_kenya_2010.pdf" in response.url else "Constitution Document"
+            full_content = ""  # PDF content will be extracted by pipeline
             content_type = "pdf"
-            full_content = ""  # PDFs will be downloaded separately
         else:
+            # Special handling for known constitution PDF
+            if "final_constitution_of_kenya_2010.pdf" in response.url:
+                title = "The Constitution of Kenya, 2010"
+            else:
+                # Extract title
+                title_selectors = [
+                    'h1::text',
+                    'h2::text',
+                    'title::text',
+                    '.page-title::text',
+                    '.entry-title::text',
+                ]
+
+                title = None
+                for selector in title_selectors:
+                    title = response.css(selector).get()
+                    if title:
+                        title = title.strip()
+                        break
+
+                if not title:
+                    title = "Constitution Document"
+
+            # Extract content for HTML pages
+            content_selectors = [
+                'article p::text',
+                '.content p::text',
+                '#content p::text',
+                'main p::text',
+                '.post-content p::text',
+                '.entry-content p::text',
+                'p::text',  # Fallback
+            ]
+
+            content_parts = []
+            for selector in content_selectors:
+                parts = response.css(selector).getall()
+                if parts:
+                    content_parts.extend(parts)
+                    break
+
+            full_content = '\n'.join([part.strip() for part in content_parts if part.strip()])
             content_type = "html"
 
         # Determine category and source
@@ -222,7 +232,7 @@ class ConstitutionSpider(scrapy.Spider):
             source_name=source_name,
             publication_date=self.extract_date(response),
             crawl_date=datetime.now().isoformat(),
-            raw_html=response.text,
+            raw_html=response.text if not is_pdf else "",
             status_code=response.status,
             language="en",  # Most constitution docs are in English
         )
@@ -238,7 +248,7 @@ class ConstitutionSpider(scrapy.Spider):
         elif "parliament.go.ke" in url:
             return "Parliament of Kenya"
         elif "constitutionnet.org" in url:
-            return "ConstitutionNet"
+            return "ConstitutionNet International"
         else:
             return "Constitution Source"
 
@@ -262,6 +272,13 @@ class ConstitutionSpider(scrapy.Spider):
 
     def extract_date(self, response):
         """Extract publication date from document"""
+        # Skip date extraction for PDFs as they don't have HTML content
+        content_type_header = response.headers.get('Content-Type', b'').decode('utf-8').lower()
+        if (response.url.endswith('.pdf') or 
+            'pdf' in response.url or 
+            'application/pdf' in content_type_header):
+            return None
+
         # Look for date patterns in the page
         date_selectors = [
             '.date::text',

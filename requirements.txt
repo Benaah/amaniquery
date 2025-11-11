@@ -1,0 +1,47 @@
+# Core Dependencies
+python-dotenv==1.0.0
+
+# Module 1: NiruSpider (Crawler)
+scrapy==2.11.0
+requests==2.31.0
+beautifulsoup4==4.12.2
+feedparser==6.0.10  # RSS feed parsing
+lxml==4.9.3
+
+# Module 2: NiruParser (ETL & Embedding)
+trafilatura==1.6.3  # HTML text extraction
+PyPDF2==3.0.1
+pdfplumber==0.10.3
+langchain==0.1.0
+langchain-community==0.0.10
+sentence-transformers==2.2.2
+tiktoken==0.5.2  # Token counting
+
+# Module 3: NiruDB (Vector Store)
+chromadb==0.4.22
+faiss-cpu==1.7.4  # Alternative: faiss-gpu for GPU support
+
+# Module 4: NiruAPI (RAG Interface)
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+pydantic==2.5.3
+python-multipart==0.0.6
+
+# LLM Integration
+openai==1.10.0  # For OpenAI models
+anthropic==0.8.1  # For Claude
+huggingface-hub==0.20.2
+
+# Utilities
+pyyaml==6.0.1
+pandas==2.1.4
+numpy==1.26.3
+tqdm==4.66.1
+schedule==1.2.0  # For automated crawling
+colorama==0.4.6  # Colored terminal output
+loguru==0.7.2  # Advanced logging
+
+# Development
+pytest==7.4.4
+black==24.1.1
+flake8==7.0.0

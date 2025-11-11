@@ -1,0 +1,152 @@
+# AmaniQuery Data Sources Configuration
+
+sources:
+  kenyan_law:
+    name: "Kenya Law"
+    base_url: "http://kenyalaw.org"
+    category: "Kenyan Law"
+    enabled: true
+    schedule: "monthly"
+    priority: "high"
+    targets:
+      - name: "Constitution"
+        url: "/lex/actview.xql?actid=Const2010"
+        type: "html"
+      - name: "Acts of Parliament"
+        url: "/lex/index.xql"
+        type: "html"
+        crawl_depth: 2
+    settings:
+      download_delay: 3.0
+      respect_robots: true
+      
+  parliament:
+    name: "Parliament of Kenya"
+    base_url: "https://www.parliament.go.ke"
+    category: "Parliament"
+    enabled: true
+    schedule: "weekly"
+    priority: "high"
+    targets:
+      - name: "Hansards"
+        url: "/the-national-assembly/house-business/hansard"
+        type: "pdf"
+      - name: "Bills"
+        url: "/the-national-assembly/house-business/bills"
+        type: "pdf"
+      - name: "Publications"
+        url: "/documents-publications"
+        type: "mixed"
+    settings:
+      download_delay: 2.5
+      max_pages: 50
+      
+  kenyan_news:
+    name: "Kenyan News Sources"
+    category: "Kenyan News"
+    enabled: true
+    schedule: "daily"
+    priority: "medium"
+    feeds:
+      - name: "Nation Africa"
+        url: "https://nation.africa/kenya/rss"
+        language: "en"
+      - name: "Standard Media"
+        url: "https://www.standardmedia.co.ke/rss/headlines.xml"
+        language: "en"
+      - name: "The Star"
+        url: "https://www.the-star.co.ke/feed"
+        language: "en"
+      - name: "Business Daily"
+        url: "https://www.businessdailyafrica.com/bd/rss"
+        language: "en"
+    settings:
+      download_delay: 2.0
+      max_articles_per_feed: 100
+      
+  global_trends:
+    name: "Global Tech & Policy"
+    category: "Global Trend"
+    enabled: true
+    schedule: "daily"
+    priority: "low"
+    feeds:
+      - name: "Reuters Technology"
+        url: "https://www.reuters.com/technology/rss"
+        language: "en"
+      - name: "Reuters World"
+        url: "https://www.reuters.com/world/rss"
+        language: "en"
+      - name: "TechCrunch"
+        url: "https://techcrunch.com/feed/"
+        language: "en"
+      - name: "Al Jazeera Politics"
+        url: "https://www.aljazeera.com/xml/rss/all.xml"
+        language: "en"
+    settings:
+      download_delay: 2.0
+      max_articles_per_feed: 50
+      filter_keywords:
+        - "Africa"
+        - "Kenya"
+        - "policy"
+        - "technology"
+        - "AI"
+        - "regulation"
+
+# Processing Configuration
+processing:
+  chunking:
+    method: "recursive"  # recursive, semantic, fixed
+    chunk_size: 800
+    chunk_overlap: 100
+    separators: ["\n\n", "\n", ". ", " ", ""]
+    
+  embedding:
+    model: "all-MiniLM-L6-v2"
+    batch_size: 32
+    normalize: true
+    
+  metadata:
+    required_fields:
+      - source_url
+      - title
+      - category
+      - chunk_id
+    optional_fields:
+      - author
+      - publication_date
+      - summary
+      - keywords
+      
+# Storage Configuration
+storage:
+  vector_db: "chroma"  # chroma, faiss
+  persist_directory: "./data/chroma_db"
+  collection_name: "amaniquery_docs"
+  distance_metric: "cosine"  # cosine, l2, ip
+  
+# RAG Configuration
+rag:
+  retrieval:
+    top_k: 5
+    score_threshold: 0.7
+    rerank: true
+    
+  generation:
+    provider: "openai"  # openai, anthropic, local
+    model: "gpt-3.5-turbo"
+    max_tokens: 1500
+    temperature: 0.7
+    
+  prompts:
+    system: |
+      You are AmaniQuery, an AI assistant specialized in Kenyan law, parliamentary proceedings, and current affairs.
+      Use the provided context to answer questions accurately. Always cite your sources.
+      
+    user_template: |
+      Context: {context}
+      
+      Question: {question}
+      
+      Provide a detailed answer based on the context above. Include source citations.

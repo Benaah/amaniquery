@@ -40,7 +40,7 @@ DOWNLOAD_TIMEOUT = 30
 # Enable pipelines
 ITEM_PIPELINES = {
     "niruspider.pipelines.DataValidationPipeline": 100,
-    "niruspider.pipelines.VectorStorePipeline": 150, 
+    "niruspider.pipelines.VectorStorePipeline": 150,
     "niruspider.pipelines.PDFDownloadPipeline": 200,
     "niruspider.pipelines.FileStoragePipeline": 300,
 }

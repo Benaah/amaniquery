@@ -7,6 +7,7 @@ import time
 from loguru import logger
 from openai import OpenAI
 from anthropic import Anthropic
+from dotenv import load_dotenv
 
 import sys
 from pathlib import Path
@@ -33,6 +34,9 @@ class RAGPipeline:
             llm_provider: LLM provider (openai, anthropic, moonshot, local)
             model: Model name to use
         """
+        # Load environment variables
+        load_dotenv()
+        
         # Initialize vector store
         self.vector_store = vector_store or VectorStore()
         self.metadata_manager = MetadataManager(self.vector_store)
@@ -53,31 +57,51 @@ class RAGPipeline:
             self.client = Anthropic(api_key=api_key)
         elif llm_provider == "moonshot":
             api_key = os.getenv("MOONSHOT_API_KEY")
-            base_url = os.getenv("MOONSHOT_BASE_URL", "https://api.moonshot.cn/v1")
+            base_url = os.getenv("MOONSHOT_BASE_URL", "https://api.moonshot.ai/v1")
             if not api_key:
                 raise ValueError("MOONSHOT_API_KEY not set in environment")
-            # Initialize OpenAI client for Moonshot without proxies
-            import httpx
-            http_client = httpx.Client()
-            self.client = OpenAI(
-                api_key=api_key,
-                base_url=base_url,
-                http_client=http_client
-            )
-            logger.info(f"Using Moonshot AI at {base_url}")
+            
+            # Initialize OpenAI client for Moonshot
+            try:
+                self.client = OpenAI(
+                    api_key=api_key,
+                    base_url=base_url,
+                )
+                logger.info(f"Using Moonshot AI at {base_url}")
+                
+                # Test the connection with a simple request
+                test_response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[{"role": "user", "content": "test"}],
+                    max_tokens=5
+                )
+                logger.info("Moonshot AI connection test successful")
+                
+            except Exception as e:
+                error_msg = str(e)
+                if "401" in error_msg or "Invalid Authentication" in error_msg:
+                    raise ValueError(
+                        "Moonshot AI API key is invalid or expired. "
+                        "Please get a new API key from https://platform.moonshot.ai/console "
+                        "and update MOONSHOT_API_KEY in your .env file"
+                    ) from e
+                else:
+                    raise
         else:
             # Local model support can be added here
             logger.warning(f"Unknown provider {llm_provider}, defaulting to Moonshot")
             api_key = os.getenv("MOONSHOT_API_KEY")
-            base_url = os.getenv("MOONSHOT_BASE_URL", "https://api.moonshot.cn/v1")
+            base_url = os.getenv("MOONSHOT_BASE_URL", "https://api.moonshot.ai/v1")
             if api_key:
-                import httpx
-                http_client = httpx.Client()
-                self.client = OpenAI(
-                    api_key=api_key,
-                    base_url=base_url,
-                    http_client=http_client
-                )
+                try:
+                    self.client = OpenAI(
+                        api_key=api_key,
+                        base_url=base_url,
+                    )
+                    logger.info(f"Using Moonshot AI at {base_url}")
+                except Exception as e:
+                    logger.error(f"Failed to initialize Moonshot client: {e}")
+                    raise ValueError("MOONSHOT_API_KEY not set in environment or invalid")
             else:
                 raise ValueError("MOONSHOT_API_KEY not set in environment")
         
@@ -234,8 +258,24 @@ Please provide a detailed answer based on the context above. Include source cita
                 return "LLM provider not supported"
                 
         except Exception as e:
-            logger.error(f"Error generating answer: {e}")
-            return f"Error generating answer: {str(e)}"
+            error_msg = str(e)
+            logger.error(f"Error generating answer: {error_msg}")
+            
+            # Provide helpful error messages
+            if "401" in error_msg or "Invalid Authentication" in error_msg:
+                if self.llm_provider == "moonshot":
+                    return ("Error: Moonshot AI API key is invalid. Please get a new API key from "
+                           "https://platform.moonshot.cn/console and update MOONSHOT_API_KEY in your .env file")
+                elif self.llm_provider == "openai":
+                    return ("Error: OpenAI API key is invalid. Please check your OPENAI_API_KEY in the .env file")
+                else:
+                    return f"Authentication error: {error_msg}"
+            elif "429" in error_msg or "rate limit" in error_msg.lower():
+                return "Error: API rate limit exceeded. Please try again later."
+            elif "insufficient_quota" in error_msg.lower():
+                return "Error: API quota exceeded. Please check your account balance."
+            else:
+                return f"Error generating answer: {error_msg}"
     
     def _format_sources(self, docs: List[Dict]) -> List[Dict]:
         """Format source citations"""

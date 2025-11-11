@@ -1,6 +1,33 @@
 # AmaniQuery Data Sources Configuration
 
 sources:
+  constitution:
+    name: "Kenyan Constitution & Analysis"
+    category: "Constitutional Document"
+    enabled: true
+    schedule: "monthly"
+    priority: "high"
+    targets:
+      - name: "Kenya Law Reports - Constitution"
+        url: "http://kenyalaw.org/kl/index.php?id=398"
+        type: "html"
+      - name: "KLRC Constitution Hub"
+        url: "https://klrc.go.ke/index.php/constitution-of-kenya/2010-constitution-of-kenya"
+        type: "html"
+      - name: "Katiba Institute"
+        url: "https://katiba.go.ke/"
+        type: "html"
+      - name: "Parliament Constitutional Bills"
+        url: "https://www.parliament.go.ke/the-national-assembly/house-business/bills?field_bill_category_tid=All&field_bill_status_value=All&keys=constitution"
+        type: "html"
+      - name: "ConstitutionNet Kenya"
+        url: "https://constitutionnet.org/country/kenya"
+        type: "html"
+    settings:
+      download_delay: 2.0
+      respect_robots: true
+      max_pages: 100
+      
   kenyan_law:
     name: "Kenya Law"
     base_url: "http://kenyalaw.org"

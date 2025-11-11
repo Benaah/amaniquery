@@ -3,7 +3,6 @@ Text Cleaner - Clean and normalize extracted text
 """
 import re
 import unicodedata
-from typing import str
 from loguru import logger
 
 

@@ -1,6 +1,6 @@
 # AmaniQuery 🇰🇪
 
-A Retrieval-Augmented Generation (RAG) system for Kenyan legal, parliamentary, and news intelligence with social media sharing capabilities.
+A Retrieval-Augmented Generation (RAG) system for Kenyan legal, parliamentary, and news intelligence with **Constitutional Alignment Analysis** and social media sharing capabilities.
 
 ## 🏛️ Architecture
 
@@ -133,12 +133,15 @@ print(share.json()["content"])
   - businessdailyafrica.com/rss
 - **Strategy**: Daily RSS feed parsing
 
-### Global Trends
+### Global News & International Affairs
 - **Sources**:
-  - Reuters (Technology/World)
-  - TechCrunch
-  - Al Jazeera (Politics)
+  - Geopolitics: Reuters, BBC, Al Jazeera, Foreign Policy
+  - International Organizations: UN, WHO, World Bank, IMF, African Union
+  - Technology: Reuters Tech, TechCrunch, MIT Tech Review
+  - Policy: The Economist, Brookings, CFR
+  - Climate & Development: UN Climate, UNDP
 - **Strategy**: Daily RSS feed parsing
+- **Focus**: Africa-relevant global news, international policy, institutional announcements
 
 ## 🚀 Features
 
@@ -146,6 +149,7 @@ print(share.json()["content"])
 - ✅ Intelligent text processing & chunking
 - ✅ Vector embeddings for semantic search
 - ✅ RAG-powered Q&A with Moonshot AI
+- ✅ **Constitutional Alignment Analysis** (dual-retrieval comparative analysis)
 - ✅ Source citation & verification
 - ✅ Social media sharing (Twitter/X, LinkedIn, Facebook)
 - ✅ REST API with interactive documentation
@@ -156,6 +160,35 @@ print(share.json()["content"])
 2. **Embedding Model**: all-MiniLM-L6-v2
 3. **Vector DB**: ChromaDB / FAISS
 4. **LLM**: Moonshot AI (default), OpenAI, Anthropic, or Local models
+
+## 🏛️ Constitutional Alignment Module (Core Feature)
+
+AmaniQuery's **unique value proposition**: Dual-retrieval RAG for constitutional compliance analysis.
+
+**How it works:**
+1. Analyzes query to identify Bill and constitutional concepts
+2. Retrieves Bill chunks (filtered by `category='Bill'`)
+3. Retrieves Constitution chunks (filtered by `category='Constitution'`)
+4. Generates structured comparative analysis with citations
+
+**Example:**
+```python
+response = requests.post("http://localhost:8000/alignment-check", json={
+    "query": "How does the Finance Bill housing levy align with the constitution?"
+})
+
+# Returns structured analysis:
+# 1. The Bill's Proposal (with citations)
+# 2. Relevant Constitutional Provisions
+# 3. Alignment Analysis (objective comparison)
+# 4. Key Considerations
+```
+
+**API Endpoints:**
+- `POST /alignment-check` - Full constitutional alignment analysis
+- `POST /alignment-quick-check` - Quick bill vs concept check
+
+See [Constitutional Alignment Guide](docs/CONSTITUTIONAL_ALIGNMENT.md) for details.
 
 ## 📱 Social Media Sharing
 
@@ -211,9 +244,10 @@ See `scripts/scheduler_setup.md` for details.
 - User-agent identification
 - Rate limiting on RSS feeds
 
-## � Documentation
+## 📚 Documentation
 
 - [Quick Start Guide](QUICKSTART.md) - Step-by-step setup
+- [Constitutional Alignment](docs/CONSTITUTIONAL_ALIGNMENT.md) - **Core feature guide**
 - [Moonshot AI Setup](docs/MOONSHOT_SETUP.md) - LLM configuration
 - [Social Media Sharing](docs/SHARING_GUIDE.md) - Sharing guide
 - [API Documentation](http://localhost:8000/docs) - Interactive docs
@@ -221,11 +255,13 @@ See `scripts/scheduler_setup.md` for details.
 ## 💡 Use Cases
 
 - 📚 Legal research & constitutional queries
+- ⚖️ **Constitutional alignment analysis** (Bills vs Constitution)
 - 🏛️ Parliamentary proceedings analysis
 - 📰 News aggregation & summarization
 - 🌍 Policy & global trend tracking
 - 📱 Social media content creation
 - 🎓 Educational resource for Kenyan civics
+- 💼 Legislative due diligence
 
 ## �📝 License
 

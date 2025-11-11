@@ -1,5 +1,5 @@
 """
-Global Trends Spider - Fetches global tech & policy news from RSS feeds
+Global Trends Spider - Fetches global news, geopolitics, international organizations & policy
 """
 import scrapy
 import feedparser
@@ -11,30 +11,95 @@ from niruspider.items import RSSItem, DocumentItem
 class GlobalTrendsSpider(scrapy.Spider):
     name = "global_trends"
     
-    # Global tech and policy RSS feeds
+    # Global news, geopolitics, and policy RSS feeds
     rss_feeds = [
+        # Geopolitics & International Affairs
+        {
+            "url": "https://www.reuters.com/world/rss",
+            "name": "Reuters World News",
+        },
+        {
+            "url": "https://feeds.bbci.co.uk/news/world/rss.xml",
+            "name": "BBC World News",
+        },
+        {
+            "url": "https://www.aljazeera.com/xml/rss/all.xml",
+            "name": "Al Jazeera International",
+        },
+        {
+            "url": "https://foreignpolicy.com/feed/",
+            "name": "Foreign Policy",
+        },
+        
+        # International Organizations
+        {
+            "url": "https://news.un.org/feed/subscribe/en/news/all/rss.xml",
+            "name": "United Nations News",
+        },
+        {
+            "url": "https://www.who.int/feeds/entity/mediacentre/news/en/rss.xml",
+            "name": "World Health Organization",
+        },
+        {
+            "url": "https://www.worldbank.org/en/news/rss",
+            "name": "World Bank News",
+        },
+        {
+            "url": "https://www.imf.org/en/News/RSS",
+            "name": "IMF News",
+        },
+        {
+            "url": "https://au.int/en/rss.xml",
+            "name": "African Union",
+        },
+        
+        # Technology & Innovation
         {
             "url": "https://www.reuters.com/technology/rss",
             "name": "Reuters Technology",
-        },
-        {
-            "url": "https://www.reuters.com/world/rss",
-            "name": "Reuters World",
         },
         {
             "url": "https://techcrunch.com/feed/",
             "name": "TechCrunch",
         },
         {
-            "url": "https://www.aljazeera.com/xml/rss/all.xml",
-            "name": "Al Jazeera",
+            "url": "https://www.technologyreview.com/feed/",
+            "name": "MIT Technology Review",
+        },
+        
+        # Policy & Governance
+        {
+            "url": "https://www.economist.com/international/rss.xml",
+            "name": "The Economist",
+        },
+        {
+            "url": "https://www.brookings.edu/feed/",
+            "name": "Brookings Institution",
+        },
+        {
+            "url": "https://www.cfr.org/rss",
+            "name": "Council on Foreign Relations",
+        },
+        
+        # Climate & Development
+        {
+            "url": "https://unfccc.int/news/rss",
+            "name": "UN Climate Change",
+        },
+        {
+            "url": "https://www.undp.org/rss.xml",
+            "name": "UNDP News",
         },
     ]
     
     # Keywords to filter for relevance
     filter_keywords = [
-        "africa", "kenya", "policy", "regulation", "ai", "technology",
-        "artificial intelligence", "data", "privacy", "government",
+        "africa", "kenya", "policy", "governance", "regulation", 
+        "ai", "technology", "artificial intelligence", "data", "privacy",
+        "government", "development", "climate", "trade", "diplomacy",
+        "international law", "human rights", "health policy", "economic policy",
+        "united nations", "world bank", "imf", "who", "african union",
+        "geopolitics", "foreign policy", "international relations",
     ]
     
     custom_settings = {

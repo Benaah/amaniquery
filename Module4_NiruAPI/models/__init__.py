@@ -51,3 +51,46 @@ class StatsResponse(BaseModel):
     categories: Dict[str, int]
     sources: List[str]
     database_size_mb: Optional[float] = None
+
+
+class AlignmentRequest(BaseModel):
+    """Request model for constitutional alignment analysis"""
+    query: str = Field(..., description="Query about bill-constitution alignment", min_length=10)
+    bill_top_k: int = Field(3, description="Number of Bill chunks to retrieve", ge=1, le=10)
+    constitution_top_k: int = Field(3, description="Number of Constitution chunks to retrieve", ge=1, le=10)
+    temperature: float = Field(0.3, description="LLM temperature (lower for more factual)", ge=0.0, le=1.0)
+    max_tokens: int = Field(2000, description="Maximum tokens in analysis", ge=500, le=4000)
+
+
+class BillContext(BaseModel):
+    """Bill context chunk"""
+    text: str
+    clause_number: Optional[str] = None
+    subject: Optional[str] = None
+    title: str
+
+
+class ConstitutionContext(BaseModel):
+    """Constitution context chunk"""
+    text: str
+    article_number: Optional[str] = None
+    article_title: Optional[str] = None
+    clause: Optional[str] = None
+
+
+class AlignmentMetadata(BaseModel):
+    """Metadata for alignment analysis"""
+    bill_name: Optional[str] = None
+    legal_concepts: List[str] = Field(default_factory=list)
+    analysis_type: str = "alignment"
+    bill_chunks_count: int
+    constitution_chunks_count: int
+
+
+class AlignmentResponse(BaseModel):
+    """Response model for constitutional alignment analysis"""
+    analysis: str = Field(..., description="Structured comparative analysis")
+    bill_context: List[BillContext] = Field(default_factory=list, description="Bill chunks used")
+    constitution_context: List[ConstitutionContext] = Field(default_factory=list, description="Constitution chunks used")
+    metadata: AlignmentMetadata = Field(..., description="Analysis metadata")
+    query_time: Optional[float] = None

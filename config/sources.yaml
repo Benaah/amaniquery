@@ -65,24 +65,73 @@ sources:
       max_articles_per_feed: 100
       
   global_trends:
-    name: "Global Tech & Policy"
+    name: "Global News & Policy"
     category: "Global Trend"
     enabled: true
     schedule: "daily"
     priority: "low"
     feeds:
+      # Geopolitics & International Affairs
+      - name: "Reuters World News"
+        url: "https://www.reuters.com/world/rss"
+        language: "en"
+      - name: "BBC World News"
+        url: "https://feeds.bbci.co.uk/news/world/rss.xml"
+        language: "en"
+      - name: "Al Jazeera International"
+        url: "https://www.aljazeera.com/xml/rss/all.xml"
+        language: "en"
+      - name: "Foreign Policy"
+        url: "https://foreignpolicy.com/feed/"
+        language: "en"
+      
+      # International Organizations
+      - name: "United Nations News"
+        url: "https://news.un.org/feed/subscribe/en/news/all/rss.xml"
+        language: "en"
+      - name: "World Health Organization"
+        url: "https://www.who.int/feeds/entity/mediacentre/news/en/rss.xml"
+        language: "en"
+      - name: "World Bank News"
+        url: "https://www.worldbank.org/en/news/rss"
+        language: "en"
+      - name: "IMF News"
+        url: "https://www.imf.org/en/News/RSS"
+        language: "en"
+      - name: "African Union"
+        url: "https://au.int/en/rss.xml"
+        language: "en"
+      
+      # Technology & Innovation
       - name: "Reuters Technology"
         url: "https://www.reuters.com/technology/rss"
-        language: "en"
-      - name: "Reuters World"
-        url: "https://www.reuters.com/world/rss"
         language: "en"
       - name: "TechCrunch"
         url: "https://techcrunch.com/feed/"
         language: "en"
-      - name: "Al Jazeera Politics"
-        url: "https://www.aljazeera.com/xml/rss/all.xml"
+      - name: "MIT Technology Review"
+        url: "https://www.technologyreview.com/feed/"
         language: "en"
+      
+      # Policy & Governance
+      - name: "The Economist"
+        url: "https://www.economist.com/international/rss.xml"
+        language: "en"
+      - name: "Brookings Institution"
+        url: "https://www.brookings.edu/feed/"
+        language: "en"
+      - name: "Council on Foreign Relations"
+        url: "https://www.cfr.org/rss"
+        language: "en"
+      
+      # Climate & Development
+      - name: "UN Climate Change"
+        url: "https://unfccc.int/news/rss"
+        language: "en"
+      - name: "UNDP News"
+        url: "https://www.undp.org/rss.xml"
+        language: "en"
+      
     settings:
       download_delay: 2.0
       max_articles_per_feed: 50
@@ -90,9 +139,18 @@ sources:
         - "Africa"
         - "Kenya"
         - "policy"
+        - "governance"
         - "technology"
         - "AI"
         - "regulation"
+        - "development"
+        - "climate"
+        - "trade"
+        - "diplomacy"
+        - "international law"
+        - "human rights"
+        - "health policy"
+        - "economic policy"
 
 # Processing Configuration
 processing:

@@ -22,6 +22,71 @@ Module1_NiruSpider/
 └── crawl_all.py
 ```
 
+## Spiders
+
+### 1. Kenya Law Spider
+
+Crawls legal documents from kenyalaw.org.
+
+**Target Sources:**
+- Constitution of Kenya 2010
+- Acts of Parliament
+- Bills
+- Legal notices
+
+**Features:**
+- Handles HTML and PDF documents
+- Extracts article numbers, sections, clauses
+- Categorizes by legal document type
+
+### 2. Parliament Spider
+
+Fetches parliamentary proceedings and documents.
+
+**Target Sources:**
+- Hansards (debates)
+- Bills under consideration
+- Committee reports
+- Publications
+
+**Features:**
+- PDF document handling
+- Metadata extraction
+- Speaker identification
+
+### 3. News RSS Spider
+
+Parses Kenyan news from RSS feeds.
+
+**Target Sources:**
+- Nation Africa
+- Standard Media
+- The Star
+- Business Daily Africa
+
+**Features:**
+- Real-time RSS feed parsing
+- Article content extraction
+- Author and date metadata
+
+### 4. Global Trends Spider
+
+Fetches global news, geopolitics, international organizations, and policy analysis.
+
+**Target Sources:**
+- **Geopolitics**: Reuters World, BBC, Al Jazeera, Foreign Policy
+- **International Orgs**: UN, WHO, World Bank, IMF, African Union
+- **Technology**: Reuters Tech, TechCrunch, MIT Technology Review
+- **Policy Think Tanks**: The Economist, Brookings Institution, CFR
+- **Climate & Development**: UN Climate Change, UNDP
+
+**Features:**
+- RSS feed parsing from 17+ international sources
+- Keyword filtering for Africa/Kenya relevance
+- Focus on geopolitics, policy, governance, international law, development
+- Captures institutional announcements and policy papers
+- Filters for: Africa, Kenya, policy, governance, AI, climate, trade, diplomacy, human rights
+
 ## Features
 
 - **Asynchronous Crawling**: Uses Scrapy for high-performance concurrent requests

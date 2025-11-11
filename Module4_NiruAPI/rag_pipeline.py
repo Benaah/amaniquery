@@ -56,20 +56,37 @@ class RAGPipeline:
             base_url = os.getenv("MOONSHOT_BASE_URL", "https://api.moonshot.cn/v1")
             if not api_key:
                 raise ValueError("MOONSHOT_API_KEY not set in environment")
+            # Initialize OpenAI client for Moonshot without proxies
+            import httpx
+            http_client = httpx.Client()
             self.client = OpenAI(
                 api_key=api_key,
-                base_url=base_url
+                base_url=base_url,
+                http_client=http_client
             )
             logger.info(f"Using Moonshot AI at {base_url}")
         else:
             # Local model support can be added here
             logger.warning(f"Unknown provider {llm_provider}, defaulting to Moonshot")
-            self.client = OpenAI(
-                api_key=os.getenv("MOONSHOT_API_KEY"),
-                base_url=os.getenv("MOONSHOT_BASE_URL", "https://api.moonshot.cn/v1")
-            )
+            api_key = os.getenv("MOONSHOT_API_KEY")
+            base_url = os.getenv("MOONSHOT_BASE_URL", "https://api.moonshot.cn/v1")
+            if api_key:
+                import httpx
+                http_client = httpx.Client()
+                self.client = OpenAI(
+                    api_key=api_key,
+                    base_url=base_url,
+                    http_client=http_client
+                )
+            else:
+                raise ValueError("MOONSHOT_API_KEY not set in environment")
         
         logger.info(f"RAG Pipeline initialized with {llm_provider}/{model}")
+    
+    @property
+    def llm_service(self):
+        """Expose LLM client for other components"""
+        return self.client
     
     def query(
         self,

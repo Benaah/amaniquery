@@ -38,6 +38,13 @@ interface Source {
   excerpt: string
 }
 
+interface ChatSession {
+  id: string
+  title?: string
+  created_at?: string
+  message_count?: number
+}
+
 export function Chat() {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState("")

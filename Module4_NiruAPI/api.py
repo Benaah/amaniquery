@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from fastapi import FastAPI, HTTPException, Request, Form
 from fastapi.middleware.cors import CORSMiddleware
+from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 from loguru import logger
 
@@ -21,6 +22,8 @@ from Module4_NiruAPI.alignment_pipeline import ConstitutionalAlignmentPipeline
 from Module4_NiruAPI.sms_pipeline import SMSPipeline
 from Module4_NiruAPI.sms_service import AfricasTalkingSMSService
 from Module3_NiruDB.chat_manager import ChatDatabaseManager
+from Module3_NiruDB.vector_store import VectorStore
+from Module3_NiruDB.metadata_manager import MetadataManager
 from Module3_NiruDB.chat_models import (
     ChatSessionCreate, ChatSessionResponse, ChatMessageCreate,
     ChatMessageResponse, FeedbackCreate, FeedbackResponse
@@ -44,39 +47,11 @@ from Module5_NiruShare.api import router as share_router
 # Load environment
 load_dotenv()
 
-# Initialize FastAPI app
-app = FastAPI(
-    title="AmaniQuery API",
-    description="RAG-powered API for Kenyan legal, parliamentary, and news intelligence",
-    version="1.0.0",
-)
-
-# Configure CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:8000").split(","),
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Include sharing router
-app.include_router(share_router)
-
-# Initialize components
-vector_store = None
-rag_pipeline = None
-alignment_pipeline = None
-sms_pipeline = None
-sms_service = None
-metadata_manager = None
-chat_manager = None
-
-
-@app.on_event("startup")
-async def startup_event():
-    """Initialize on startup"""
-    global vector_store, rag_pipeline, alignment_pipeline, sms_pipeline, sms_service, metadata_manager
+# Lifespan context manager for startup/shutdown
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Handle application startup and shutdown"""
+    global vector_store, rag_pipeline, alignment_pipeline, sms_pipeline, sms_service, metadata_manager, chat_manager
     
     logger.info("Starting AmaniQuery API")
     
@@ -84,7 +59,7 @@ async def startup_event():
     vector_store = VectorStore()
     
     # Initialize metadata manager
-    metadata_manager = MetadataManager()
+    metadata_manager = MetadataManager(vector_store)
     
     # Initialize RAG pipeline
     llm_provider = os.getenv("LLM_PROVIDER", "moonshot")
@@ -112,6 +87,31 @@ async def startup_event():
     chat_manager = ChatDatabaseManager()
     
     logger.info("AmaniQuery API ready")
+    
+    yield
+    
+    # Shutdown cleanup
+    logger.info("Shutting down AmaniQuery API")
+
+# Initialize FastAPI app
+app = FastAPI(
+    title="AmaniQuery API",
+    description="RAG-powered API for Kenyan legal, parliamentary, and news intelligence",
+    version="1.0.0",
+    lifespan=lifespan
+)
+
+# Configure CORS
+cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:3001,http://localhost:8000")
+origins = [origin.strip() for origin in cors_origins.split(",")]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.get("/", tags=["General"])
@@ -385,10 +385,10 @@ async def get_topic_sentiment(
             filter_dict["category"] = {"$in": ["Kenyan News", "Global Trend"]}
         
         # Search for relevant articles
-        results = vector_store.search(
+        results = vector_store.query(
             query_text=topic,
-            top_k=100,  # Get up to 100 articles
-            filter_dict=filter_dict
+            n_results=100,  # Get up to 100 articles
+            filter=filter_dict if filter_dict else None
         )
         
         if not results:
@@ -727,17 +727,17 @@ async def search_documents(
         
         # Search documents
         if query:
-            results = vector_store.search(
+            results = vector_store.query(
                 query_text=query,
-                top_k=limit,
-                filter_dict=filter_dict if filter_dict else None
+                n_results=limit,
+                filter=filter_dict if filter_dict else None
             )
         else:
             # Get all documents if no query
-            results = vector_store.search(
+            results = vector_store.query(
                 query_text="",
-                top_k=limit,
-                filter_dict=filter_dict if filter_dict else None
+                n_results=limit,
+                filter=filter_dict if filter_dict else None
             )
         
         # Format results
@@ -746,18 +746,18 @@ async def search_documents(
             metadata = chunk.get("metadata", {})
             documents.append({
                 "id": chunk.get("id", ""),
-                "content": chunk.get("content", ""),
+                "content": chunk.get("text", ""),
                 "metadata": {
                     "title": metadata.get("title", ""),
-                    "url": metadata.get("url", ""),
-                    "source": metadata.get("source", ""),
+                    "url": metadata.get("source_url", ""),
+                    "source": metadata.get("source_name", ""),
                     "category": metadata.get("category", ""),
-                    "date": metadata.get("date", ""),
+                    "date": metadata.get("publication_date", ""),
                     "author": metadata.get("author", ""),
                     "sentiment_polarity": metadata.get("sentiment_polarity"),
                     "sentiment_label": metadata.get("sentiment_label")
                 },
-                "score": chunk.get("score", 0)
+                "score": 1.0 - chunk.get("distance", 0.0) if chunk.get("distance") is not None else 0
             })
         
         return {

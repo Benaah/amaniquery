@@ -56,7 +56,7 @@ class UserFeedback(Base):
     message_id = Column(String, ForeignKey("chat_messages.id"), nullable=True)
     feedback_type = Column(String, nullable=False)  # "like", "dislike", "share", "copy"
     content = Column(Text, nullable=True)  # Additional feedback content
-    metadata = Column(JSON, nullable=True)  # Additional metadata
+    feedback_metadata = Column(JSON, nullable=True)  # Additional metadata
     created_at = Column(DateTime, default=datetime.utcnow)
 
 # Pydantic models for API

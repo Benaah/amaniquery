@@ -196,9 +196,9 @@ class ConstitutionalAlignmentPipeline:
         # Step 4: Generate analysis with LLM
         analysis = self.rag_pipeline._generate_answer(
             query=query,
-            context_chunks=alignment_context.bill_chunks + alignment_context.constitution_chunks,
-            system_prompt=alignment_prompt["system_prompt"],
-            user_prompt=alignment_prompt["user_prompt"]
+            context=alignment_prompt["user_prompt"],
+            temperature=0.3,
+            max_tokens=1500
         )
         
         # Step 5: Format response
@@ -248,29 +248,29 @@ class ConstitutionalAlignmentPipeline:
         bill_search_query = self._construct_bill_search_query(query, query_analysis)
         logger.info(f"Bill search query: {bill_search_query}")
         
-        bill_results = self.vector_store.search(
+        bill_results = self.vector_store.query(
             query_text=bill_search_query,
-            top_k=bill_top_k,
-            filter_dict={"category": "Bill"}  # Filter for Bills only
+            n_results=bill_top_k,
+            filter={"category": "Bill"}  # Filter for Bills only
         )
         
         # If no Bills found, try Acts
         if not bill_results:
             logger.warning("No Bills found, searching Acts...")
-            bill_results = self.vector_store.search(
+            bill_results = self.vector_store.query(
                 query_text=bill_search_query,
-                top_k=bill_top_k,
-                filter_dict={"category": "Act"}
+                n_results=bill_top_k,
+                filter={"category": "Act"}
             )
         
         # Branch 2: Retrieve Constitution context
         constitution_search_query = self._construct_constitution_search_query(query, query_analysis)
         logger.info(f"Constitution search query: {constitution_search_query}")
         
-        constitution_results = self.vector_store.search(
+        constitution_results = self.vector_store.query(
             query_text=constitution_search_query,
-            top_k=constitution_top_k,
-            filter_dict={"category": "Constitution"}
+            n_results=constitution_top_k,
+            filter={"category": "Constitution"}
         )
         
         return AlignmentContext(

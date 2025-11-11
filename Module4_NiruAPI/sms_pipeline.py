@@ -46,10 +46,10 @@ class SMSPipeline:
             query_type = self._detect_query_type(query)
             
             # Retrieve relevant context
-            results = self.vector_store.search(
+            results = self.vector_store.query(
                 query_text=query,
-                top_k=3,  # Fewer results for SMS context
-                filter_dict=self._get_category_filter(query_type)
+                n_results=3,  # Fewer results for SMS context
+                filter=self._get_category_filter(query_type)
             )
             
             if not results:
@@ -168,21 +168,23 @@ Jibu:"""
         
         try:
             # Call LLM with strict parameters
-            response = self.llm_service.generate(
-                prompt=prompt,
+            response = self.llm_service.chat.completions.create(
+                model="moonshot-v1-8k",  # Use appropriate model
+                messages=[
+                    {"role": "user", "content": prompt}
+                ],
                 temperature=0.3,  # Low temperature for consistency
                 max_tokens=100,   # Strict token limit
             )
             
-            # Clean and truncate response
-            response = response.strip()
-            response = re.sub(r'\s+', ' ', response)  # Remove extra whitespace
+            response_text = response.choices[0].message.content
+            response_text = re.sub(r'\s+', ' ', response_text)  # Remove extra whitespace
             
             # Hard truncate to SMS limit
-            if len(response) > self.max_sms_length:
-                response = response[:157] + "..."
+            if len(response_text) > self.max_sms_length:
+                response_text = response_text[:157] + "..."
             
-            return response
+            return response_text
             
         except Exception as e:
             logger.error(f"LLM generation failed: {e}")

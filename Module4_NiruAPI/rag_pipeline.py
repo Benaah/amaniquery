@@ -55,6 +55,31 @@ class RAGPipeline:
             if not api_key:
                 raise ValueError("ANTHROPIC_API_KEY not set in environment")
             self.client = Anthropic(api_key=api_key)
+        elif llm_provider == "gemini":
+            api_key = os.getenv("GEMINI_API_KEY")
+            if not api_key:
+                raise ValueError("GEMINI_API_KEY not set in environment")
+            try:
+                import google.generativeai as genai
+                genai.configure(api_key=api_key)
+                self.client = genai.GenerativeModel(self.model)
+                logger.info("Using Google Gemini AI")
+                
+                # Test the connection
+                test_response = self.client.generate_content("test")
+                logger.info("Gemini AI connection test successful")
+                
+            except ImportError:
+                raise ValueError("google-generativeai package not installed. Install with: pip install google-generativeai")
+            except Exception as e:
+                error_msg = str(e)
+                if "API_KEY_INVALID" in error_msg or "PERMISSION_DENIED" in error_msg:
+                    raise ValueError(
+                        "Gemini API key is invalid. Please get a new API key from "
+                        "https://makersuite.google.com/app/apikey and update GEMINI_API_KEY in your .env file"
+                    ) from e
+                else:
+                    raise
         elif llm_provider == "moonshot":
             api_key = os.getenv("MOONSHOT_API_KEY")
             base_url = os.getenv("MOONSHOT_BASE_URL", "https://api.moonshot.ai/v1")
@@ -257,6 +282,31 @@ Please provide a detailed answer based on the context above. If the context cont
                 logger.info(f"LLM response length: {len(answer) if answer else 0}")
                 if not answer or not answer.strip():
                     logger.warning("LLM returned empty or whitespace-only response")
+                    return "I apologize, but I was unable to generate a response. Please try rephrasing your question."
+                return answer
+            
+            elif self.llm_provider == "gemini":
+                # Gemini uses a different API format
+                import google.generativeai as genai
+                
+                # Configure generation parameters
+                generation_config = genai.types.GenerationConfig(
+                    temperature=temperature,
+                    max_output_tokens=max_tokens,
+                )
+                
+                # Combine system prompt with user prompt
+                full_prompt = f"{system_prompt}\n\n{user_prompt}"
+                
+                response = self.client.generate_content(
+                    full_prompt,
+                    generation_config=generation_config
+                )
+                
+                answer = response.text
+                logger.info(f"Gemini response length: {len(answer) if answer else 0}")
+                if not answer or not answer.strip():
+                    logger.warning("Gemini returned empty or whitespace-only response")
                     return "I apologize, but I was unable to generate a response. Please try rephrasing your question."
                 return answer
             

@@ -21,7 +21,7 @@ textblob==0.17.1  # Sentiment analysis
 youtube-transcript-api==0.6.1  # YouTube transcript extraction
 
 # Module 3: NiruDB (Vector Store)
-chromadb==0.4.22
+chromadb==0.4.24
 faiss-cpu==1.7.4  # Alternative: faiss-gpu for GPU support
 loguru
 
@@ -40,6 +40,7 @@ africastalking==1.2.7  # SMS gateway for Kenya
 # LLM Integration
 openai # For OpenAI models and Moonshot AI (compatible API)
 anthropic==0.8.1  # For Claude
+google-generativeai==0.3.2  # For Gemini AI
 huggingface-hub==0.20.2
 kosong
 

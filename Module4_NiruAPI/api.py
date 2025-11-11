@@ -7,6 +7,9 @@ from pathlib import Path
 from typing import Optional, List
 import subprocess
 import asyncio
+import threading
+import time
+import json
 from datetime import datetime
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -43,7 +46,8 @@ from Module4_NiruAPI.models import (
     SentimentRequest,
     SentimentResponse,
 )
-from Module5_NiruShare.api import router as share_router
+from Module4_NiruAPI.research_module import ResearchModule
+from Module4_NiruAPI.report_generator import ReportGenerator
 
 # Load environment
 load_dotenv()
@@ -52,7 +56,7 @@ load_dotenv()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Handle application startup and shutdown"""
-    global vector_store, rag_pipeline, alignment_pipeline, sms_pipeline, sms_service, metadata_manager, chat_manager
+    global vector_store, rag_pipeline, alignment_pipeline, sms_pipeline, sms_service, metadata_manager, chat_manager, crawler_manager, research_module, report_generator
     
     logger.info("Starting AmaniQuery API")
     
@@ -86,6 +90,25 @@ async def lifespan(app: FastAPI):
     
     # Initialize chat database manager
     chat_manager = ChatDatabaseManager()
+    
+    # Initialize crawler manager
+    crawler_manager = CrawlerManager()
+    
+    # Initialize research module (optional - only if Gemini API key is available)
+    try:
+        research_module = ResearchModule()
+        logger.info("Research module initialized")
+    except Exception as e:
+        logger.warning(f"Research module not available: {e}")
+        research_module = None
+    
+    # Initialize report generator (optional - only if Gemini API key is available)
+    try:
+        report_generator = ReportGenerator()
+        logger.info("Report generator initialized")
+    except Exception as e:
+        logger.warning(f"Report generator not available: {e}")
+        report_generator = None
     
     logger.info("AmaniQuery API ready")
     
@@ -681,109 +704,26 @@ async def share_chat_session(session_id: str, share_type: str = "link"):
 @app.get("/admin/crawlers", tags=["Admin"])
 async def get_crawler_status():
     """Get status of all crawlers"""
-    crawlers = {
-        "kenya_law": {"status": "idle", "last_run": "2024-01-15T10:30:00Z", "logs": []},
-        "parliament": {"status": "idle", "last_run": "2024-01-15T09:15:00Z", "logs": []},
-        "news_rss": {"status": "idle", "last_run": "2024-01-15T11:00:00Z", "logs": []},
-        "global_trends": {"status": "idle", "last_run": "2024-01-14T16:45:00Z", "logs": []}
-    }
-    return {"crawlers": crawlers}
+    if crawler_manager is None:
+        raise HTTPException(status_code=503, detail="Crawler manager not initialized")
+    
+    try:
+        return crawler_manager.get_crawler_status()
+    except Exception as e:
+        logger.error(f"Error getting crawler status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/admin/crawlers/{crawler_name}/start", tags=["Admin"])
 async def start_crawler(crawler_name: str):
     """Start a specific crawler"""
+    if crawler_manager is None:
+        raise HTTPException(status_code=503, detail="Crawler manager not initialized")
+    
     try:
-        # Import crawler modules dynamically
-        try:
-            if crawler_name == "kenya_law":
-                # Run Kenya Law spider using subprocess
-                import subprocess
-                import sys
-                from pathlib import Path
-
-                # Get the spider directory
-                spider_dir = Path(__file__).parent.parent / "Module1_NiruSpider"
-
-                # Run scrapy crawl command as separate process
-                cmd = [sys.executable, "-m", "scrapy", "crawl", "kenya_law", "-L", "INFO"]
-
-                # Start subprocess
-                process = subprocess.Popen(
-                    cmd,
-                    cwd=str(spider_dir),
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL
-                )
-
-                logger.info(f"Started Kenya Law crawler subprocess (PID: {process.pid})")
-                return {"status": "started", "message": f"Crawler {crawler_name} started successfully", "pid": process.pid}
-
-            elif crawler_name == "parliament":
-                # Run Parliament spider using subprocess
-                import subprocess
-                import sys
-                from pathlib import Path
-
-                spider_dir = Path(__file__).parent.parent / "Module1_NiruSpider"
-
-                cmd = [sys.executable, "-m", "scrapy", "crawl", "parliament", "-L", "INFO"]
-
-                process = subprocess.Popen(
-                    cmd,
-                    cwd=str(spider_dir),
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL
-                )
-
-                logger.info(f"Started Parliament crawler subprocess (PID: {process.pid})")
-                return {"status": "started", "message": f"Crawler {crawler_name} started successfully", "pid": process.pid}
-
-            elif crawler_name == "news_rss":
-                # Run News RSS spider using subprocess
-                import subprocess
-                import sys
-                from pathlib import Path
-
-                spider_dir = Path(__file__).parent.parent / "Module1_NiruSpider"
-
-                cmd = [sys.executable, "-m", "scrapy", "crawl", "news_rss", "-L", "INFO"]
-
-                process = subprocess.Popen(
-                    cmd,
-                    cwd=str(spider_dir),
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL
-                )
-
-                logger.info(f"Started News RSS crawler subprocess (PID: {process.pid})")
-                return {"status": "started", "message": f"Crawler {crawler_name} started successfully", "pid": process.pid}
-
-            elif crawler_name == "global_trends":
-                # Run Global Trends spider using subprocess
-                import subprocess
-                import sys
-                from pathlib import Path
-
-                spider_dir = Path(__file__).parent.parent / "Module1_NiruSpider"
-
-                cmd = [sys.executable, "-m", "scrapy", "crawl", "global_trends", "-L", "INFO"]
-
-                process = subprocess.Popen(
-                    cmd,
-                    cwd=str(spider_dir),
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL
-                )
-
-                logger.info(f"Started Global Trends crawler subprocess (PID: {process.pid})")
-                return {"status": "started", "message": f"Crawler {crawler_name} started successfully", "pid": process.pid}
-
-            else:
-                raise HTTPException(status_code=404, detail=f"Crawler {crawler_name} not found")
-        except Exception as e:
-            logger.error(f"Error starting crawler {crawler_name}: {e}")
-            raise HTTPException(status_code=500, detail=f"Failed to start crawler: {str(e)}")
+        return crawler_manager.start_crawler(crawler_name)
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error starting crawler {crawler_name}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -792,7 +732,16 @@ async def start_crawler(crawler_name: str):
 @app.post("/admin/crawlers/{crawler_name}/stop", tags=["Admin"])
 async def stop_crawler(crawler_name: str):
     """Stop a specific crawler"""
-    return {"status": "stopped", "message": f"Crawler {crawler_name} stopped"}
+    if crawler_manager is None:
+        raise HTTPException(status_code=503, detail="Crawler manager not initialized")
+    
+    try:
+        return crawler_manager.stop_crawler(crawler_name)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error stopping crawler {crawler_name}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/admin/documents", tags=["Admin"])
@@ -1147,6 +1096,615 @@ async def sms_query_preview(query: str, language: str = "en"):
     except Exception as e:
         logger.error(f"Error previewing SMS query: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# Research and Report Generation Endpoints
+@app.post("/research/analyze-legal-query", tags=["Research"])
+async def analyze_legal_query(
+    query: str = Form(...),
+    context: Optional[str] = Form(None)
+):
+    """
+    Analyze a legal query about Kenya's laws using Gemini AI
+
+    This endpoint performs deep analysis of legal questions, providing information
+    about applicable laws, legal procedures, and practical guidance.
+
+    **Parameters:**
+    - query: The legal question or query to analyze
+    - context: Optional additional context about the query (JSON string)
+
+    **Returns:**
+    - Comprehensive legal analysis covering applicable laws, legal reasoning, and practical guidance
+    """
+    if research_module is None:
+        raise HTTPException(status_code=503, detail="Research module not available. Ensure GEMINI_API_KEY is configured.")
+
+    try:
+        # Parse context if provided
+        context_data = None
+        if context:
+            try:
+                context_data = json.loads(context)
+            except json.JSONDecodeError:
+                context_data = {"additional_info": context}
+
+        result = research_module.analyze_legal_query(query, context_data)
+
+        if "error" in result:
+            raise HTTPException(status_code=500, detail=result["error"])
+
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in legal query analysis: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/research/generate-legal-report", tags=["Research"])
+async def generate_legal_report(
+    analysis_results: str = Form(...),
+    report_focus: str = Form("comprehensive")
+):
+    """
+    Generate a comprehensive legal report based on query analysis
+
+    **Parameters:**
+    - analysis_results: JSON string of analysis results from /research/analyze-legal-query
+    - report_focus: Type of legal focus (comprehensive, constitutional, criminal, civil, administrative)
+
+    **Returns:**
+    - Structured legal report with analysis, applicable laws, and recommendations
+    """
+    if research_module is None:
+        raise HTTPException(status_code=503, detail="Research module not available. Ensure GEMINI_API_KEY is configured.")
+
+    try:
+        # Parse the analysis results
+        analysis_data = json.loads(analysis_results)
+
+        result = research_module.generate_legal_report(analysis_data, report_focus)
+
+        if "error" in result:
+            raise HTTPException(status_code=500, detail=result["error"])
+
+        return result
+
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON in analysis_results")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error generating legal report: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/research/legal-research", tags=["Research"])
+async def conduct_legal_research(
+    legal_topics: str = Form(...),
+    research_questions: str = Form(...)
+):
+    """
+    Conduct legal research on specific topics related to Kenya's laws
+
+    **Parameters:**
+    - legal_topics: JSON string array of legal topics to research
+    - research_questions: JSON string array of specific research questions
+
+    **Returns:**
+    - Legal research findings with analysis of Kenyan laws and practical guidance
+    """
+    if research_module is None:
+        raise HTTPException(status_code=503, detail="Research module not available. Ensure GEMINI_API_KEY is configured.")
+
+    try:
+        # Parse the input data
+        topics = json.loads(legal_topics)
+        questions = json.loads(research_questions)
+
+        if not isinstance(topics, list) or not isinstance(questions, list):
+            raise HTTPException(status_code=400, detail="legal_topics and research_questions must be JSON arrays")
+
+        result = research_module.conduct_legal_research(topics, questions)
+
+        if "error" in result:
+            raise HTTPException(status_code=500, detail=result["error"])
+
+        return result
+
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid JSON format: {str(e)}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error conducting legal research: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/reports/legal-query", tags=["Reports"])
+async def generate_legal_query_report(query_analysis: str = Form(...)):
+    """
+    Generate a comprehensive legal query report
+
+    **Parameters:**
+    - query_analysis: JSON string containing legal query analysis results
+
+    **Returns:**
+    - Professional legal query report with analysis, applicable laws, and guidance
+    """
+    if report_generator is None:
+        raise HTTPException(status_code=503, detail="Report generator not available. Ensure GEMINI_API_KEY is configured.")
+
+    try:
+        # Parse the query analysis
+        analysis = json.loads(query_analysis)
+
+        result = report_generator.generate_legal_query_report(analysis)
+
+        if "error" in result:
+            raise HTTPException(status_code=500, detail=result["error"])
+
+        return result
+
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON in query_analysis")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error generating legal query report: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/reports/legal-research", tags=["Reports"])
+async def generate_legal_research_report(
+    research_data: str = Form(...),
+    research_findings: str = Form(...)
+):
+    """
+    Generate a legal research report
+
+    **Parameters:**
+    - research_data: JSON string of legal topics and research parameters
+    - research_findings: JSON string of research findings from legal analysis
+
+    **Returns:**
+    - Comprehensive legal research report with analysis of Kenyan laws and recommendations
+    """
+    if report_generator is None:
+        raise HTTPException(status_code=503, detail="Report generator not available. Ensure GEMINI_API_KEY is configured.")
+
+    try:
+        # Parse the input data
+        research_info = json.loads(research_data)
+        findings = json.loads(research_findings)
+
+        result = report_generator.generate_legal_research_report(research_info, findings)
+
+        if "error" in result:
+            raise HTTPException(status_code=500, detail=result["error"])
+
+        return result
+
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid JSON format: {str(e)}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error generating legal research report: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/reports/constitutional-law", tags=["Reports"])
+async def generate_constitutional_law_report(constitutional_analysis: str = Form(...)):
+    """
+    Generate a constitutional law report
+
+    **Parameters:**
+    - constitutional_analysis: JSON string of constitutional law analysis
+
+    **Returns:**
+    - Specialized constitutional law report with references to the Constitution of Kenya 2010
+    """
+    if report_generator is None:
+        raise HTTPException(status_code=503, detail="Report generator not available. Ensure GEMINI_API_KEY is configured.")
+
+    try:
+        # Parse the constitutional analysis
+        analysis = json.loads(constitutional_analysis)
+
+        result = report_generator.generate_constitutional_law_report(analysis)
+
+        if "error" in result:
+            raise HTTPException(status_code=500, detail=result["error"])
+
+        return result
+
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON in constitutional_analysis")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error generating constitutional law report: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/reports/compliance", tags=["Reports"])
+async def generate_compliance_report(
+    legal_requirements: str = Form(...),
+    compliance_data: str = Form(...)
+):
+    """
+    Generate a legal compliance report
+
+    **Parameters:**
+    - legal_requirements: JSON string of legal requirements and obligations
+    - compliance_data: JSON string of current compliance status
+
+    **Returns:**
+    - Legal compliance assessment report with gaps, risks, and action plans
+    """
+    if report_generator is None:
+        raise HTTPException(status_code=503, detail="Report generator not available. Ensure GEMINI_API_KEY is configured.")
+
+    try:
+        # Parse the input data
+        requirements = json.loads(legal_requirements)
+        compliance = json.loads(compliance_data)
+
+        result = report_generator.generate_compliance_report(requirements, compliance)
+
+        if "error" in result:
+            raise HTTPException(status_code=500, detail=result["error"])
+
+        return result
+
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid JSON format: {str(e)}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error generating compliance report: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/reports/technical-audit", tags=["Reports"])
+async def generate_technical_audit_report(
+    system_metrics: str = Form(...),
+    performance_data: str = Form(...)
+):
+    """
+    Generate a technical audit report
+    
+    **Parameters:**
+    - system_metrics: JSON string of system performance and health metrics
+    - performance_data: JSON string of detailed performance measurements
+    
+    **Returns:**
+    - Technical audit report with performance analysis, security assessment, and recommendations
+    """
+    if report_generator is None:
+        raise HTTPException(status_code=503, detail="Report generator not available. Ensure GEMINI_API_KEY is configured.")
+    
+    try:
+        # Parse the input data
+        metrics = json.loads(system_metrics)
+        performance = json.loads(performance_data)
+        
+        result = report_generator.generate_technical_audit_report(metrics, performance)
+        
+        if "error" in result:
+            raise HTTPException(status_code=500, detail=result["error"])
+        
+        return result
+        
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid JSON format: {str(e)}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error generating technical audit report: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/reports/impact-assessment", tags=["Reports"])
+async def generate_impact_assessment_report(
+    usage_data: str = Form(...),
+    impact_metrics: str = Form(...)
+):
+    """
+    Generate an impact assessment report
+    
+    **Parameters:**
+    - usage_data: JSON string of user usage and engagement data
+    - impact_metrics: JSON string of social and economic impact metrics
+    
+    **Returns:**
+    - Impact assessment report covering social, economic, and educational impacts
+    """
+    if report_generator is None:
+        raise HTTPException(status_code=503, detail="Report generator not available. Ensure GEMINI_API_KEY is configured.")
+    
+    try:
+        # Parse the input data
+        usage = json.loads(usage_data)
+        impact = json.loads(impact_metrics)
+        
+        result = report_generator.generate_impact_assessment_report(usage, impact)
+        
+        if "error" in result:
+            raise HTTPException(status_code=500, detail=result["error"])
+        
+        return result
+        
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid JSON format: {str(e)}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error generating impact assessment report: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/research/status", tags=["Research"])
+async def get_research_status():
+    """Get the status of research and report generation capabilities"""
+    return {
+        "research_module_available": research_module is not None,
+        "report_generator_available": report_generator is not None,
+        "gemini_api_configured": bool(os.getenv("GEMINI_API_KEY")),
+        "available_endpoints": [
+            "/research/analyze-legal-query",
+            "/research/generate-legal-report",
+            "/research/legal-research",
+            "/reports/legal-query",
+            "/reports/legal-research",
+            "/reports/constitutional-law",
+            "/reports/compliance",
+            "/reports/technical-audit",
+            "/reports/impact-assessment"
+        ] if (research_module is not None and report_generator is not None) else []
+    }
+
+
+# Crawler Manager Class
+class CrawlerManager:
+    def __init__(self):
+        self.crawlers = {}
+        self.processes = {}
+        self.logs = {}
+        self.status_file = Path(__file__).parent / "crawler_status.json"
+        self.load_status()
+        
+        # Start background status checker
+        self.status_thread = threading.Thread(target=self._status_checker, daemon=True)
+        self.status_thread.start()
+    
+    def load_status(self):
+        """Load crawler status from file"""
+        try:
+            if self.status_file.exists():
+                with open(self.status_file, 'r') as f:
+                    data = json.load(f)
+                    self.crawlers = data.get('crawlers', {})
+                    self.logs = data.get('logs', {})
+        except Exception as e:
+            logger.error(f"Error loading crawler status: {e}")
+            self.crawlers = {}
+            self.logs = {}
+    
+    def save_status(self):
+        """Save crawler status to file"""
+        try:
+            data = {
+                'crawlers': self.crawlers,
+                'logs': self.logs
+            }
+            with open(self.status_file, 'w') as f:
+                json.dump(data, f, indent=2)
+        except Exception as e:
+            logger.error(f"Error saving crawler status: {e}")
+    
+    def _status_checker(self):
+        """Background thread to check process status"""
+        while True:
+            try:
+                for crawler_name, process_info in list(self.processes.items()):
+                    pid = process_info['pid']
+                    try:
+                        # Check if process is still running
+                        process = process_info['process']
+                        if process.poll() is not None:
+                            # Process finished
+                            exit_code = process.returncode
+                            if exit_code == 0:
+                                self.crawlers[crawler_name]['status'] = 'idle'
+                                self._add_log(crawler_name, f"Process completed successfully (PID: {pid})")
+                            else:
+                                self.crawlers[crawler_name]['status'] = 'failed'
+                                self._add_log(crawler_name, f"Process failed with exit code {exit_code} (PID: {pid})")
+                            
+                            # Clean up
+                            del self.processes[crawler_name]
+                            self.crawlers[crawler_name]['last_run'] = datetime.utcnow().isoformat() + 'Z'
+                            self.save_status()
+                        else:
+                            # Process still running
+                            self.crawlers[crawler_name]['status'] = 'running'
+                    except Exception as e:
+                        logger.error(f"Error checking process {pid}: {e}")
+                        self.crawlers[crawler_name]['status'] = 'failed'
+                        self._add_log(crawler_name, f"Error monitoring process: {e}")
+                        if crawler_name in self.processes:
+                            del self.processes[crawler_name]
+                        self.save_status()
+                
+                time.sleep(5)  # Check every 5 seconds
+            except Exception as e:
+                logger.error(f"Error in status checker: {e}")
+                time.sleep(10)
+    
+    def _add_log(self, crawler_name: str, message: str):
+        """Add a log entry for a crawler"""
+        if crawler_name not in self.logs:
+            self.logs[crawler_name] = []
+        
+        timestamp = datetime.utcnow().isoformat() + 'Z'
+        self.logs[crawler_name].append(f"[{timestamp}] {message}")
+        
+        # Keep only last 100 logs
+        if len(self.logs[crawler_name]) > 100:
+            self.logs[crawler_name] = self.logs[crawler_name][-100:]
+    
+    def get_crawler_status(self):
+        """Get status of all crawlers"""
+        # Initialize default crawlers if not exists
+        default_crawlers = {
+            "kenya_law": {"status": "idle", "last_run": "2024-01-15T10:30:00Z"},
+            "parliament": {"status": "idle", "last_run": "2024-01-15T09:15:00Z"},
+            "news_rss": {"status": "idle", "last_run": "2024-01-15T11:00:00Z"},
+            "global_trends": {"status": "idle", "last_run": "2024-01-14T16:45:00Z"}
+        }
+        
+        # Merge with saved status
+        for name, default_status in default_crawlers.items():
+            if name not in self.crawlers:
+                self.crawlers[name] = default_status
+                self.logs[name] = []
+        
+        # Return current status with logs
+        result = {}
+        for name, status in self.crawlers.items():
+            result[name] = {
+                **status,
+                "logs": self.logs.get(name, [])
+            }
+        
+        return result
+    
+    def start_crawler(self, crawler_name: str):
+        """Start a specific crawler"""
+        if crawler_name not in self.crawlers:
+            raise HTTPException(status_code=404, detail=f"Crawler {crawler_name} not found")
+        
+        # Check if already running
+        if crawler_name in self.processes:
+            return {"status": "already_running", "message": f"Crawler {crawler_name} is already running"}
+        
+        try:
+            # Get spider directory
+            spider_dir = Path(__file__).parent.parent / "Module1_NiruSpider"
+            
+            # Map crawler names to spider names
+            spider_mapping = {
+                "kenya_law": "kenya_law",
+                "parliament": "parliament", 
+                "news_rss": "news_rss",
+                "global_trends": "global_trends"
+            }
+            
+            if crawler_name not in spider_mapping:
+                raise HTTPException(status_code=404, detail=f"Unknown crawler: {crawler_name}")
+            
+            spider_name = spider_mapping[crawler_name]
+            
+            # Start subprocess with log capture
+            cmd = [sys.executable, "-m", "scrapy", "crawl", spider_name, "-L", "INFO"]
+            
+            # Create subprocess with pipes for log capture
+            process = subprocess.Popen(
+                cmd,
+                cwd=str(spider_dir),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,  # Merge stderr with stdout
+                bufsize=1,
+                universal_newlines=True
+            )
+            
+            # Store process info
+            self.processes[crawler_name] = {
+                'process': process,
+                'pid': process.pid,
+                'start_time': datetime.utcnow().isoformat() + 'Z'
+            }
+            
+            # Update status
+            self.crawlers[crawler_name]['status'] = 'running'
+            self._add_log(crawler_name, f"Started crawler process (PID: {process.pid})")
+            self.save_status()
+            
+            # Start log reader thread
+            log_thread = threading.Thread(
+                target=self._read_process_logs, 
+                args=(crawler_name, process), 
+                daemon=True
+            )
+            log_thread.start()
+            
+            logger.info(f"Started {crawler_name} crawler subprocess (PID: {process.pid})")
+            return {
+                "status": "started", 
+                "message": f"Crawler {crawler_name} started successfully", 
+                "pid": process.pid
+            }
+            
+        except Exception as e:
+            logger.error(f"Error starting crawler {crawler_name}: {e}")
+            self.crawlers[crawler_name]['status'] = 'failed'
+            self._add_log(crawler_name, f"Failed to start: {str(e)}")
+            self.save_status()
+            raise HTTPException(status_code=500, detail=f"Failed to start crawler: {str(e)}")
+    
+    def _read_process_logs(self, crawler_name: str, process: subprocess.Popen):
+        """Read logs from subprocess and store them"""
+        try:
+            while True:
+                line = process.stdout.readline()
+                if not line:
+                    break
+                # Clean and store log line
+                clean_line = line.strip()
+                if clean_line:
+                    self._add_log(crawler_name, clean_line)
+        except Exception as e:
+            self._add_log(crawler_name, f"Error reading logs: {str(e)}")
+    
+    def stop_crawler(self, crawler_name: str):
+        """Stop a specific crawler"""
+        if crawler_name not in self.crawlers:
+            raise HTTPException(status_code=404, detail=f"Crawler {crawler_name} not found")
+        
+        if crawler_name not in self.processes:
+            return {"status": "not_running", "message": f"Crawler {crawler_name} is not running"}
+        
+        try:
+            process_info = self.processes[crawler_name]
+            process = process_info['process']
+            
+            # Terminate process
+            process.terminate()
+            
+            # Wait a bit for graceful shutdown
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                # Force kill if it doesn't respond
+                process.kill()
+                process.wait()
+            
+            # Clean up
+            del self.processes[crawler_name]
+            self.crawlers[crawler_name]['status'] = 'idle'
+            self.crawlers[crawler_name]['last_run'] = datetime.utcnow().isoformat() + 'Z'
+            self._add_log(crawler_name, f"Process stopped (PID: {process_info['pid']})")
+            self.save_status()
+            
+            return {"status": "stopped", "message": f"Crawler {crawler_name} stopped successfully"}
+            
+        except Exception as e:
+            logger.error(f"Error stopping crawler {crawler_name}: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to stop crawler: {str(e)}")
 
 
 if __name__ == "__main__":

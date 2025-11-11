@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge"
 import Link from "next/link"
 import { 
   Send, Bot, User, Settings, ThumbsUp, ThumbsDown, 
-  Copy, Share2, History, MessageSquare, Plus, ChevronDown, ChevronUp, ExternalLink, Trash2
+  Copy, Share2, History, MessageSquare, Plus, ChevronDown, ChevronUp, ExternalLink, Trash2, Search
 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -53,6 +53,7 @@ export function Chat() {
   const [chatHistory, setChatHistory] = useState<ChatSession[]>([])
   const [showHistory, setShowHistory] = useState(false)
   const [showSources, setShowSources] = useState(false)
+  const [isResearchMode, setIsResearchMode] = useState(false)
 
   // Load chat history on component mount
   useEffect(() => {
@@ -127,37 +128,112 @@ export function Chat() {
     setIsLoading(true)
 
     try {
-      const response = await fetch(`http://localhost:8000/chat/sessions/${sessionId}/messages`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          content: content.trim(),
-          role: "user"
+      let response;
+      if (isResearchMode) {
+        // Use research endpoints for research mode
+        response = await fetch("http://localhost:8000/research/analyze-legal-query", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({
+            query: content.trim()
+          })
         })
-      })
+      } else {
+        // Use regular chat endpoint
+        response = await fetch(`http://localhost:8000/chat/sessions/${sessionId}/messages`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            content: content.trim(),
+            role: "user"
+          })
+        })
+      }
 
       if (response.ok) {
-        const data = await response.json()
-        console.log("API response data:", data)
-        const assistantMessage: Message = {
-          id: data.id,
-          session_id: data.session_id,
-          role: data.role,
-          content: data.content,
-          created_at: data.created_at,
-          token_count: data.token_count,
-          model_used: data.model_used,
-          sources: data.sources
+        let data;
+        if (isResearchMode) {
+          data = await response.json()
+          // Format research response with better structure and null safety
+          const analysis = data.analysis || {}
+          
+          // Extract sections safely
+          const queryInterpretation = analysis.query_interpretation || 'Analyzing your legal question...'
+          const applicableLaws = analysis.applicable_laws || 'Researching relevant Kenyan laws...'
+          const legalAnalysis = analysis.legal_analysis || 'Conducting detailed legal analysis...'
+          const practicalGuidance = analysis.practical_guidance || 'Developing practical guidance...'
+          const additionalConsiderations = analysis.additional_considerations || 'Reviewing additional legal considerations...'
+          
+          const researchContent = `
+## 📋 Legal Research Analysis
+
+**Your Question:** ${data.original_query || content.trim()}
+
+---
+
+### 🔍 Query Understanding
+${queryInterpretation}
+
+---
+
+### 📖 Applicable Laws & Provisions
+${applicableLaws}
+
+---
+
+### ⚖️ Legal Analysis
+${legalAnalysis}
+
+---
+
+### 🛠️ Practical Guidance
+${practicalGuidance}
+
+---
+
+### ⚠️ Important Considerations
+${additionalConsiderations}
+
+---
+
+### 📝 Disclaimer
+*This analysis is for informational purposes only and does not constitute legal advice. Please consult with a qualified legal professional for advice specific to your situation.*
+          `.trim()
+          
+          const assistantMessage: Message = {
+            id: Date.now().toString(),
+            session_id: sessionId,
+            role: "assistant",
+            content: researchContent,
+            created_at: new Date().toISOString(),
+            model_used: data.model_used || "gemini-research"
+          }
+          setMessages(prev => [...prev, assistantMessage])
+        } else {
+          data = await response.json()
+          console.log("API response data:", data)
+          const assistantMessage: Message = {
+            id: data.id,
+            session_id: data.session_id,
+            role: data.role,
+            content: data.content,
+            created_at: data.created_at,
+            token_count: data.token_count,
+            model_used: data.model_used,
+            sources: data.sources
+          }
+          console.log("Assistant message created with ID:", assistantMessage.id)
+          setMessages(prev => [...prev, assistantMessage])
         }
-        console.log("Assistant message created with ID:", assistantMessage.id)
-        setMessages(prev => [...prev, assistantMessage])
         loadChatHistory() // Refresh history to update message count
       } else {
         const errorMessage: Message = {
           id: (Date.now() + 1).toString(),
           session_id: sessionId,
           role: "assistant",
-          content: "Sorry, I encountered an error processing your request.",
+          content: isResearchMode 
+            ? "Sorry, I encountered an error processing your legal research request."
+            : "Sorry, I encountered an error processing your request.",
           created_at: new Date().toISOString()
         }
         setMessages(prev => [...prev, errorMessage])
@@ -168,7 +244,9 @@ export function Chat() {
         id: (Date.now() + 1).toString(),
         session_id: sessionId,
         role: "assistant",
-        content: "Sorry, I couldn't connect to the server. Please try again.",
+        content: isResearchMode 
+          ? "Sorry, I couldn't connect to the research service. Please try again."
+          : "Sorry, I couldn't connect to the server. Please try again.",
         created_at: new Date().toISOString()
       }
       setMessages(prev => [...prev, errorMessage])
@@ -203,7 +281,7 @@ export function Chat() {
     }
   }
 
-  const copyToClipboard = async (text: string, messageId: string) => {
+  const copyToClipboard = async (text: string) => {
     try {
       await navigator.clipboard.writeText(text)
       toast.success("Message copied to clipboard!")
@@ -243,12 +321,9 @@ export function Chat() {
     if (!currentSessionId) return
     
     try {
-      const response = await fetch("http://localhost:8000/chat/share", {
+      const response = await fetch(`http://localhost:8000/chat/share?session_id=${encodeURIComponent(currentSessionId)}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          session_id: currentSessionId
-        })
+        headers: { "Content-Type": "application/json" }
       })
       if (response.ok) {
         const data = await response.json()
@@ -270,6 +345,14 @@ export function Chat() {
     "What are the key provisions of the Kenyan Competition Act?",
     "How does the Kenyan judiciary handle environmental law cases?",
     "What are the requirements for starting a business in Kenya?"
+  ]
+
+  const researchSuggestedQuestions = [
+    "Conduct a comprehensive analysis of the Kenyan Constitution's Bill of Rights and its implications for digital rights",
+    "Research the evolution of environmental law in Kenya and its effectiveness in conservation efforts",
+    "Analyze the impact of recent amendments to the Kenyan Penal Code on cybercrime legislation",
+    "Investigate the constitutional framework for devolution in Kenya and its implementation challenges",
+    "Examine the legal framework governing data protection and privacy rights in Kenya"
   ]
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -364,8 +447,23 @@ export function Chat() {
               <History className="w-4 h-4" />
             </Button>
             <h1 className="text-2xl font-bold">AmaniQuery</h1>
+            {isResearchMode && (
+              <Badge variant="default" className="bg-blue-600">
+                <Search className="w-3 h-3 mr-1" />
+                Research Mode
+              </Badge>
+            )}
           </div>
           <div className="flex items-center space-x-2">
+            <Button 
+              variant={isResearchMode ? "default" : "outline"} 
+              size="sm"
+              onClick={() => setIsResearchMode(!isResearchMode)}
+              className={isResearchMode ? "bg-blue-600 hover:bg-blue-700" : ""}
+            >
+              <Search className="w-4 h-4 mr-2" />
+              {isResearchMode ? "Exit Research" : "Research Mode"}
+            </Button>
             <Badge variant="secondary">RAG-Powered Legal & News Intelligence</Badge>
             {currentSessionId && (
               <Button variant="outline" size="sm" onClick={shareChat}>
@@ -387,12 +485,17 @@ export function Chat() {
           {messages.length === 0 && (
             <div className="text-center py-12">
               <Bot className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
-              <h2 className="text-xl font-semibold mb-2">Welcome to AmaniQuery</h2>
+              <h2 className="text-xl font-semibold mb-2">
+                Welcome to AmaniQuery {isResearchMode && "- Research Mode"}
+              </h2>
               <p className="text-muted-foreground mb-6">
-                Ask questions about Kenyan law, parliament, and news. Get factual answers with verifiable sources.
+                {isResearchMode 
+                  ? "Ask detailed legal research questions about Kenyan laws. Get comprehensive analysis with sources and recommendations."
+                  : "Ask questions about Kenyan law, parliament, and news. Get factual answers with verifiable sources."
+                }
               </p>
               <div className="flex flex-col gap-4 max-w-2xl mx-auto">
-                {suggestedQuestions.map((question, index) => (
+                {(isResearchMode ? researchSuggestedQuestions : suggestedQuestions).map((question, index) => (
                   <Button
                     key={index}
                     variant="outline"
@@ -417,6 +520,14 @@ export function Chat() {
                 <div className="flex-1">
                   <Card className={`max-w-full ${message.role === 'user' ? 'bg-primary text-primary-foreground' : ''}`}>
                     <CardContent className="p-3">
+                      {message.model_used === 'gemini-research' && (
+                        <div className="flex items-center gap-2 mb-2">
+                          <Badge variant="secondary" className="text-xs">
+                            <Search className="w-3 h-3 mr-1" />
+                            Legal Research
+                          </Badge>
+                        </div>
+                      )}
                       <div
                         className="prose prose-sm max-w-none dark:prose-invert"
                         dangerouslySetInnerHTML={{
@@ -427,7 +538,7 @@ export function Chat() {
                   </Card>
                   
                   {/* Message Actions */}
-                  {message.role === 'assistant' && (
+                  {message.role === 'assistant' && message.model_used !== 'gemini-research' && (
                     <div className="flex items-center space-x-2 mt-2 ml-10">
                       <Button
                         variant="ghost"
@@ -448,7 +559,18 @@ export function Chat() {
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => copyToClipboard(message.content, message.id)}
+                        onClick={() => copyToClipboard(message.content)}
+                      >
+                        <Copy className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  )}
+                  {message.role === 'assistant' && message.model_used === 'gemini-research' && (
+                    <div className="flex items-center space-x-2 mt-2 ml-10">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => copyToClipboard(message.content)}
                       >
                         <Copy className="w-4 h-4" />
                       </Button>
@@ -526,7 +648,11 @@ export function Chat() {
             <Input
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="Ask about Kenyan law, parliament, or news..."
+              placeholder={
+                isResearchMode 
+                  ? "Ask detailed legal research questions about Kenyan laws..."
+                  : "Ask about Kenyan law, parliament, or news..."
+              }
               className="flex-1"
               disabled={isLoading}
             />

@@ -35,6 +35,10 @@ class VectorStore:
         
         # Initialize ChromaDB client
         logger.info(f"Initializing ChromaDB at {persist_directory}")
+        
+        # Disable telemetry to prevent capture() argument errors
+        os.environ["CHROMA_TELEMETRY_ENABLED"] = "false"
+        
         self.client = chromadb.PersistentClient(
             path=persist_directory,
             settings=Settings(

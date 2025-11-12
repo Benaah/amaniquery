@@ -1,5 +1,5 @@
 # Multi-stage Dockerfile for AmaniQuery (Frontend + Backend)
-FROM node:18-alpine AS frontend-builder
+FROM node:20-alpine AS frontend-builder
 
 # Build Frontend
 WORKDIR /frontend

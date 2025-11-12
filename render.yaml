@@ -3,16 +3,13 @@ services:
     type: web
     runtime: node
     rootDir: frontend
-    buildCommand: npm run build
+    buildCommand: npm install && npm run build
     startCommand: npm start
     envVars:
       - key: NODE_ENV
         value: production
       - key: NEXT_PUBLIC_API_URL
-        fromService:
-          type: web
-          name: api
-          property: host
+        value: https://api-amaniquery.onrender.com
     plan: free
 
   - name: api
@@ -22,10 +19,7 @@ services:
     startCommand: uvicorn Module4_NiruAPI.api:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: CORS_ORIGINS
-        fromService:
-          type: web
-          name: frontend
-          property: host
+        value: https://amaniquery.onrender.com
       - key: API_HOST
         value: 0.0.0.0
       - key: API_PORT

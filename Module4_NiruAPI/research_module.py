@@ -31,6 +31,7 @@ class ResearchModule:
         try:
             import google.generativeai as genai
             genai.configure(api_key=self.api_key)
+            self.genai = genai  # Store reference for later use
             self.model = genai.GenerativeModel('gemini-2.5-flash')
             logger.info("Research module initialized with Gemini AI")
         except ImportError:
@@ -38,88 +39,139 @@ class ResearchModule:
 
     def analyze_legal_query(self, query: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
-        Analyze a legal query about Kenya's laws
+        Analyze a legal query about Kenya's laws with comprehensive research
 
         Args:
             query: The legal question or query to analyze
             context: Additional context about the query (optional)
 
         Returns:
-            Dictionary containing analysis results
+            Dictionary containing detailed analysis results
         """
         context_info = ""
         if context:
             context_info = f"\n\nADDITIONAL CONTEXT:\n{json.dumps(context, indent=2)}"
 
         prompt = f"""
-        Analyze the following legal query about Kenya's laws and provide comprehensive information:
+You are a senior legal researcher specializing in Kenyan law. Conduct comprehensive legal research and analysis for the following query:
 
-        LEGAL QUERY:
-        {query}{context_info}
+LEGAL QUERY: {query}{context_info}
 
-        Please provide a detailed analysis covering:
+Provide a detailed research report in the following structured JSON format:
 
-        1. QUERY INTERPRETATION:
-           - Understanding of the legal question
-           - Key legal concepts involved
-           - Relevant areas of Kenyan law
+{{
+  "original_query": "{query}",
+  "executive_summary": "Concise overview of key findings, legal implications, and main recommendations (2-3 paragraphs)",
+  "background_context": "Historical, social, and legal context relevant to the query (comprehensive background)",
+  "methodology": "Research methodology, sources consulted, and analytical approach used",
+  "applicable_laws": [
+    {{
+      "law_name": "Full name of the law/act",
+      "citation": "Official citation (e.g., Cap 123 Laws of Kenya)",
+      "key_provisions": ["Specific sections relevant to the query"],
+      "amendments": "Recent amendments or changes",
+      "interpretation": "How the law applies to this query"
+    }}
+  ],
+  "constitutional_analysis": {{
+    "relevant_articles": ["Specific constitutional articles"],
+    "fundamental_rights": ["Rights implicated"],
+    "constitutional_remedies": ["Available constitutional remedies"],
+    "court_jurisdiction": "Which courts have jurisdiction"
+  }},
+  "case_law_precedents": [
+    {{
+      "case_name": "Full case citation",
+      "court": "Court that decided the case",
+      "year": "Year decided",
+      "key_holding": "Main legal principle established",
+      "relevance": "How it applies to this query"
+    }}
+  ],
+  "detailed_legal_analysis": "Comprehensive legal analysis including step-by-step reasoning, legal principles, and implications (detailed explanation)",
+  "practical_guidance": {{
+    "immediate_steps": ["Step-by-step actions to take"],
+    "required_documents": ["Documents needed"],
+    "relevant_institutions": ["Government agencies, courts, or organizations involved"],
+    "procedural_requirements": "Detailed procedures to follow",
+    "timeframes": "Relevant deadlines and time considerations",
+    "costs": "Associated costs and fees"
+  }},
+  "risk_assessment": {{
+    "legal_risks": ["Potential legal risks and consequences"],
+    "compliance_requirements": ["Legal obligations to fulfill"],
+    "mitigation_strategies": ["Ways to minimize risks"],
+    "alternative_approaches": ["Alternative legal strategies"]
+  }},
+  "recommendations": [
+    {{
+      "priority": "High/Medium/Low",
+      "action": "Specific recommended action",
+      "rationale": "Reason for the recommendation",
+      "timeline": "When to implement",
+      "responsible_party": "Who should take action"
+    }}
+  ],
+  "additional_considerations": {{
+    "related_legal_areas": ["Other areas of law that may be relevant"],
+    "ethical_considerations": "Ethical issues to consider",
+    "policy_implications": "Broader policy or societal implications",
+    "future_developments": "Upcoming legal changes or developments"
+  }},
+  "sources_and_references": [
+    {{
+      "type": "Primary/Secondary",
+      "title": "Source title",
+      "author": "Author or institution",
+      "publication_date": "Date published",
+      "url": "Web link if available",
+      "relevance": "How it was used in this analysis"
+    }}
+  ],
+  "disclaimer": "Comprehensive legal disclaimer emphasizing that this is not formal legal advice and professional consultation is recommended",
+  "model_used": "gemini-research",
+  "research_timestamp": "{datetime.utcnow().isoformat()}",
+  "report_confidence": "High/Medium/Low confidence in the analysis based on available information"
+}}
 
-        2. APPLICABLE LAWS:
-           - Specific Kenyan laws, acts, or regulations
-           - Constitutional provisions if relevant
-           - Case law or precedents
-
-        3. LEGAL ANALYSIS:
-           - Step-by-step legal reasoning
-           - Rights and obligations involved
-           - Potential legal implications
-
-        4. PRACTICAL GUIDANCE:
-           - How to approach this legal matter
-           - Required documentation or procedures
-           - Relevant government agencies or courts
-
-        5. ADDITIONAL CONSIDERATIONS:
-           - Related legal areas to consider
-           - Potential challenges or limitations
-           - When to seek professional legal advice
-
-        Format your response as a JSON object with these sections.
-        Include specific references to Kenyan legal sources where possible.
-        """
+Ensure the analysis is comprehensive, accurate, and based on Kenyan legal framework. Include specific references to laws, cases, and legal principles. Structure the response as valid JSON with detailed, actionable information.
+"""
 
         try:
-            response = self.model.generate_content(prompt)
-            result = response.text
-
-            # Try to parse as JSON, if it fails, return structured text
-            try:
-                analysis = json.loads(result)
-            except json.JSONDecodeError:
-                # If not valid JSON, structure it manually
-                analysis = {
-                    "query_interpretation": self._extract_section(result, "QUERY INTERPRETATION"),
-                    "applicable_laws": self._extract_section(result, "APPLICABLE LAWS"),
-                    "legal_analysis": self._extract_section(result, "LEGAL ANALYSIS"),
-                    "practical_guidance": self._extract_section(result, "PRACTICAL GUIDANCE"),
-                    "additional_considerations": self._extract_section(result, "ADDITIONAL CONSIDERATIONS"),
-                    "raw_analysis": result
-                }
-
-            return {
-                "analysis": analysis,
-                "timestamp": datetime.utcnow().isoformat(),
-                "model_used": "gemini-1.5-pro",
-                "original_query": query,
-                "context_provided": context is not None
-            }
-
+            response = self.model.generate_content(
+                prompt,
+                generation_config=self.genai.types.GenerationConfig(
+                    temperature=0.2,
+                    max_output_tokens=12000,
+                    response_mime_type="application/json"
+                )
+            )
+            
+            # Parse the JSON response
+            result = json.loads(response.text.strip())
+            
+            # Ensure required fields are present
+            if 'research_timestamp' not in result:
+                result['research_timestamp'] = datetime.utcnow().isoformat()
+            
+            if 'model_used' not in result:
+                result['model_used'] = 'gemini-research'
+                
+            return result
+            
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON parsing error in legal analysis: {e}")
+            # Fallback to text processing
+            return self._fallback_text_analysis(query, context)
         except Exception as e:
             logger.error(f"Error in legal query analysis: {e}")
             return {
-                "error": str(e),
-                "timestamp": datetime.utcnow().isoformat(),
-                "original_query": query
+                "original_query": query,
+                "error": f"Research analysis failed: {str(e)}",
+                "executive_summary": "Unable to complete research analysis due to technical error.",
+                "model_used": "gemini-research",
+                "research_timestamp": datetime.utcnow().isoformat(),
+                "report_confidence": "Low"
             }
 
     def generate_legal_report(self, analysis_results: Dict[str, Any], report_focus: str = "comprehensive") -> Dict[str, Any]:
@@ -309,35 +361,346 @@ class ResearchModule:
                 "questions": research_questions
             }
 
-    def _extract_section(self, text: str, section_name: str) -> str:
-        """Extract a section from text response"""
+    def _fallback_text_analysis(self, query: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Fallback analysis when JSON parsing fails"""
+        context_info = ""
+        if context:
+            context_info = f"\n\nADDITIONAL CONTEXT:\n{json.dumps(context, indent=2)}"
+
+        prompt = f"""
+        Analyze the following legal query about Kenya's laws and provide comprehensive information:
+
+        LEGAL QUERY: {query}{context_info}
+
+        Provide a detailed analysis covering all legal aspects, applicable laws, practical guidance, and recommendations.
+        Include specific references to Kenyan laws and legal sources.
+        """
+
+        try:
+            response = self.model.generate_content(prompt)
+            text_analysis = response.text
+
+            return {
+                "original_query": query,
+                "executive_summary": self._extract_section(text_analysis, "EXECUTIVE SUMMARY") or "Comprehensive legal analysis completed.",
+                "detailed_legal_analysis": text_analysis,
+                "applicable_laws": self._extract_section(text_analysis, "APPLICABLE LAWS") or "Analysis of relevant Kenyan laws conducted.",
+                "practical_guidance": self._extract_section(text_analysis, "PRACTICAL GUIDANCE") or "Legal guidance provided in the analysis.",
+                "recommendations": self._extract_section(text_analysis, "RECOMMENDATIONS") or "Legal recommendations included.",
+                "model_used": "gemini-research",
+                "research_timestamp": datetime.utcnow().isoformat(),
+                "report_confidence": "Medium",
+                "fallback_mode": True
+            }
+        except Exception as e:
+            return {
+                "original_query": query,
+                "error": f"Fallback analysis failed: {str(e)}",
+                "model_used": "gemini-research",
+                "research_timestamp": datetime.utcnow().isoformat(),
+                "report_confidence": "Low"
+            }
+
+    def generate_pdf_report(self, analysis_results: Dict[str, Any], output_path: str) -> str:
+        """
+        Generate a PDF document from legal analysis results
+
+        Args:
+            analysis_results: Results from analyze_legal_query
+            output_path: Path where to save the PDF file
+
+        Returns:
+            Path to the generated PDF file
+        """
+        try:
+            from reportlab.lib import colors
+            from reportlab.lib.pagesizes import letter, A4
+            from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+            from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
+            from reportlab.lib.units import inch
+        except ImportError:
+            raise ImportError("reportlab package required for PDF generation. Install with: pip install reportlab")
+
+        # Create PDF document
+        doc = SimpleDocTemplate(output_path, pagesize=A4)
+        styles = getSampleStyleSheet()
+        
+        # Custom styles
+        title_style = ParagraphStyle(
+            'CustomTitle',
+            parent=styles['Heading1'],
+            fontSize=16,
+            spaceAfter=30,
+            alignment=1  # Center alignment
+        )
+        
+        heading_style = ParagraphStyle(
+            'CustomHeading',
+            parent=styles['Heading2'],
+            fontSize=14,
+            spaceAfter=15,
+            textColor=colors.darkblue
+        )
+        
+        subheading_style = ParagraphStyle(
+            'CustomSubheading',
+            parent=styles['Heading3'],
+            fontSize=12,
+            spaceAfter=10,
+            textColor=colors.darkgreen
+        )
+        
+        normal_style = styles['Normal']
+        normal_style.fontSize = 10
+        normal_style.leading = 12
+
+        story = []
+
+        # Title Page
+        story.append(Paragraph("LEGAL RESEARCH REPORT", title_style))
+        story.append(Spacer(1, 0.5*inch))
+        story.append(Paragraph("AmaniQuery Legal Intelligence Platform", styles['Heading2']))
+        story.append(Spacer(1, 0.3*inch))
+        story.append(Paragraph(f"Query: {analysis_results.get('original_query', 'Legal Research Query')}", normal_style))
+        story.append(Spacer(1, 0.2*inch))
+        story.append(Paragraph(f"Generated: {analysis_results.get('research_timestamp', datetime.utcnow().isoformat())}", normal_style))
+        story.append(Spacer(1, 0.2*inch))
+        story.append(Paragraph(f"Report Confidence: {analysis_results.get('report_confidence', 'High')}", normal_style))
+        story.append(PageBreak())
+
+        # Executive Summary
+        if 'executive_summary' in analysis_results:
+            story.append(Paragraph("EXECUTIVE SUMMARY", heading_style))
+            story.append(Paragraph(analysis_results['executive_summary'], normal_style))
+            story.append(Spacer(1, 0.2*inch))
+
+        # Background Context
+        if 'background_context' in analysis_results:
+            story.append(Paragraph("BACKGROUND CONTEXT", heading_style))
+            story.append(Paragraph(analysis_results['background_context'], normal_style))
+            story.append(Spacer(1, 0.2*inch))
+
+        # Applicable Laws
+        if 'applicable_laws' in analysis_results and isinstance(analysis_results['applicable_laws'], list):
+            story.append(Paragraph("APPLICABLE LAWS", heading_style))
+            for law in analysis_results['applicable_laws']:
+                if isinstance(law, dict):
+                    story.append(Paragraph(f"<b>{law.get('law_name', 'Law')}</b>", subheading_style))
+                    if 'citation' in law:
+                        story.append(Paragraph(f"<i>Citation:</i> {law['citation']}", normal_style))
+                    if 'key_provisions' in law and law['key_provisions']:
+                        story.append(Paragraph(f"<i>Key Provisions:</i> {', '.join(law['key_provisions'])}", normal_style))
+                    if 'interpretation' in law:
+                        story.append(Paragraph(f"<i>Application:</i> {law['interpretation']}", normal_style))
+                    story.append(Spacer(1, 0.1*inch))
+                else:
+                    story.append(Paragraph(str(law), normal_style))
+            story.append(Spacer(1, 0.2*inch))
+
+        # Legal Analysis
+        if 'detailed_legal_analysis' in analysis_results:
+            story.append(Paragraph("DETAILED LEGAL ANALYSIS", heading_style))
+            story.append(Paragraph(analysis_results['detailed_legal_analysis'], normal_style))
+            story.append(Spacer(1, 0.2*inch))
+
+        # Practical Guidance
+        if 'practical_guidance' in analysis_results:
+            story.append(Paragraph("PRACTICAL GUIDANCE", heading_style))
+            guidance = analysis_results['practical_guidance']
+            if isinstance(guidance, dict):
+                if 'immediate_steps' in guidance and guidance['immediate_steps']:
+                    story.append(Paragraph("<b>Immediate Steps:</b>", subheading_style))
+                    for step in guidance['immediate_steps']:
+                        story.append(Paragraph(f"• {step}", normal_style))
+                    story.append(Spacer(1, 0.1*inch))
+                
+                if 'required_documents' in guidance and guidance['required_documents']:
+                    story.append(Paragraph("<b>Required Documents:</b>", subheading_style))
+                    for doc in guidance['required_documents']:
+                        story.append(Paragraph(f"• {doc}", normal_style))
+                    story.append(Spacer(1, 0.1*inch))
+                
+                if 'relevant_institutions' in guidance and guidance['relevant_institutions']:
+                    story.append(Paragraph("<b>Relevant Institutions:</b>", subheading_style))
+                    for inst in guidance['relevant_institutions']:
+                        story.append(Paragraph(f"• {inst}", normal_style))
+                    story.append(Spacer(1, 0.1*inch))
+            else:
+                story.append(Paragraph(str(guidance), normal_style))
+            story.append(Spacer(1, 0.2*inch))
+
+        # Recommendations
+        if 'recommendations' in analysis_results and isinstance(analysis_results['recommendations'], list):
+            story.append(Paragraph("RECOMMENDATIONS", heading_style))
+            for rec in analysis_results['recommendations']:
+                if isinstance(rec, dict):
+                    priority = rec.get('priority', 'Medium')
+                    action = rec.get('action', 'Recommendation')
+                    rationale = rec.get('rationale', '')
+                    
+                    story.append(Paragraph(f"<b>{priority} Priority:</b> {action}", subheading_style))
+                    if rationale:
+                        story.append(Paragraph(f"<i>Rationale:</i> {rationale}", normal_style))
+                    story.append(Spacer(1, 0.1*inch))
+                else:
+                    story.append(Paragraph(f"• {str(rec)}", normal_style))
+            story.append(Spacer(1, 0.2*inch))
+
+        # Disclaimer
+        if 'disclaimer' in analysis_results:
+            story.append(Paragraph("LEGAL DISCLAIMER", heading_style))
+            story.append(Paragraph(analysis_results['disclaimer'], normal_style))
+            story.append(Spacer(1, 0.2*inch))
+
+        # Build PDF
+        doc.build(story)
+        return output_path
+
+    def generate_word_report(self, analysis_results: Dict[str, Any], output_path: str) -> str:
+        """
+        Generate a Word document from legal analysis results
+
+        Args:
+            analysis_results: Results from analyze_legal_query
+            output_path: Path where to save the Word file
+
+        Returns:
+            Path to the generated Word file
+        """
+        try:
+            from docx import Document
+            from docx.shared import Inches, Pt
+            from docx.enum.style import WD_STYLE_TYPE
+        except ImportError:
+            raise ImportError("python-docx package required for Word generation. Install with: pip install python-docx")
+
+        # Create Word document
+        doc = Document()
+        
+        # Title
+        title = doc.add_heading('LEGAL RESEARCH REPORT', 0)
+        title.alignment = 1  # Center alignment
+        
+        # Subtitle
+        subtitle = doc.add_heading('AmaniQuery Legal Intelligence Platform', 1)
+        subtitle.alignment = 1
+        
+        # Query and metadata
+        doc.add_paragraph(f"Query: {analysis_results.get('original_query', 'Legal Research Query')}")
+        doc.add_paragraph(f"Generated: {analysis_results.get('research_timestamp', datetime.utcnow().isoformat())}")
+        doc.add_paragraph(f"Report Confidence: {analysis_results.get('report_confidence', 'High')}")
+        doc.add_page_break()
+
+        # Executive Summary
+        if 'executive_summary' in analysis_results:
+            doc.add_heading('EXECUTIVE SUMMARY', 1)
+            doc.add_paragraph(analysis_results['executive_summary'])
+
+        # Background Context
+        if 'background_context' in analysis_results:
+            doc.add_heading('BACKGROUND CONTEXT', 1)
+            doc.add_paragraph(analysis_results['background_context'])
+
+        # Applicable Laws
+        if 'applicable_laws' in analysis_results and isinstance(analysis_results['applicable_laws'], list):
+            doc.add_heading('APPLICABLE LAWS', 1)
+            for law in analysis_results['applicable_laws']:
+                if isinstance(law, dict):
+                    doc.add_heading(law.get('law_name', 'Law'), 2)
+                    if 'citation' in law:
+                        doc.add_paragraph(f"Citation: {law['citation']}", style='Intense Quote')
+                    if 'key_provisions' in law and law['key_provisions']:
+                        doc.add_paragraph(f"Key Provisions: {', '.join(law['key_provisions'])}")
+                    if 'interpretation' in law:
+                        doc.add_paragraph(f"Application: {law['interpretation']}")
+                else:
+                    doc.add_paragraph(str(law))
+
+        # Legal Analysis
+        if 'detailed_legal_analysis' in analysis_results:
+            doc.add_heading('DETAILED LEGAL ANALYSIS', 1)
+            doc.add_paragraph(analysis_results['detailed_legal_analysis'])
+
+        # Practical Guidance
+        if 'practical_guidance' in analysis_results:
+            doc.add_heading('PRACTICAL GUIDANCE', 1)
+            guidance = analysis_results['practical_guidance']
+            if isinstance(guidance, dict):
+                if 'immediate_steps' in guidance and guidance['immediate_steps']:
+                    doc.add_heading('Immediate Steps', 2)
+                    for step in guidance['immediate_steps']:
+                        doc.add_paragraph(f"• {step}", style='List Bullet')
+                
+                if 'required_documents' in guidance and guidance['required_documents']:
+                    doc.add_heading('Required Documents', 2)
+                    for doc_item in guidance['required_documents']:
+                        doc.add_paragraph(f"• {doc_item}", style='List Bullet')
+                
+                if 'relevant_institutions' in guidance and guidance['relevant_institutions']:
+                    doc.add_heading('Relevant Institutions', 2)
+                    for inst in guidance['relevant_institutions']:
+                        doc.add_paragraph(f"• {inst}", style='List Bullet')
+            else:
+                doc.add_paragraph(str(guidance))
+
+        # Recommendations
+        if 'recommendations' in analysis_results and isinstance(analysis_results['recommendations'], list):
+            doc.add_heading('RECOMMENDATIONS', 1)
+            for rec in analysis_results['recommendations']:
+                if isinstance(rec, dict):
+                    priority = rec.get('priority', 'Medium')
+                    action = rec.get('action', 'Recommendation')
+                    rationale = rec.get('rationale', '')
+                    
+                    doc.add_heading(f"{priority} Priority: {action}", 2)
+                    if rationale:
+                        doc.add_paragraph(f"Rationale: {rationale}")
+                else:
+                    doc.add_paragraph(f"• {str(rec)}", style='List Bullet')
+
+        # Disclaimer
+        if 'disclaimer' in analysis_results:
+            doc.add_heading('LEGAL DISCLAIMER', 1)
+            doc.add_paragraph(analysis_results['disclaimer'])
+
+        # Save document
+        doc.save(output_path)
+        return output_path
+
+    def _extract_report_sections(self, report_content: str) -> List[str]:
+        """Extract section headers from report content"""
+        sections = []
+        lines = report_content.split('\n')
+        for line in lines:
+            line = line.strip()
+            if line and len(line) < 100:  # Likely a section header
+                # Check for common section patterns
+                if any(keyword in line.upper() for keyword in [
+                    'SUMMARY', 'ANALYSIS', 'GUIDANCE', 'RECOMMENDATIONS', 
+                    'CONCLUSION', 'BACKGROUND', 'LAW', 'PROCEDURE'
+                ]):
+                    sections.append(line)
+        return sections
+
+    def _extract_section(self, text: str, section_name: str) -> Optional[str]:
+        """Extract a specific section from text content"""
         # Simple text extraction - look for section headers
         lines = text.split('\n')
-        section_lines = []
         in_section = False
-
+        section_content = []
+        
         for line in lines:
+            line = line.strip()
             if section_name.upper() in line.upper():
                 in_section = True
                 continue
-            elif in_section and line.strip().startswith(('1.', '2.', '3.', '4.', '5.', '6.', '7.', '8.', '9.')):
-                # Next numbered section
+            elif in_section and line and len(line) > 50:  # Section content
+                section_content.append(line)
+            elif in_section and line and any(keyword in line.upper() for keyword in [
+                'SUMMARY', 'ANALYSIS', 'GUIDANCE', 'RECOMMENDATIONS', 
+                'CONCLUSION', 'BACKGROUND', 'LAW', 'PROCEDURE'
+            ]):
+                # Next section started
                 break
-            elif in_section:
-                section_lines.append(line)
-
-        return '\n'.join(section_lines).strip()
-
-    def _extract_report_sections(self, report: str) -> List[str]:
-        """Extract section headers from the report"""
-        lines = report.split('\n')
-        sections = []
-
-        for line in lines:
-            line = line.strip()
-            if line and not line.startswith(' ') and len(line) < 100:
-                # Likely a section header
-                if any(keyword in line.upper() for keyword in ['SUMMARY', 'METHODOLOGY', 'ANALYSIS', 'FINDINGS', 'CHALLENGES', 'RECOMMENDATIONS', 'OUTLOOK', 'CONCLUSION']):
-                    sections.append(line)
-
-        return sections
+        
+        return ' '.join(section_content) if section_content else None

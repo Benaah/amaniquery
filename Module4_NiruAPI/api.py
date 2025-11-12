@@ -1223,6 +1223,110 @@ async def conduct_legal_research(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/research/generate-pdf-report", tags=["Research"])
+async def generate_pdf_report(
+    analysis_results: str = Form(...),
+    report_title: str = Form("Legal Research Report")
+):
+    """
+    Generate a PDF report from legal analysis results
+
+    **Parameters:**
+    - analysis_results: JSON string of analysis results from /research/analyze-legal-query
+    - report_title: Title for the PDF report
+
+    **Returns:**
+    - PDF file as downloadable content
+    """
+    if research_module is None:
+        raise HTTPException(status_code=503, detail="Research module not available. Ensure GEMINI_API_KEY is configured.")
+
+    try:
+        # Parse the analysis results
+        analysis_data = json.loads(analysis_results)
+
+        # Generate PDF
+        import tempfile
+        import os
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp_file:
+            pdf_path = research_module.generate_pdf_report(analysis_data, tmp_file.name)
+        
+        # Read the PDF content
+        with open(pdf_path, 'rb') as f:
+            pdf_content = f.read()
+        
+        # Clean up temp file
+        os.unlink(pdf_path)
+
+        # Return as file download
+        from fastapi.responses import Response
+        return Response(
+            content=pdf_content,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f"attachment; filename={report_title.replace(' ', '_')}.pdf"}
+        )
+
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON in analysis_results")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error generating PDF report: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/research/generate-word-report", tags=["Research"])
+async def generate_word_report(
+    analysis_results: str = Form(...),
+    report_title: str = Form("Legal Research Report")
+):
+    """
+    Generate a Word document report from legal analysis results
+
+    **Parameters:**
+    - analysis_results: JSON string of analysis results from /research/analyze-legal-query
+    - report_title: Title for the Word document
+
+    **Returns:**
+    - Word document (.docx) as downloadable content
+    """
+    if research_module is None:
+        raise HTTPException(status_code=503, detail="Research module not available. Ensure GEMINI_API_KEY is configured.")
+
+    try:
+        # Parse the analysis results
+        analysis_data = json.loads(analysis_results)
+
+        # Generate Word document
+        import tempfile
+        import os
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.docx') as tmp_file:
+            word_path = research_module.generate_word_report(analysis_data, tmp_file.name)
+        
+        # Read the Word content
+        with open(word_path, 'rb') as f:
+            word_content = f.read()
+        
+        # Clean up temp file
+        os.unlink(word_path)
+
+        # Return as file download
+        from fastapi.responses import Response
+        return Response(
+            content=word_content,
+            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            headers={"Content-Disposition": f"attachment; filename={report_title.replace(' ', '_')}.docx"}
+        )
+
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON in analysis_results")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error generating Word report: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/reports/legal-query", tags=["Reports"])
 async def generate_legal_query_report(query_analysis: str = Form(...)):
     """
@@ -1458,6 +1562,8 @@ async def get_research_status():
             "/research/analyze-legal-query",
             "/research/generate-legal-report",
             "/research/legal-research",
+            "/research/generate-pdf-report",
+            "/research/generate-word-report",
             "/reports/legal-query",
             "/reports/legal-research",
             "/reports/constitutional-law",

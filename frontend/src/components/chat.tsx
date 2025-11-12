@@ -8,7 +8,8 @@ import { Badge } from "@/components/ui/badge"
 import Link from "next/link"
 import { 
   Send, Bot, User, Settings, ThumbsUp, ThumbsDown, 
-  Copy, Share2, History, MessageSquare, Plus, ChevronDown, ChevronUp, ExternalLink, Trash2, Search
+  Copy, Share2, History, MessageSquare, Plus, ChevronDown, ChevronUp, ExternalLink, Trash2, Search,
+  FileText, Download
 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -54,6 +55,7 @@ export function Chat() {
   const [showHistory, setShowHistory] = useState(false)
   const [showSources, setShowSources] = useState(false)
   const [isResearchMode, setIsResearchMode] = useState(false)
+  const [researchResults, setResearchResults] = useState<Record<string, any>>({})
 
   // Load chat history on component mount
   useEffect(() => {
@@ -209,6 +211,12 @@ ${additionalConsiderations}
             model_used: data.model_used || "gemini-research"
           }
           setMessages(prev => [...prev, assistantMessage])
+          
+          // Store research results for document generation
+          setResearchResults(prev => ({
+            ...prev,
+            [assistantMessage.id]: data
+          }))
         } else {
           data = await response.json()
           console.log("API response data:", data)
@@ -336,6 +344,80 @@ ${additionalConsiderations}
     } catch (error) {
       console.error("Failed to generate share link:", error)
       toast.error("Failed to generate share link")
+    }
+  }
+
+  const generatePDF = async (messageId: string) => {
+    const researchData = researchResults[messageId]
+    if (!researchData) {
+      toast.error("Research data not found")
+      return
+    }
+
+    try {
+      const response = await fetch("http://localhost:8000/research/generate-pdf-report", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          analysis_results: JSON.stringify(researchData),
+          report_title: "Legal Research Report"
+        })
+      })
+
+      if (response.ok) {
+        const blob = await response.blob()
+        const url = window.URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = 'legal_research_report.pdf'
+        document.body.appendChild(a)
+        a.click()
+        window.URL.revokeObjectURL(url)
+        document.body.removeChild(a)
+        toast.success("PDF report downloaded!")
+      } else {
+        toast.error("Failed to generate PDF report")
+      }
+    } catch (error) {
+      console.error("Error generating PDF:", error)
+      toast.error("Error generating PDF report")
+    }
+  }
+
+  const generateWord = async (messageId: string) => {
+    const researchData = researchResults[messageId]
+    if (!researchData) {
+      toast.error("Research data not found")
+      return
+    }
+
+    try {
+      const response = await fetch("http://localhost:8000/research/generate-word-report", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          analysis_results: JSON.stringify(researchData),
+          report_title: "Legal Research Report"
+        })
+      })
+
+      if (response.ok) {
+        const blob = await response.blob()
+        const url = window.URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = 'legal_research_report.docx'
+        document.body.appendChild(a)
+        a.click()
+        window.URL.revokeObjectURL(url)
+        document.body.removeChild(a)
+        toast.success("Word document downloaded!")
+      } else {
+        toast.error("Failed to generate Word document")
+      }
+    } catch (error) {
+      console.error("Error generating Word document:", error)
+      toast.error("Error generating Word document")
     }
   }
 
@@ -567,6 +649,24 @@ ${additionalConsiderations}
                   )}
                   {message.role === 'assistant' && message.model_used === 'gemini-research' && (
                     <div className="flex items-center space-x-2 mt-2 ml-10">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => generatePDF(message.id)}
+                        title="Download as PDF"
+                      >
+                        <FileText className="w-4 h-4 mr-1" />
+                        PDF
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => generateWord(message.id)}
+                        title="Download as Word"
+                      >
+                        <Download className="w-4 h-4 mr-1" />
+                        Word
+                      </Button>
                       <Button
                         variant="ghost"
                         size="sm"

@@ -60,7 +60,7 @@ def analyze_legal_query():
         if response.status_code == 200:
             result = response.json()
             print("Legal Query Analysis Completed!")
-            print(f"Analysis generated at: {result['timestamp']}")
+            print(f"Analysis generated at: {result['research_timestamp']}")
             print(f"Model used: {result['model_used']}")
 
             # Save analysis to file
@@ -212,7 +212,58 @@ def generate_legal_query_report():
         print(f"Error generating legal query report: {e}")
         return None
 
-def generate_project_overview_report():
+def generate_pdf_report(analysis_results: Dict[str, Any], report_title: str = "Legal Research Report"):
+    """Generate a PDF report from legal analysis results"""
+    try:
+        response = requests.post(
+            f"{API_BASE_URL}/research/generate-pdf-report",
+            data={
+                "analysis_results": json.dumps(analysis_results),
+                "report_title": report_title
+            }
+        )
+
+        if response.status_code == 200:
+            # Save PDF file
+            filename = f"{report_title.replace(' ', '_')}.pdf"
+            with open(filename, "wb") as f:
+                f.write(response.content)
+            print(f"PDF Report Generated and saved as {filename}")
+            return True
+        else:
+            print(f"PDF generation failed: {response.status_code} - {response.text}")
+            return False
+
+    except Exception as e:
+        print(f"Error generating PDF report: {e}")
+        return False
+
+
+def generate_word_report(analysis_results: Dict[str, Any], report_title: str = "Legal Research Report"):
+    """Generate a Word document report from legal analysis results"""
+    try:
+        response = requests.post(
+            f"{API_BASE_URL}/research/generate-word-report",
+            data={
+                "analysis_results": json.dumps(analysis_results),
+                "report_title": report_title
+            }
+        )
+
+        if response.status_code == 200:
+            # Save Word document
+            filename = f"{report_title.replace(' ', '_')}.docx"
+            with open(filename, "wb") as f:
+                f.write(response.content)
+            print(f"Word Document Generated and saved as {filename}")
+            return True
+        else:
+            print(f"Word document generation failed: {response.status_code} - {response.text}")
+            return False
+
+    except Exception as e:
+        print(f"Error generating Word document: {e}")
+        return False
     """Generate a project overview report"""
     project_data = {
         "name": "AmaniQuery - Kenya Laws Intelligence",
@@ -365,9 +416,29 @@ def main():
     if not query_report:
         return
 
+    # Step 5: Generate PDF report
+    print("Step 5: Generating PDF Report...")
+    pdf_success = generate_pdf_report(analysis, "Tax Compliance Legal Analysis")
+    if not pdf_success:
+        print("⚠️ PDF generation failed, but continuing...")
+
+    print()
+
+    # Step 6: Generate Word document
+    print("Step 6: Generating Word Document...")
+    word_success = generate_word_report(analysis, "Tax Compliance Legal Analysis")
+    if not word_success:
+        print("⚠️ Word document generation failed, but continuing...")
+
     print()
     print("🎉 Legal research and report generation completed!")
-    print("Check the generated files for detailed legal analysis and reports.")
+    print("Check the generated files for detailed legal analysis, reports, and documents:")
+    print("- legal_query_analysis.json (raw analysis data)")
+    print("- legal_report_comprehensive.json (structured report)")
+    print("- legal_research_results.json (research findings)")
+    print("- legal_query_report.json (formatted report)")
+    print("- Tax_Compliance_Legal_Analysis.pdf (PDF document)")
+    print("- Tax_Compliance_Legal_Analysis.docx (Word document)")
 
 if __name__ == "__main__":
     main()

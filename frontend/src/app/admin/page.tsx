@@ -104,10 +104,14 @@ export default function AdminDashboard() {
       const response = await fetch("http://localhost:8000/admin/crawlers")
       if (response.ok) {
         const data = await response.json()
-        setCrawlers(data.crawlers)
+        setCrawlers(data.crawlers || {})
+      } else {
+        console.error("Failed to fetch crawlers:", response.status)
+        setCrawlers({})
       }
     } catch (error) {
       console.error("Failed to fetch crawlers:", error)
+      setCrawlers({})
     }
   }
 
@@ -302,53 +306,61 @@ export default function AdminDashboard() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {Object.entries(crawlers).map(([name, crawler]) => (
-                  <TableRow key={name}>
-                    <TableCell className="font-medium capitalize">{name.replace('_', ' ')}</TableCell>
-                    <TableCell>
-                      <Badge variant={
-                        crawler.status === "running" ? "default" :
-                        crawler.status === "failed" ? "destructive" : "secondary"
-                      }>
-                        {crawler.status}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>{new Date(crawler.last_run).toLocaleString()}</TableCell>
-                    <TableCell>
-                      <div className="flex space-x-2">
-                        <Button
-                          size="sm"
-                          onClick={() => runCrawler(name)}
-                          disabled={crawler.status === "running"}
-                        >
-                          <Play className="w-3 h-3 mr-1" />
-                          Run
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => setSelectedCrawler(name)}
-                        >
-                          Logs
-                        </Button>
-                      </div>
+                {crawlers && Object.keys(crawlers).length > 0 ? (
+                  Object.entries(crawlers).map(([name, crawler]) => (
+                    <TableRow key={name}>
+                      <TableCell className="font-medium capitalize">{name.replace('_', ' ')}</TableCell>
+                      <TableCell>
+                        <Badge variant={
+                          crawler.status === "running" ? "default" :
+                          crawler.status === "failed" ? "destructive" : "secondary"
+                        }>
+                          {crawler.status}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>{new Date(crawler.last_run).toLocaleString()}</TableCell>
+                      <TableCell>
+                        <div className="flex space-x-2">
+                          <Button
+                            size="sm"
+                            onClick={() => runCrawler(name)}
+                            disabled={crawler.status === "running"}
+                          >
+                            <Play className="w-3 h-3 mr-1" />
+                            Run
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setSelectedCrawler(name)}
+                          >
+                            Logs
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                ) : (
+                  <TableRow>
+                    <TableCell colSpan={4} className="text-center text-muted-foreground py-8">
+                      No crawlers available or loading...
                     </TableCell>
                   </TableRow>
-                ))}
+                )}
               </TableBody>
             </Table>
           </CardContent>
         </Card>
 
         {/* Log Viewer */}
-        {selectedCrawler && crawlers[selectedCrawler] && (
+        {selectedCrawler && crawlers && crawlers[selectedCrawler] && (
           <Card>
             <CardHeader>
               <CardTitle>Logs - {selectedCrawler.replace('_', ' ')}</CardTitle>
             </CardHeader>
             <CardContent>
               <Textarea
-                value={crawlers[selectedCrawler].logs.join('\n') || "No logs available"}
+                value={crawlers[selectedCrawler].logs?.join('\n') || "No logs available"}
                 readOnly
                 className="min-h-[200px] font-mono text-sm"
               />

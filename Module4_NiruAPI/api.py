@@ -61,38 +61,85 @@ async def lifespan(app: FastAPI):
     logger.info("Starting AmaniQuery API")
     
     # Initialize vector store
-    vector_store = VectorStore()
+    try:
+        vector_store = VectorStore()
+        logger.info("Vector store initialized")
+    except Exception as e:
+        logger.error(f"Failed to initialize vector store: {e}")
+        vector_store = None
     
     # Initialize metadata manager
-    metadata_manager = MetadataManager(vector_store)
+    try:
+        if vector_store:
+            metadata_manager = MetadataManager(vector_store)
+            logger.info("Metadata manager initialized")
+        else:
+            metadata_manager = None
+    except Exception as e:
+        logger.error(f"Failed to initialize metadata manager: {e}")
+        metadata_manager = None
     
     # Initialize RAG pipeline
-    llm_provider = os.getenv("LLM_PROVIDER", "moonshot")
-    model = os.getenv("DEFAULT_MODEL", "moonshot-v1-8k")
-    
-    rag_pipeline = RAGPipeline(
-        vector_store=vector_store,
-        llm_provider=llm_provider,
-        model=model,
-    )
+    try:
+        if vector_store:
+            llm_provider = os.getenv("LLM_PROVIDER", "moonshot")
+            model = os.getenv("DEFAULT_MODEL", "moonshot-v1-8k")
+            
+            rag_pipeline = RAGPipeline(
+                vector_store=vector_store,
+                llm_provider=llm_provider,
+                model=model,
+            )
+            logger.info("RAG pipeline initialized")
+        else:
+            rag_pipeline = None
+    except Exception as e:
+        logger.error(f"Failed to initialize RAG pipeline: {e}")
+        rag_pipeline = None
     
     # Initialize Constitutional Alignment Pipeline
-    alignment_pipeline = ConstitutionalAlignmentPipeline(
-        vector_store=vector_store,
-        rag_pipeline=rag_pipeline,
-    )
+    try:
+        if vector_store and rag_pipeline:
+            alignment_pipeline = ConstitutionalAlignmentPipeline(
+                vector_store=vector_store,
+                rag_pipeline=rag_pipeline,
+            )
+            logger.info("Alignment pipeline initialized")
+        else:
+            alignment_pipeline = None
+    except Exception as e:
+        logger.error(f"Failed to initialize alignment pipeline: {e}")
+        alignment_pipeline = None
     
     # Initialize SMS Pipeline
-    sms_pipeline = SMSPipeline(
-        vector_store=vector_store,
-        llm_service=rag_pipeline.llm_service
-    )
+    try:
+        if vector_store and rag_pipeline:
+            sms_pipeline = SMSPipeline(
+                vector_store=vector_store,
+                llm_service=rag_pipeline.llm_service
+            )
+            logger.info("SMS pipeline initialized")
+        else:
+            sms_pipeline = None
+    except Exception as e:
+        logger.error(f"Failed to initialize SMS pipeline: {e}")
+        sms_pipeline = None
     
     # Initialize chat database manager
-    chat_manager = ChatDatabaseManager()
+    try:
+        chat_manager = ChatDatabaseManager()
+        logger.info("Chat manager initialized")
+    except Exception as e:
+        logger.error(f"Failed to initialize chat manager: {e}")
+        chat_manager = None
     
     # Initialize crawler manager
-    crawler_manager = CrawlerManager()
+    try:
+        crawler_manager = CrawlerManager()
+        logger.info("Crawler manager initialized")
+    except Exception as e:
+        logger.error(f"Failed to initialize crawler manager: {e}")
+        crawler_manager = None
     
     # Initialize research module (optional - only if Gemini API key is available)
     try:
@@ -126,7 +173,7 @@ app = FastAPI(
 )
 
 # Configure CORS
-cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:3001,http://localhost:8000,http://frontend:3000,https://amaniquery.onrender.com,https://api.amaniquery.onrender.com")
+cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:3001,http://localhost:8000,http://frontend:3000,https://amaniquery.onrender.com,https://api-amaniquery.onrender.com")
 origins = [origin.strip() for origin in cors_origins.split(",")]
 
 app.add_middleware(

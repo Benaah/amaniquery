@@ -2,13 +2,6 @@
 python-dotenv
 httpx
 
-# Module 1: NiruSpider (Crawler)
-scrapy
-requests
-beautifulsoup4
-feedparser  # RSS feed parsing
-lxml
-
 # Module 2: NiruParser (ETL & Embedding)
 trafilatura  # HTML text extraction
 PyPDF2
@@ -48,12 +41,6 @@ pyyaml
 pandas
 numpy
 tqdm
-schedule  # For automated crawling
 colorama  # Colored terminal output
 loguru  # Advanced logging
 psutil  # System monitoring
-
-# Development
-pytest
-black
-flake8

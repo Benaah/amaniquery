@@ -197,16 +197,16 @@ export default function AdminDashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-background p-6">
-      <div className="max-w-7xl mx-auto space-y-6">
+    <div className="min-h-screen bg-background p-4 md:p-6">
+      <div className="max-w-7xl mx-auto space-y-4 md:space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-bold">Admin Dashboard</h1>
-            <p className="text-muted-foreground">Control Panel for AmaniQuery System</p>
+            <h1 className="text-2xl md:text-3xl font-bold">Admin Dashboard</h1>
+            <p className="text-sm md:text-base text-muted-foreground">Control Panel for AmaniQuery System</p>
           </div>
           <Link href="/">
-            <Button variant="outline">
+            <Button variant="outline" className="w-full sm:w-auto min-h-[44px]">
               <Globe className="w-4 h-4 mr-2" />
               Back to Home
             </Button>
@@ -214,14 +214,14 @@ export default function AdminDashboard() {
         </div>
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total Documents</CardTitle>
-              <FileText className="h-4 w-4 text-muted-foreground" />
+              <FileText className="h-4 w-4 text-muted-foreground flex-shrink-0" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">
+              <div className="text-xl md:text-2xl font-bold">
                 {stats?.total_chunks || health?.database_chunks || 0}
               </div>
               <p className="text-xs text-muted-foreground">
@@ -233,7 +233,7 @@ export default function AdminDashboard() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Vector DB Status</CardTitle>
-              <Database className="h-4 w-4 text-muted-foreground" />
+              <Database className="h-4 w-4 text-muted-foreground flex-shrink-0" />
             </CardHeader>
             <CardContent>
               <div className="flex items-center space-x-2">
@@ -251,10 +251,10 @@ export default function AdminDashboard() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">System Status</CardTitle>
-              <Clock className="h-4 w-4 text-muted-foreground" />
+              <Clock className="h-4 w-4 text-muted-foreground flex-shrink-0" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">
+              <div className="text-lg md:text-2xl font-bold">
                 Active
               </div>
               <p className="text-xs text-muted-foreground">
@@ -266,19 +266,19 @@ export default function AdminDashboard() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">API Health</CardTitle>
-              <Activity className="h-4 w-4 text-muted-foreground" />
+              <Activity className="h-4 w-4 text-muted-foreground flex-shrink-0" />
             </CardHeader>
             <CardContent>
               <div className="flex items-center space-x-2">
                 {health ? (
                   <>
-                    <CheckCircle className="w-4 h-4 text-green-600" />
-                    <span className="text-sm font-medium text-green-600">Online</span>
+                    <CheckCircle className="w-4 h-4 text-green-600 flex-shrink-0" />
+                    <span className={`text-sm font-medium ${getStatusColor("healthy")}`}>Online</span>
                   </>
                 ) : (
                   <>
-                    <XCircle className="w-4 h-4 text-red-600" />
-                    <span className="text-sm font-medium text-red-600">Offline</span>
+                    <XCircle className="w-4 h-4 text-red-600 flex-shrink-0" />
+                    <span className={`text-sm font-medium ${getStatusColor("failed")}`}>Offline</span>
                   </>
                 )}
               </div>
@@ -292,65 +292,73 @@ export default function AdminDashboard() {
         {/* Crawler Management */}
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center">
+            <CardTitle className="flex items-center text-lg md:text-xl">
               <BarChart3 className="w-5 h-5 mr-2" />
               Crawler Management
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Crawler</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Last Run</TableHead>
-                  <TableHead>Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {crawlers && Object.keys(crawlers).length > 0 ? (
-                  Object.entries(crawlers).map(([name, crawler]) => (
-                    <TableRow key={name}>
-                      <TableCell className="font-medium capitalize">{name.replace('_', ' ')}</TableCell>
-                      <TableCell>
-                        <Badge variant={
-                          crawler.status === "running" ? "default" :
-                          crawler.status === "failed" ? "destructive" : "secondary"
-                        }>
-                          {crawler.status}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>{new Date(crawler.last_run).toLocaleString()}</TableCell>
-                      <TableCell>
-                        <div className="flex space-x-2">
-                          <Button
-                            size="sm"
-                            onClick={() => runCrawler(name)}
-                            disabled={crawler.status === "running"}
-                          >
-                            <Play className="w-3 h-3 mr-1" />
-                            Run
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => setSelectedCrawler(name)}
-                          >
-                            Logs
-                          </Button>
-                        </div>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="min-w-[120px]">Crawler</TableHead>
+                    <TableHead className="min-w-[80px]">Status</TableHead>
+                    <TableHead className="min-w-[120px]">Last Run</TableHead>
+                    <TableHead className="min-w-[100px]">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {crawlers && Object.keys(crawlers).length > 0 ? (
+                    Object.entries(crawlers).map(([name, crawler]) => (
+                      <TableRow key={name}>
+                        <TableCell className="font-medium capitalize text-sm md:text-base">
+                          {name.replace('_', ' ')}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={
+                            crawler.status === "running" ? "default" :
+                            crawler.status === "failed" ? "destructive" : "secondary"
+                          } className="text-xs">
+                            {crawler.status}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-xs md:text-sm">
+                          {new Date(crawler.last_run).toLocaleString()}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex space-x-1 md:space-x-2">
+                            <Button
+                              size="sm"
+                              onClick={() => runCrawler(name)}
+                              disabled={crawler.status === "running"}
+                              className="h-8 px-2 md:px-3 text-xs md:text-sm min-w-[60px]"
+                            >
+                              <Play className="w-3 h-3 mr-1" />
+                              Run
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => setSelectedCrawler(name)}
+                              className="h-8 px-2 md:px-3 text-xs md:text-sm"
+                            >
+                              Logs
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  ) : (
+                    <TableRow>
+                      <TableCell colSpan={4} className="text-center text-muted-foreground py-6 md:py-8 text-sm">
+                        No crawlers available or loading...
                       </TableCell>
                     </TableRow>
-                  ))
-                ) : (
-                  <TableRow>
-                    <TableCell colSpan={4} className="text-center text-muted-foreground py-8">
-                      No crawlers available or loading...
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
+                  )}
+                </TableBody>
+              </Table>
+            </div>
           </CardContent>
         </Card>
 
@@ -358,13 +366,13 @@ export default function AdminDashboard() {
         {selectedCrawler && crawlers && crawlers[selectedCrawler] && (
           <Card>
             <CardHeader>
-              <CardTitle>Logs - {selectedCrawler.replace('_', ' ')}</CardTitle>
+              <CardTitle className="text-lg md:text-xl">Logs - {selectedCrawler.replace('_', ' ')}</CardTitle>
             </CardHeader>
             <CardContent>
               <Textarea
                 value={crawlers[selectedCrawler].logs?.join('\n') || "No logs available"}
                 readOnly
-                className="min-h-[200px] font-mono text-sm"
+                className="min-h-[150px] md:min-h-[200px] font-mono text-xs md:text-sm"
               />
             </CardContent>
           </Card>
@@ -373,35 +381,39 @@ export default function AdminDashboard() {
         {/* Command Shell */}
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center">
+            <CardTitle className="flex items-center text-lg md:text-xl">
               <Activity className="w-5 h-5 mr-2" />
               Command Shell
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="space-y-4">
-              <div className="flex space-x-2">
+            <div className="space-y-3 md:space-y-4">
+              <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2">
                 <Input
                   placeholder="Enter command to execute..."
                   value={command}
                   onChange={(e) => setCommand(e.target.value)}
                   onKeyPress={(e) => e.key === 'Enter' && executeCommand()}
-                  className="flex-1 font-mono"
+                  className="flex-1 font-mono text-sm md:text-base h-10 md:h-11"
                   disabled={isExecuting}
                 />
-                <Button onClick={executeCommand} disabled={isExecuting || !command.trim()}>
+                <Button 
+                  onClick={executeCommand} 
+                  disabled={isExecuting || !command.trim()}
+                  className="w-full sm:w-auto min-h-[44px] px-4 md:px-6"
+                >
                   {isExecuting ? "Running..." : "Execute"}
                 </Button>
               </div>
               
-              <div className="space-y-2 max-h-96 overflow-y-auto">
+              <div className="space-y-2 max-h-64 md:max-h-96 overflow-y-auto">
                 {commandHistory.map((result, index) => (
                   <Card key={index} className="bg-muted">
-                    <CardContent className="p-3">
-                      <div className="flex items-center space-x-2 mb-2">
-                        <span className="font-mono text-sm text-muted-foreground">$</span>
-                        <code className="font-mono text-sm">{result.command}</code>
-                        <Badge variant={result.exit_code === 0 ? "secondary" : "destructive"}>
+                    <CardContent className="p-3 md:p-4">
+                      <div className="flex flex-col sm:flex-row sm:items-center space-y-2 sm:space-y-0 sm:space-x-2 mb-2">
+                        <span className="font-mono text-xs md:text-sm text-muted-foreground">$</span>
+                        <code className="font-mono text-xs md:text-sm flex-1 break-all">{result.command}</code>
+                        <Badge variant={result.exit_code === 0 ? "secondary" : "destructive"} className="text-xs w-fit">
                           Exit: {result.exit_code}
                         </Badge>
                       </div>
@@ -426,22 +438,25 @@ export default function AdminDashboard() {
         {/* Data Explorer */}
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center">
+            <CardTitle className="flex items-center text-lg md:text-xl">
               <Search className="w-5 h-5 mr-2" />
               Data Explorer
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="space-y-4">
-              <div className="flex space-x-2">
+            <div className="space-y-3 md:space-y-4">
+              <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2">
                 <Input
                   placeholder="Search documents by keyword, source, or date..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   onKeyPress={(e) => e.key === 'Enter' && searchDocuments()}
-                  className="flex-1"
+                  className="flex-1 h-10 md:h-11 text-sm md:text-base"
                 />
-                <Button onClick={searchDocuments}>
+                <Button 
+                  onClick={searchDocuments}
+                  className="w-full sm:w-auto min-h-[44px] px-4 md:px-6"
+                >
                   <Search className="w-4 h-4 mr-2" />
                   Search
                 </Button>
@@ -452,20 +467,24 @@ export default function AdminDashboard() {
                   <p className="text-sm text-muted-foreground">
                     Found {documents.length} documents
                   </p>
-                  <div className="max-h-96 overflow-y-auto space-y-2">
+                  <div className="max-h-64 md:max-h-96 overflow-y-auto space-y-2">
                     {documents.slice(0, 20).map((doc) => (
                       <Card key={doc.id} className="cursor-pointer hover:bg-muted/50">
-                        <CardContent className="p-3">
-                          <div className="flex justify-between items-start mb-2">
-                            <h4 className="font-medium text-sm">{doc.metadata.title || "Untitled"}</h4>
-                            <Badge variant="outline">{doc.metadata.category}</Badge>
+                        <CardContent className="p-3 md:p-4">
+                          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start mb-2 gap-2">
+                            <h4 className="font-medium text-sm md:text-base line-clamp-1">
+                              {doc.metadata.title || "Untitled"}
+                            </h4>
+                            <Badge variant="outline" className="text-xs w-fit flex-shrink-0">
+                              {doc.metadata.category}
+                            </Badge>
                           </div>
-                          <p className="text-xs text-muted-foreground mb-2 line-clamp-2">
+                          <p className="text-xs md:text-sm text-muted-foreground mb-2 line-clamp-2">
                             {doc.content.substring(0, 200)}...
                           </p>
-                          <div className="flex justify-between text-xs text-muted-foreground">
-                            <span>{doc.metadata.source}</span>
-                            <span>{doc.metadata.date}</span>
+                          <div className="flex flex-col sm:flex-row sm:justify-between text-xs text-muted-foreground gap-1">
+                            <span className="truncate">{doc.metadata.source}</span>
+                            <span className="flex-shrink-0">{doc.metadata.date}</span>
                           </div>
                         </CardContent>
                       </Card>
@@ -474,9 +493,11 @@ export default function AdminDashboard() {
                 </div>
               )}
               
-              <div className="text-sm text-muted-foreground">
-                <p>Categories: {stats ? Object.keys(stats.categories).join(", ") : "Loading..."}</p>
-                <p>Sources: {stats ? stats.sources.join(", ") : "Loading..."}</p>
+              <div className="text-xs md:text-sm text-muted-foreground bg-muted/50 p-3 rounded-lg">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div><strong>Categories:</strong> {stats ? Object.keys(stats.categories).join(", ") : "Loading..."}</div>
+                  <div><strong>Sources:</strong> {stats ? stats.sources.join(", ") : "Loading..."}</div>
+                </div>
               </div>
             </div>
           </CardContent>

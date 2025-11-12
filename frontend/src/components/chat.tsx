@@ -72,11 +72,6 @@ export function Chat() {
 
   const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
-  // Load chat history on component mount
-  useEffect(() => {
-    loadChatHistory()
-  }, [loadChatHistory])
-
   const loadChatHistory = useCallback(async () => {
     try {
       const response = await fetch(`${API_BASE_URL}/chat/sessions`)
@@ -88,6 +83,11 @@ export function Chat() {
       console.error("Failed to load chat history:", error)
     }
   }, [API_BASE_URL])
+
+  // Load chat history on component mount
+  useEffect(() => {
+    loadChatHistory()
+  }, [loadChatHistory])
 
   const createNewSession = async () => {
     try {
@@ -538,58 +538,112 @@ ${additionalConsiderations}
 
   return (
     <div className="flex h-screen max-w-6xl mx-auto">
-      {/* Chat History Sidebar */}
-      {showHistory && (
-        <div className="w-80 border-r bg-muted/30 overflow-y-auto">
-          <div className="p-4 border-b">
-            <div className="flex items-center justify-between">
-              <h3 className="font-semibold">Chat History</h3>
-              <Button 
-                variant="ghost" 
-                size="sm" 
-                onClick={() => setShowHistory(false)}
-              >
-                ×
-              </Button>
-            </div>
+      {/* Chat History Sidebar - Desktop */}
+      <div className="hidden md:flex w-80 border-r bg-muted/30 overflow-y-auto flex-col">
+        <div className="p-4 border-b">
+          <div className="flex items-center justify-between">
+            <h3 className="font-semibold">Chat History</h3>
             <Button 
-              variant="outline" 
+              variant="ghost" 
               size="sm" 
-              className="w-full mt-2"
               onClick={createNewSession}
             >
               <Plus className="w-4 h-4 mr-2" />
               New Chat
             </Button>
           </div>
-          <div className="p-2 space-y-1">
-            {chatHistory.map((session) => (
-              <div key={session.id} className="flex items-center space-x-2 p-1">
-                <Button
-                  variant={currentSessionId === session.id ? "secondary" : "ghost"}
-                  className="flex-1 justify-start text-left h-auto p-3"
-                  onClick={() => loadSession(session.id)}
-                >
-                  <MessageSquare className="w-4 h-4 mr-2 flex-shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <div className="font-medium truncate">
-                      {session.title || `Chat ${session.id.slice(-8)}`}
-                    </div>
-                    <div className="text-xs text-muted-foreground">
-                      {session.message_count} messages
-                    </div>
+        </div>
+        <div className="p-2 space-y-1 flex-1">
+          {chatHistory.map((session) => (
+            <div key={session.id} className="flex items-center space-x-2 p-1">
+              <Button
+                variant={currentSessionId === session.id ? "secondary" : "ghost"}
+                className="flex-1 justify-start text-left h-auto p-3"
+                onClick={() => loadSession(session.id)}
+              >
+                <MessageSquare className="w-4 h-4 mr-2 flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium truncate">
+                    {session.title || `Chat ${session.id.slice(-8)}`}
                   </div>
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-muted-foreground hover:text-destructive"
-                  onClick={() => deleteSession(session.id)}
+                  <div className="text-xs text-muted-foreground">
+                    {session.message_count} messages
+                  </div>
+                </div>
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-muted-foreground hover:text-destructive"
+                onClick={() => deleteSession(session.id)}
+              >
+                <Trash2 className="w-4 h-4" />
+              </Button>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Mobile Sidebar Overlay */}
+      {showHistory && (
+        <div className="md:hidden fixed inset-0 z-50 bg-black/50" onClick={() => setShowHistory(false)}>
+          <div className="absolute left-0 top-0 h-full w-80 bg-background border-r shadow-lg" onClick={(e) => e.stopPropagation()}>
+            <div className="p-4 border-b">
+              <div className="flex items-center justify-between">
+                <h3 className="font-semibold">Chat History</h3>
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  onClick={() => setShowHistory(false)}
                 >
-                  <Trash2 className="w-4 h-4" />
+                  ×
                 </Button>
               </div>
-            ))}
+              <Button 
+                variant="outline" 
+                size="sm" 
+                className="w-full mt-2"
+                onClick={() => {
+                  createNewSession()
+                  setShowHistory(false)
+                }}
+              >
+                <Plus className="w-4 h-4 mr-2" />
+                New Chat
+              </Button>
+            </div>
+            <div className="p-2 space-y-1 flex-1 overflow-y-auto">
+              {chatHistory.map((session) => (
+                <div key={session.id} className="flex items-center space-x-2 p-1">
+                  <Button
+                    variant={currentSessionId === session.id ? "secondary" : "ghost"}
+                    className="flex-1 justify-start text-left h-auto p-3"
+                    onClick={() => {
+                      loadSession(session.id)
+                      setShowHistory(false)
+                    }}
+                  >
+                    <MessageSquare className="w-4 h-4 mr-2 flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium truncate">
+                        {session.title || `Chat ${session.id.slice(-8)}`}
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        {session.message_count} messages
+                      </div>
+                    </div>
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-muted-foreground hover:text-destructive"
+                    onClick={() => deleteSession(session.id)}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       )}
@@ -602,11 +656,20 @@ ${additionalConsiderations}
             <Button 
               variant="ghost" 
               size="sm"
+              className="md:hidden"
               onClick={() => setShowHistory(!showHistory)}
             >
               <History className="w-4 h-4" />
             </Button>
-            <h1 className="text-2xl font-bold">AmaniQuery</h1>
+            <Button 
+              variant="ghost" 
+              size="sm"
+              className="hidden md:inline-flex"
+              onClick={() => setShowHistory(!showHistory)}
+            >
+              <History className="w-4 h-4" />
+            </Button>
+            <h1 className="text-xl md:text-2xl font-bold">AmaniQuery</h1>
             {isResearchMode && (
               <Badge variant="default" className="bg-blue-600">
                 <Search className="w-3 h-3 mr-1" />
@@ -619,47 +682,49 @@ ${additionalConsiderations}
               variant={isResearchMode ? "default" : "outline"} 
               size="sm"
               onClick={() => setIsResearchMode(!isResearchMode)}
-              className={isResearchMode ? "bg-blue-600 hover:bg-blue-700" : ""}
+              className={`${isResearchMode ? "bg-blue-600 hover:bg-blue-700" : ""} h-9 px-3`}
             >
               <Search className="w-4 h-4 mr-2" />
-              {isResearchMode ? "Exit Research" : "Research Mode"}
+              <span className="hidden sm:inline">Research Mode</span>
+              <span className="sm:hidden">Research</span>
             </Button>
-            <Badge variant="secondary">RAG-Powered Legal & News Intelligence</Badge>
+            <Badge variant="secondary" className="hidden sm:inline-flex">RAG-Powered Legal & News Intelligence</Badge>
+            <Badge variant="secondary" className="sm:hidden">RAG AI</Badge>
             {currentSessionId && (
-              <Button variant="outline" size="sm" onClick={shareChat}>
+              <Button variant="outline" size="sm" className="h-9 px-3">
                 <Share2 className="w-4 h-4 mr-2" />
-                Share
+                <span className="hidden sm:inline">Share</span>
               </Button>
             )}
             <Link href="/">
-              <Button variant="outline" size="sm">
+              <Button variant="outline" size="sm" className="h-9 px-3">
                 <Settings className="w-4 h-4 mr-2" />
-                Home
+                <span className="hidden sm:inline">Home</span>
               </Button>
             </Link>
           </div>
         </div>
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        <div className="flex-1 overflow-y-auto p-2 md:p-4 space-y-4">
           {messages.length === 0 && (
-            <div className="text-center py-12">
+            <div className="text-center py-8 md:py-12">
               <Bot className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
-              <h2 className="text-xl font-semibold mb-2">
+              <h2 className="text-lg md:text-xl font-semibold mb-2">
                 Welcome to AmaniQuery {isResearchMode && "- Research Mode"}
               </h2>
-              <p className="text-muted-foreground mb-6">
+              <p className="text-muted-foreground mb-6 px-4 text-sm md:text-base">
                 {isResearchMode 
                   ? "Ask detailed legal research questions about Kenyan laws. Get comprehensive analysis with sources and recommendations."
                   : "Ask questions about Kenyan law, parliament, and news. Get factual answers with verifiable sources."
                 }
               </p>
-              <div className="flex flex-col gap-4 max-w-2xl mx-auto">
+              <div className="flex flex-col gap-3 md:gap-4 max-w-2xl mx-auto px-4">
                 {(isResearchMode ? researchSuggestedQuestions : suggestedQuestions).map((question, index) => (
                   <Button
                     key={index}
                     variant="outline"
-                    className="text-left justify-start h-auto p-4 whitespace-normal"
+                    className="text-left justify-start h-auto p-3 md:p-4 whitespace-normal text-sm md:text-base"
                     onClick={() => sendMessage(question)}
                   >
                     {question}
@@ -671,7 +736,7 @@ ${additionalConsiderations}
 
           {messages.map((message) => (
             <div key={message.id} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-              <div className={`flex max-w-[80%] ${message.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
+              <div className={`flex max-w-[90%] md:max-w-[80%] ${message.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
                 <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${
                   message.role === 'user' ? 'bg-primary text-primary-foreground ml-2' : 'bg-muted mr-2'
                 }`}>
@@ -679,7 +744,7 @@ ${additionalConsiderations}
                 </div>
                 <div className="flex-1">
                   <Card className={`max-w-full ${message.role === 'user' ? 'bg-primary text-primary-foreground' : ''}`}>
-                    <CardContent className="p-3">
+                    <CardContent className="p-3 md:p-4">
                       {message.model_used === 'gemini-research' && (
                         <div className="flex items-center gap-2 mb-2">
                           <Badge variant="secondary" className="text-xs">
@@ -689,7 +754,7 @@ ${additionalConsiderations}
                         </div>
                       )}
                       <div
-                        className="prose prose-sm max-w-none dark:prose-invert"
+                        className="prose prose-sm max-w-none dark:prose-invert text-sm md:text-base"
                         dangerouslySetInnerHTML={{
                           __html: formatMessageWithCitations(message.content, message.sources)
                         }}
@@ -699,12 +764,12 @@ ${additionalConsiderations}
                   
                   {/* Message Actions */}
                   {message.role === 'assistant' && message.model_used !== 'gemini-research' && (
-                    <div className="flex items-center space-x-2 mt-2 ml-10">
+                    <div className="flex items-center space-x-1 md:space-x-2 mt-2 ml-10">
                       <Button
                         variant="ghost"
                         size="sm"
                         onClick={() => submitFeedback(message.id, 'like')}
-                        className={message.feedback_type === 'like' ? 'text-green-600' : ''}
+                        className={`h-8 w-8 p-0 ${message.feedback_type === 'like' ? 'text-green-600' : ''}`}
                       >
                         <ThumbsUp className="w-4 h-4" />
                       </Button>
@@ -712,7 +777,7 @@ ${additionalConsiderations}
                         variant="ghost"
                         size="sm"
                         onClick={() => submitFeedback(message.id, 'dislike')}
-                        className={message.feedback_type === 'dislike' ? 'text-red-600' : ''}
+                        className={`h-8 w-8 p-0 ${message.feedback_type === 'dislike' ? 'text-red-600' : ''}`}
                       >
                         <ThumbsDown className="w-4 h-4" />
                       </Button>
@@ -720,18 +785,20 @@ ${additionalConsiderations}
                         variant="ghost"
                         size="sm"
                         onClick={() => copyToClipboard(message.content)}
+                        className="h-8 w-8 p-0"
                       >
                         <Copy className="w-4 h-4" />
                       </Button>
                     </div>
                   )}
                   {message.role === 'assistant' && message.model_used === 'gemini-research' && (
-                    <div className="flex items-center space-x-2 mt-2 ml-10">
+                    <div className="flex items-center space-x-1 md:space-x-2 mt-2 ml-10">
                       <Button
                         variant="ghost"
                         size="sm"
                         onClick={() => generatePDF(message.id)}
                         title="Download as PDF"
+                        className="h-8 px-2 text-xs"
                       >
                         <FileText className="w-4 h-4 mr-1" />
                         PDF
@@ -741,6 +808,7 @@ ${additionalConsiderations}
                         size="sm"
                         onClick={() => generateWord(message.id)}
                         title="Download as Word"
+                        className="h-8 px-2 text-xs"
                       >
                         <Download className="w-4 h-4 mr-1" />
                         Word
@@ -749,6 +817,7 @@ ${additionalConsiderations}
                         variant="ghost"
                         size="sm"
                         onClick={() => copyToClipboard(message.content)}
+                        className="h-8 w-8 p-0"
                       >
                         <Copy className="w-4 h-4" />
                       </Button>
@@ -761,12 +830,12 @@ ${additionalConsiderations}
 
           {isLoading && (
             <div className="flex justify-start">
-              <div className="flex max-w-[80%]">
+              <div className="flex max-w-[90%] md:max-w-[80%]">
                 <div className="flex-shrink-0 w-8 h-8 rounded-full bg-muted flex items-center justify-center mr-2">
                   <Bot className="w-4 h-4" />
                 </div>
                 <Card>
-                  <CardContent className="p-3">
+                  <CardContent className="p-3 md:p-4">
                     <div className="flex space-x-1">
                       <div className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce"></div>
                       <div className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce"></div>
@@ -784,14 +853,14 @@ ${additionalConsiderations}
           <div className="border-t bg-muted/50">
             <Button
               variant="ghost"
-              className="w-full justify-between p-4 hover:bg-muted/70"
+              className="w-full justify-between p-3 md:p-4 hover:bg-muted/70"
               onClick={() => setShowSources(!showSources)}
             >
-              <span className="font-semibold">Sources ({messages[messages.length - 1].sources!.length})</span>
+              <span className="font-semibold text-sm md:text-base">Sources ({messages[messages.length - 1].sources!.length})</span>
               {showSources ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
             </Button>
             {showSources && (
-              <div className="px-4 pb-4 space-y-3">
+              <div className="px-3 md:px-4 pb-3 md:pb-4 space-y-3">
                 {messages[messages.length - 1].sources!.map((source, index) => (
                   <div key={index} className="flex items-start space-x-3 p-3 bg-background rounded-lg border">
                     <div className="flex-shrink-0 w-6 h-6 bg-primary text-primary-foreground rounded-full flex items-center justify-center text-xs font-semibold">
@@ -805,12 +874,12 @@ ${additionalConsiderations}
                         className="text-sm font-medium hover:underline flex items-center gap-1"
                       >
                         {source.title}
-                        <ExternalLink className="w-3 h-3" />
+                        <ExternalLink className="w-3 h-3 flex-shrink-0" />
                       </a>
                       <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{source.excerpt}</p>
                       <div className="flex items-center gap-2 mt-2">
                         <Badge variant="outline" className="text-xs">{source.category}</Badge>
-                        <span className="text-xs text-muted-foreground">{source.source_name}</span>
+                        <span className="text-xs text-muted-foreground truncate">{source.source_name}</span>
                       </div>
                     </div>
                   </div>
@@ -821,7 +890,7 @@ ${additionalConsiderations}
         )}
 
         {/* Input */}
-        <div className="border-t p-4">
+        <div className="border-t p-3 md:p-4">
           <form onSubmit={handleSubmit} className="flex space-x-2">
             <Input
               value={input}
@@ -831,10 +900,10 @@ ${additionalConsiderations}
                   ? "Ask detailed legal research questions about Kenyan laws..."
                   : "Ask about Kenyan law, parliament, or news..."
               }
-              className="flex-1"
+              className="flex-1 h-10 md:h-11 text-sm md:text-base"
               disabled={isLoading}
             />
-            <Button type="submit" disabled={isLoading || !input.trim()}>
+            <Button type="submit" disabled={isLoading || !input.trim()} className="h-10 md:h-11 px-3 md:px-4">
               <Send className="w-4 h-4" />
             </Button>
           </form>

@@ -188,6 +188,44 @@
   body {
     @apply bg-background text-foreground;
   }
+
+  /* Mobile touch improvements */
+  @media (max-width: 768px) {
+    /* Ensure minimum touch target sizes */
+    button, [role="button"], input[type="submit"], input[type="button"] {
+      min-height: 44px;
+      min-width: 44px;
+    }
+
+    /* Improve tap targets for interactive elements */
+    a, button, [role="button"], input, textarea, select {
+      touch-action: manipulation;
+    }
+
+    /* Better text selection on mobile */
+    * {
+      -webkit-tap-highlight-color: rgba(0, 0, 0, 0.1);
+      -webkit-touch-callout: none;
+      -webkit-user-select: text;
+      user-select: text;
+    }
+
+    /* Prevent zoom on input focus on iOS */
+    input[type="text"], input[type="email"], input[type="password"], input[type="search"], textarea {
+      font-size: 16px;
+    }
+  }
+
+  /* Smooth scrolling for better mobile experience */
+  html {
+    scroll-behavior: smooth;
+  }
+
+  /* Better focus styles for accessibility */
+  *:focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+  }
 }
 
 /* Custom Scrollbar Styling */

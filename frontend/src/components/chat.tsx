@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent } from "@/components/ui/card"
@@ -68,7 +68,7 @@ export function Chat() {
   const [showHistory, setShowHistory] = useState(false)
   const [showSources, setShowSources] = useState(false)
   const [isResearchMode, setIsResearchMode] = useState(false)
-  const [researchResults, setResearchResults] = useState<Record<string, any>>({})
+  const [researchResults, setResearchResults] = useState<Record<string, unknown>>({})
 
   const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 

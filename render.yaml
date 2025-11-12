@@ -2,7 +2,6 @@ services:
   - name: frontend
     type: web
     runtime: node
-    rootDir: frontend
     buildCommand: cd frontend && npm install && npm run build
     startCommand: cd frontend && npm start
     envVars:

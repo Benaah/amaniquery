@@ -242,6 +242,93 @@ async def query(request: QueryRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/query/stream", tags=["Query"])
+async def query_stream(request: QueryRequest):
+    """
+    Main query endpoint with streaming response - Fastest perceived speed
+    
+    **Example queries:**
+    - "What does the Kenyan Constitution say about freedom of speech?"
+    - "What are the recent parliamentary debates on finance?"
+    - "Latest news on AI policy in Kenya"
+    
+    **Streaming Benefits:**
+    - Time to first token: <1 second (vs 5-10 seconds)
+    - User sees response immediately as it's generated
+    - Best for user experience in hackathons
+    """
+    if rag_pipeline is None:
+        raise HTTPException(status_code=503, detail="Service not initialized")
+    
+    try:
+        # Run RAG query with streaming
+        result = rag_pipeline.query_stream(
+            query=request.query,
+            top_k=request.top_k,
+            category=request.category,
+            source=request.source,
+            temperature=request.temperature,
+            max_tokens=request.max_tokens,
+        )
+        
+        if not result.get("stream", False):
+            # Fallback to regular response
+            sources = [Source(**src) for src in result["sources"]]
+            return QueryResponse(
+                answer=result["answer"],
+                sources=sources if request.include_sources else [],
+                query_time=result["query_time"],
+                retrieved_chunks=result["retrieved_chunks"],
+                model_used=result["model_used"],
+            )
+        
+        # Return streaming response
+        from fastapi.responses import StreamingResponse
+        
+        async def generate():
+            try:
+                answer_stream = result["answer_stream"]
+                
+                if rag_pipeline.llm_provider in ["openai", "moonshot"]:
+                    # OpenAI-style streaming
+                    async for chunk in answer_stream:
+                        if chunk.choices and chunk.choices[0].delta.content:
+                            content = chunk.choices[0].delta.content
+                            yield f"data: {content}\n\n"
+                
+                elif rag_pipeline.llm_provider == "anthropic":
+                    # Anthropic streaming
+                    async for chunk in answer_stream:
+                        if chunk.type == "content_block_delta" and chunk.delta.text:
+                            yield f"data: {chunk.delta.text}\n\n"
+                
+                # Send sources at the end
+                sources_data = {
+                    "sources": [Source(**src).dict() for src in result["sources"]] if request.include_sources else [],
+                    "query_time": result["query_time"],
+                    "retrieved_chunks": result["retrieved_chunks"],
+                    "model_used": result["model_used"],
+                }
+                yield f"data: [DONE]{json.dumps(sources_data)}\n\n"
+                
+            except Exception as e:
+                logger.error(f"Error in streaming: {e}")
+                yield f"data: [ERROR]{str(e)}\n\n"
+        
+        return StreamingResponse(
+            generate(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"Error processing streaming query: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/categories", tags=["Metadata"])
 async def get_categories():
     """Get list of all categories"""
@@ -1247,7 +1334,6 @@ async def generate_pdf_report(
 
         # Generate PDF
         import tempfile
-        import os
         with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp_file:
             pdf_path = research_module.generate_pdf_report(analysis_data, tmp_file.name)
         
@@ -1255,9 +1341,6 @@ async def generate_pdf_report(
         with open(pdf_path, 'rb') as f:
             pdf_content = f.read()
         
-        # Clean up temp file
-        os.unlink(pdf_path)
-
         # Return as file download
         from fastapi.responses import Response
         return Response(
@@ -1299,7 +1382,6 @@ async def generate_word_report(
 
         # Generate Word document
         import tempfile
-        import os
         with tempfile.NamedTemporaryFile(delete=False, suffix='.docx') as tmp_file:
             word_path = research_module.generate_word_report(analysis_data, tmp_file.name)
         
@@ -1307,9 +1389,6 @@ async def generate_word_report(
         with open(word_path, 'rb') as f:
             word_content = f.read()
         
-        # Clean up temp file
-        os.unlink(word_path)
-
         # Return as file download
         from fastapi.responses import Response
         return Response(

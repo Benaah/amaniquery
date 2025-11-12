@@ -8,6 +8,8 @@ from loguru import logger
 from openai import OpenAI
 from anthropic import Anthropic
 from dotenv import load_dotenv
+import hashlib
+import json
 
 import sys
 from pathlib import Path
@@ -40,6 +42,10 @@ class RAGPipeline:
         # Initialize vector store
         self.vector_store = vector_store or VectorStore()
         self.metadata_manager = MetadataManager(self.vector_store)
+        
+        # Initialize cache
+        self.cache = {}
+        self.cache_max_size = 100  # Keep last 100 queries
         
         # Initialize LLM
         self.llm_provider = llm_provider
@@ -132,6 +138,34 @@ class RAGPipeline:
         
         logger.info(f"RAG Pipeline initialized with {llm_provider}/{model}")
     
+    def _get_cache_key(self, query: str, top_k: int, category: Optional[str], source: Optional[str]) -> str:
+        """Generate cache key for query"""
+        key_data = {
+            "query": query.strip().lower(),
+            "top_k": top_k,
+            "category": category,
+            "source": source,
+        }
+        key_str = json.dumps(key_data, sort_keys=True)
+        return hashlib.md5(key_str.encode()).hexdigest()
+    
+    def _get_cache(self, key: str) -> Optional[Dict]:
+        """Get cached result if exists"""
+        if key in self.cache:
+            logger.info("Cache hit!")
+            return self.cache[key]
+        return None
+    
+    def _set_cache(self, key: str, result: Dict):
+        """Store result in cache"""
+        if len(self.cache) >= self.cache_max_size:
+            # Remove oldest entry (simple FIFO)
+            oldest_key = next(iter(self.cache))
+            del self.cache[oldest_key]
+        
+        self.cache[key] = result
+        logger.info("Result cached")
+    
     @property
     def llm_service(self):
         """Expose LLM client for other components"""
@@ -172,6 +206,13 @@ class RAGPipeline:
         if source:
             filter_dict["source_name"] = source
         
+        # Check cache first
+        cache_key = self._get_cache_key(query, top_k, category, source)
+        cached_result = self._get_cache(cache_key)
+        if cached_result:
+            logger.info("Cache hit for query!")
+            return cached_result
+        
         retrieved_docs = self.vector_store.query(
             query_text=query,
             n_results=top_k,
@@ -201,12 +242,90 @@ class RAGPipeline:
         
         logger.info(f"Query completed in {query_time:.2f}s")
         
-        return {
+        result = {
             "answer": answer,
             "sources": sources,
             "query_time": query_time,
             "retrieved_chunks": len(retrieved_docs),
             "model_used": self.model,
+        }
+        
+        # Store in cache
+        self._set_cache(cache_key, result)
+        
+        return result
+    
+    def query_stream(
+        self,
+        query: str,
+        top_k: int = 5,
+        category: Optional[str] = None,
+        source: Optional[str] = None,
+        temperature: float = 0.7,
+        max_tokens: int = 1500,
+        max_context_length: int = 3000,
+    ):
+        """
+        Run RAG query with streaming response
+        
+        Args:
+            query: User question
+            top_k: Number of documents to retrieve
+            category: Filter by category
+            source: Filter by source
+            temperature: LLM temperature
+            max_tokens: Maximum tokens in response
+        
+        Returns:
+            Dictionary with answer stream and sources
+        """
+        start_time = time.time()
+        
+        # 1. Retrieve relevant documents (same as regular query)
+        logger.info(f"Retrieving documents for query: {query[:50]}...")
+        
+        filter_dict = {}
+        if category:
+            filter_dict["category"] = category
+        if source:
+            filter_dict["source_name"] = source
+        
+        retrieved_docs = self.vector_store.query(
+            query_text=query,
+            n_results=top_k,
+            filter=filter_dict if filter_dict else None,
+        )
+        
+        if not retrieved_docs:
+            # Return non-streaming response for empty results
+            return {
+                "answer": "I couldn't find any relevant information to answer your question.",
+                "sources": [],
+                "query_time": time.time() - start_time,
+                "retrieved_chunks": 0,
+                "model_used": self.model,
+                "stream": False,
+            }
+        
+        # 2. Prepare context
+        context = self._prepare_context(retrieved_docs, max_context_length)
+        
+        # 3. Generate answer with streaming
+        logger.info("Generating streaming answer with LLM")
+        answer_stream = self._generate_answer_stream(query, context, temperature, max_tokens)
+        
+        # 4. Format sources
+        sources = self._format_sources(retrieved_docs)
+        
+        query_time = time.time() - start_time
+        
+        return {
+            "answer_stream": answer_stream,
+            "sources": sources,
+            "query_time": query_time,
+            "retrieved_chunks": len(retrieved_docs),
+            "model_used": self.model,
+            "stream": True,
         }
     
     def _prepare_context(self, docs: List[Dict], max_context_length: int = 3000) -> str:
@@ -349,6 +468,73 @@ Please provide a detailed answer based on the context above. If the context cont
                 return "Error: API quota exceeded. Please check your account balance."
             else:
                 return f"Error generating answer: {error_msg}"
+    
+    def _generate_answer_stream(
+        self,
+        query: str,
+        context: str,
+        temperature: float,
+        max_tokens: int,
+    ):
+        """Generate answer using LLM with streaming"""
+        
+        # System prompt
+        system_prompt = """You are AmaniQuery, an AI assistant specialized in Kenyan law, parliamentary proceedings, and current affairs.
+
+Your role is to provide accurate, well-sourced answers based on the provided context. Always:
+1. Base your answer primarily on the provided context when available
+2. Cite sources using [Source #] notation when using information from context
+3. Be precise and factual
+4. If the context contains relevant information, use it with citations
+5. If the context doesn't contain enough specific information, provide general knowledge about the topic while noting the limitation
+6. Use clear, professional language"""
+
+        # User prompt
+        user_prompt = f"""Context from relevant documents:
+
+{context}
+
+Question: {query}
+
+Please provide a detailed answer based on the context above. If the context contains relevant information, cite sources using [Source #] notation. If the context doesn't provide specific details, use your general knowledge to provide a helpful answer while noting that the information comes from general knowledge rather than the provided documents."""
+
+        try:
+            if self.llm_provider in ["openai", "moonshot"]:
+                # Both OpenAI and Moonshot use the same API format
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    stream=True,  # Enable streaming
+                )
+                return response  # Return the stream object
+            
+            elif self.llm_provider == "anthropic":
+                response = self.client.messages.create(
+                    model=self.model,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    system=system_prompt,
+                    messages=[
+                        {"role": "user", "content": user_prompt}
+                    ],
+                    stream=True,  # Enable streaming
+                )
+                return response
+            
+            else:
+                # For non-streaming providers, fall back to regular generation
+                return self._generate_answer(query, context, temperature, max_tokens)
+                
+        except Exception as e:
+            error_msg = str(e)
+            logger.error(f"Error generating streaming answer: {error_msg}")
+            # Fall back to non-streaming
+            return self._generate_answer(query, context, temperature, max_tokens)
     
     def _format_sources(self, docs: List[Dict]) -> List[Dict]:
         """Format source citations"""

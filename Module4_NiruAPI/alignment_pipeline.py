@@ -244,33 +244,46 @@ class ConstitutionalAlignmentPipeline:
         """
         Perform dual retrieval: Bill context + Constitution context
         """
+        import asyncio
+        
         # Branch 1: Retrieve Bill/Act context
         bill_search_query = self._construct_bill_search_query(query, query_analysis)
         logger.info(f"Bill search query: {bill_search_query}")
-        
-        bill_results = self.vector_store.query(
-            query_text=bill_search_query,
-            n_results=bill_top_k,
-            filter={"category": "Bill"}  # Filter for Bills only
-        )
-        
-        # If no Bills found, try Acts
-        if not bill_results:
-            logger.warning("No Bills found, searching Acts...")
-            bill_results = self.vector_store.query(
-                query_text=bill_search_query,
-                n_results=bill_top_k,
-                filter={"category": "Act"}
-            )
         
         # Branch 2: Retrieve Constitution context
         constitution_search_query = self._construct_constitution_search_query(query, query_analysis)
         logger.info(f"Constitution search query: {constitution_search_query}")
         
-        constitution_results = self.vector_store.query(
-            query_text=constitution_search_query,
-            n_results=constitution_top_k,
-            filter={"category": "Constitution"}
+        # Run both retrievals concurrently
+        async def retrieve_bill():
+            bill_results = self.vector_store.query(
+                query_text=bill_search_query,
+                n_results=bill_top_k,
+                filter={"category": "Bill"}  # Filter for Bills only
+            )
+            
+            # If no Bills found, try Acts
+            if not bill_results:
+                logger.warning("No Bills found, searching Acts...")
+                bill_results = self.vector_store.query(
+                    query_text=bill_search_query,
+                    n_results=bill_top_k,
+                    filter={"category": "Act"}
+                )
+            
+            return bill_results
+        
+        async def retrieve_constitution():
+            constitution_results = self.vector_store.query(
+                query_text=constitution_search_query,
+                n_results=constitution_top_k,
+                filter={"category": "Constitution"}
+            )
+            return constitution_results
+        
+        # Run concurrently
+        bill_results, constitution_results = asyncio.run(
+            asyncio.gather(retrieve_bill(), retrieve_constitution())
         )
         
         return AlignmentContext(

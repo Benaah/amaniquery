@@ -41,9 +41,22 @@ interface Source {
 
 interface ChatSession {
   id: string
-  title?: string
-  created_at?: string
-  message_count?: number
+  title: string
+  message_count: number
+  created_at: string
+  updated_at: string
+}
+
+interface StreamMetadata {
+  token_count?: number
+  model_used?: string
+  sources?: Array<{
+    title: string
+    url: string
+    source_name: string
+    category: string
+    excerpt: string
+  }>
 }
 
 export function Chat() {
@@ -132,7 +145,7 @@ export function Chat() {
     try {
       let response;
       if (isResearchMode) {
-        // Use research endpoints for research mode
+        // Use research endpoints for research mode (non-streaming)
         response = await fetch("http://localhost:8000/research/analyze-legal-query", {
           method: "POST",
           headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -141,21 +154,22 @@ export function Chat() {
           })
         })
       } else {
-        // Use regular chat endpoint
+        // Use streaming chat endpoint
         response = await fetch(`http://localhost:8000/chat/sessions/${sessionId}/messages`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             content: content.trim(),
-            role: "user"
+            role: "user",
+            stream: true
           })
         })
       }
 
       if (response.ok) {
-        let data;
         if (isResearchMode) {
-          data = await response.json()
+          // Handle non-streaming research response
+          const data = await response.json()
           // Format research response with better structure and null safety
           const analysis = data.analysis || {}
           
@@ -218,20 +232,82 @@ ${additionalConsiderations}
             [assistantMessage.id]: data
           }))
         } else {
-          data = await response.json()
-          console.log("API response data:", data)
+          // Handle streaming response
+          const assistantMessageId = Date.now().toString()
           const assistantMessage: Message = {
-            id: data.id,
-            session_id: data.session_id,
-            role: data.role,
-            content: data.content,
-            created_at: data.created_at,
-            token_count: data.token_count,
-            model_used: data.model_used,
-            sources: data.sources
+            id: assistantMessageId,
+            session_id: sessionId,
+            role: "assistant",
+            content: "",
+            created_at: new Date().toISOString(),
+            model_used: "streaming"
           }
-          console.log("Assistant message created with ID:", assistantMessage.id)
+          
+          // Add initial empty assistant message
           setMessages(prev => [...prev, assistantMessage])
+          
+          const reader = response.body?.getReader()
+          const decoder = new TextDecoder()
+          let accumulatedContent = ""
+          let metadata: StreamMetadata = {}
+          
+          if (reader) {
+            try {
+              while (true) {
+                const { done, value } = await reader.read()
+                if (done) break
+                
+                const chunk = decoder.decode(value, { stream: true })
+                const lines = chunk.split('\n')
+                
+                for (const line of lines) {
+                  if (line.startsWith('data: ')) {
+                    const data = line.slice(6)
+                    if (data === '[DONE]') continue
+                    
+                    try {
+                      const parsed = JSON.parse(data)
+                      
+                      if (parsed.content) {
+                        accumulatedContent += parsed.content
+                        // Update message content in real-time
+                        setMessages(prev => prev.map(msg => 
+                          msg.id === assistantMessageId 
+                            ? { ...msg, content: accumulatedContent }
+                            : msg
+                        ))
+                      }
+                      
+                      if (parsed.metadata) {
+                        metadata = { ...metadata, ...parsed.metadata }
+                      }
+                      
+                      if (parsed.done) {
+                        // Final update with metadata
+                        setMessages(prev => prev.map(msg => 
+                          msg.id === assistantMessageId 
+                            ? { 
+                                ...msg, 
+                                content: accumulatedContent,
+                                token_count: metadata.token_count,
+                                model_used: metadata.model_used,
+                                sources: metadata.sources
+                              }
+                            : msg
+                        ))
+                        break
+                      }
+                    } catch (e) {
+                      // Skip invalid JSON chunks
+                      continue
+                    }
+                  }
+                }
+              }
+            } finally {
+              reader.releaseLock()
+            }
+          }
         }
         loadChatHistory() // Refresh history to update message count
       } else {

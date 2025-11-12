@@ -14,16 +14,16 @@ ROBOTSTXT_OBEY = True
 USER_AGENT = "AmaniQuery/1.0 (+https://github.com/amaniquery; contact@amaniquery.ke)"
 
 # Performance settings
-CONCURRENT_REQUESTS = 8
-CONCURRENT_REQUESTS_PER_DOMAIN = 4
-DOWNLOAD_DELAY = 2.5  # Be polite - 2.5 seconds between requests
+CONCURRENT_REQUESTS = 32
+CONCURRENT_REQUESTS_PER_DOMAIN = 8
+DOWNLOAD_DELAY = 1  # Reduced from 2.5 to 1 second for faster crawling
 RANDOMIZE_DOWNLOAD_DELAY = True
 
 # AutoThrottle (dynamic delay adjustment)
 AUTOTHROTTLE_ENABLED = True
-AUTOTHROTTLE_START_DELAY = 2
-AUTOTHROTTLE_MAX_DELAY = 10
-AUTOTHROTTLE_TARGET_CONCURRENCY = 4.0
+AUTOTHROTTLE_START_DELAY = 1
+AUTOTHROTTLE_MAX_DELAY = 5
+AUTOTHROTTLE_TARGET_CONCURRENCY = 8.0
 
 # Caching (for development)
 HTTPCACHE_ENABLED = True

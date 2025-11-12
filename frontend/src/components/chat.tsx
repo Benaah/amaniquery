@@ -75,9 +75,9 @@ export function Chat() {
   // Load chat history on component mount
   useEffect(() => {
     loadChatHistory()
-  }, [])
+  }, [loadChatHistory])
 
-  const loadChatHistory = async () => {
+  const loadChatHistory = useCallback(async () => {
     try {
       const response = await fetch(`${API_BASE_URL}/chat/sessions`)
       if (response.ok) {
@@ -87,7 +87,7 @@ export function Chat() {
     } catch (error) {
       console.error("Failed to load chat history:", error)
     }
-  }
+  }, [API_BASE_URL])
 
   const createNewSession = async () => {
     try {
@@ -299,7 +299,7 @@ ${additionalConsiderations}
                         ))
                         break
                       }
-                    } catch (e) {
+                    } catch {
                       // Skip invalid JSON chunks
                       continue
                     }

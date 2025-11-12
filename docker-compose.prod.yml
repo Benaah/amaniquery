@@ -1,0 +1,131 @@
+version: '3.8'
+
+services:
+  # Database
+  chroma:
+    image: chromadb/chroma:latest
+    container_name: amaniquery_chroma_prod
+    ports:
+      - "127.0.0.1:8001:8000"  # Only expose locally
+    volumes:
+      - chroma_data:/chroma/chroma
+    environment:
+      - CHROMA_SERVER_HOST=0.0.0.0
+      - CHROMA_SERVER_HTTP_PORT=8000
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/heartbeat"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - amaniquery_network
+    restart: unless-stopped
+
+  # API Backend
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: amaniquery_api_prod
+    ports:
+      - "127.0.0.1:8000:8000"  # Only expose locally
+    environment:
+      - CORS_ORIGINS=http://localhost:3000,http://frontend:3000
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+      - CHROMA_HOST=chroma
+      - CHROMA_PORT=8000
+      - NODE_ENV=production
+    depends_on:
+      chroma:
+        condition: service_healthy
+    volumes:
+      - ./data:/app/data:ro
+      - ./config:/app/config:ro
+    networks:
+      - amaniquery_network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0'
+        reservations:
+          memory: 1G
+          cpus: '0.5'
+
+  # Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: amaniquery_frontend_prod
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://api:8000
+      - NODE_ENV=production
+    depends_on:
+      - api
+    networks:
+      - amaniquery_network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
+
+  # PostgreSQL for chat sessions
+  postgres:
+    image: postgres:15-alpine
+    container_name: amaniquery_postgres_prod
+    environment:
+      - POSTGRES_DB=amaniquery
+      - POSTGRES_USER=amaniquery
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-amaniquery_password}
+    ports:
+      - "127.0.0.1:5432:5432"  # Only expose locally
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - amaniquery_network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '0.5'
+        reservations:
+          memory: 512M
+          cpus: '0.25'
+
+  # Reverse Proxy (Nginx)
+  nginx:
+    image: nginx:alpine
+    container_name: amaniquery_nginx_prod
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - nginx_logs:/var/log/nginx
+    depends_on:
+      - frontend
+      - api
+    networks:
+      - amaniquery_network
+    restart: unless-stopped
+
+volumes:
+  chroma_data:
+  postgres_data:
+  nginx_logs:
+
+networks:
+  amaniquery_network:
+    driver: bridge

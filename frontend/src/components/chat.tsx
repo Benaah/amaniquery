@@ -70,6 +70,8 @@ export function Chat() {
   const [isResearchMode, setIsResearchMode] = useState(false)
   const [researchResults, setResearchResults] = useState<Record<string, any>>({})
 
+  const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+
   // Load chat history on component mount
   useEffect(() => {
     loadChatHistory()
@@ -77,7 +79,7 @@ export function Chat() {
 
   const loadChatHistory = async () => {
     try {
-      const response = await fetch("http://localhost:8000/chat/sessions")
+      const response = await fetch(`${API_BASE_URL}/chat/sessions`)
       if (response.ok) {
         const sessions = await response.json()
         setChatHistory(sessions)
@@ -89,7 +91,7 @@ export function Chat() {
 
   const createNewSession = async () => {
     try {
-      const response = await fetch("http://localhost:8000/chat/sessions", {
+      const response = await fetch(`${API_BASE_URL}/chat/sessions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title: "New Chat" })
@@ -109,7 +111,7 @@ export function Chat() {
 
   const loadSession = async (sessionId: string) => {
     try {
-      const response = await fetch(`http://localhost:8000/chat/sessions/${sessionId}/messages`)
+      const response = await fetch(`${API_BASE_URL}/chat/sessions/${sessionId}/messages`)
       if (response.ok) {
         const sessionMessages = await response.json()
         setMessages(sessionMessages)
@@ -146,7 +148,7 @@ export function Chat() {
       let response;
       if (isResearchMode) {
         // Use research endpoints for research mode (non-streaming)
-        response = await fetch("http://localhost:8000/research/analyze-legal-query", {
+        response = await fetch(`${API_BASE_URL}/research/analyze-legal-query`, {
           method: "POST",
           headers: { "Content-Type": "application/x-www-form-urlencoded" },
           body: new URLSearchParams({
@@ -155,7 +157,7 @@ export function Chat() {
         })
       } else {
         // Use streaming chat endpoint
-        response = await fetch(`http://localhost:8000/chat/sessions/${sessionId}/messages`, {
+        response = await fetch(`${API_BASE_URL}/chat/sessions/${sessionId}/messages`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -342,7 +344,7 @@ ${additionalConsiderations}
   const submitFeedback = async (messageId: string, feedbackType: "like" | "dislike") => {
     console.log("Submitting feedback for message:", messageId, "type:", feedbackType)
     try {
-      const response = await fetch("http://localhost:8000/chat/feedback", {
+      const response = await fetch(`${API_BASE_URL}/chat/feedback`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -381,7 +383,7 @@ ${additionalConsiderations}
     }
 
     try {
-      const response = await fetch(`http://localhost:8000/chat/sessions/${sessionId}`, {
+      const response = await fetch(`${API_BASE_URL}/chat/sessions/${sessionId}`, {
         method: "DELETE"
       })
       
@@ -405,7 +407,7 @@ ${additionalConsiderations}
     if (!currentSessionId) return
     
     try {
-      const response = await fetch(`http://localhost:8000/chat/share?session_id=${encodeURIComponent(currentSessionId)}`, {
+      const response = await fetch(`${API_BASE_URL}/chat/share?session_id=${encodeURIComponent(currentSessionId)}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" }
       })
@@ -431,7 +433,7 @@ ${additionalConsiderations}
     }
 
     try {
-      const response = await fetch("http://localhost:8000/research/generate-pdf-report", {
+      const response = await fetch(`${API_BASE_URL}/research/generate-pdf-report`, {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({
@@ -468,7 +470,7 @@ ${additionalConsiderations}
     }
 
     try {
-      const response = await fetch("http://localhost:8000/research/generate-word-report", {
+      const response = await fetch(`${API_BASE_URL}/research/generate-word-report`, {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({

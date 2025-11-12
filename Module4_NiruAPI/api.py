@@ -126,7 +126,7 @@ app = FastAPI(
 )
 
 # Configure CORS
-cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:3001,http://localhost:8000")
+cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:3001,http://localhost:8000,http://frontend:3000,https://amaniquery.onrender.com,https://api.amaniquery.onrender.com")
 origins = [origin.strip() for origin in cors_origins.split(",")]
 
 app.add_middleware(

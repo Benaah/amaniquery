@@ -21,6 +21,8 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+
 interface Stats {
   total_chunks: number
   categories: Record<string, number>
@@ -77,7 +79,7 @@ export default function AdminDashboard() {
 
   const fetchStats = async () => {
     try {
-      const response = await fetch("http://localhost:8000/stats")
+      const response = await fetch(`${API_BASE_URL}/stats`)
       if (response.ok) {
         const data = await response.json()
         setStats(data)
@@ -89,7 +91,7 @@ export default function AdminDashboard() {
 
   const fetchHealth = async () => {
     try {
-      const response = await fetch("http://localhost:8000/health")
+      const response = await fetch(`${API_BASE_URL}/health`)
       if (response.ok) {
         const data = await response.json()
         setHealth(data)
@@ -101,7 +103,7 @@ export default function AdminDashboard() {
 
   const fetchCrawlers = async () => {
     try {
-      const response = await fetch("http://localhost:8000/admin/crawlers")
+      const response = await fetch(`${API_BASE_URL}/admin/crawlers`)
       if (response.ok) {
         const data = await response.json()
         setCrawlers(data.crawlers || {})
@@ -121,7 +123,7 @@ export default function AdminDashboard() {
       if (searchQuery) params.append("query", searchQuery)
       params.append("limit", "100")
 
-      const response = await fetch(`http://localhost:8000/admin/documents?${params}`)
+      const response = await fetch(`${API_BASE_URL}/admin/documents?${params}`)
       if (response.ok) {
         const data = await response.json()
         setDocuments(data.documents)
@@ -136,7 +138,7 @@ export default function AdminDashboard() {
 
     setIsExecuting(true)
     try {
-      const response = await fetch("http://localhost:8000/admin/execute", {
+      const response = await fetch(`${API_BASE_URL}/admin/execute`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -164,7 +166,7 @@ export default function AdminDashboard() {
 
   const runCrawler = async (crawlerName: string) => {
     try {
-      const response = await fetch(`http://localhost:8000/admin/crawlers/${crawlerName}/start`, {
+      const response = await fetch(`${API_BASE_URL}/admin/crawlers/${crawlerName}/start`, {
         method: "POST",
       })
       if (response.ok) {

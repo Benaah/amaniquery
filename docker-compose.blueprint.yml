@@ -1,0 +1,107 @@
+version: '3.8'
+
+# AmaniQuery Docker Compose Configuration
+# Use profiles to run different combinations of services:
+# - docker-compose --profile full up          # Full stack (frontend + api + databases)
+# - docker-compose --profile api-only up      # API only with databases
+# - docker-compose --profile frontend-only up # Frontend only
+# - docker-compose --profile db-only up       # Databases only
+
+services:
+  # Vector Database (ChromaDB)
+  chroma:
+    image: chromadb/chroma:latest
+    container_name: amaniquery_chroma
+    ports:
+      - "${CHROMA_PORT:-8001}:8000"
+    volumes:
+      - chroma_data:/chroma/chroma
+    environment:
+      - CHROMA_SERVER_HOST=0.0.0.0
+      - CHROMA_SERVER_HTTP_PORT=8000
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/heartbeat"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    profiles:
+      - full
+      - api-only
+      - db-only
+
+  # PostgreSQL for chat sessions (optional)
+  postgres:
+    image: postgres:15-alpine
+    container_name: amaniquery_postgres
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-amaniquery}
+      - POSTGRES_USER=${POSTGRES_USER:-amaniquery}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-amaniquery_password}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    profiles:
+      - full
+      - api-only
+      - db-only
+
+  # API Backend
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: amaniquery_api
+    ports:
+      - "${API_PORT:-8000}:8000"
+    environment:
+      - CORS_ORIGINS=http://localhost:3000,http://frontend:3000,https://amaniquery.onrender.com
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+      - CHROMA_HOST=${CHROMA_HOST:-chroma}
+      - CHROMA_PORT=${CHROMA_PORT:-8000}
+      - LLM_PROVIDER=${LLM_PROVIDER:-moonshot}
+      - DEFAULT_MODEL=${DEFAULT_MODEL:-moonshot-v1-8k}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-all-MiniLM-L6-v2}
+      - POSTGRES_HOST=${POSTGRES_HOST:-postgres}
+      - POSTGRES_PORT=${POSTGRES_PORT:-5432}
+      - POSTGRES_DB=${POSTGRES_DB:-amaniquery}
+      - POSTGRES_USER=${POSTGRES_USER:-amaniquery}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-amaniquery_password}
+    depends_on:
+      chroma:
+        condition: service_healthy
+    volumes:
+      - ./data:/app/data
+      - ./config:/app/config
+    profiles:
+      - full
+      - api-only
+    restart: unless-stopped
+
+  # Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: amaniquery_frontend
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+      - NODE_ENV=production
+    depends_on:
+      - api
+    profiles:
+      - full
+      - frontend-only
+    restart: unless-stopped
+
+volumes:
+  chroma_data:
+  postgres_data:
+
+networks:
+  default:
+    name: amaniquery_network
+    driver: bridge

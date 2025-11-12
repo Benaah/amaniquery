@@ -4,7 +4,7 @@ FROM node:20-alpine AS frontend-builder
 # Build Frontend
 WORKDIR /frontend
 COPY frontend/package*.json ./
-RUN npm ci
+RUN npm ci --only=production
 
 COPY frontend/ ./
 RUN npm run build
@@ -24,7 +24,6 @@ RUN apt-get update \
         g++ \
         libpq-dev \
         curl \
-        supervisor \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
@@ -39,7 +38,6 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         curl \
         supervisor \
-        nginx \
     && rm -rf /var/lib/apt/lists/*
 
 # Set environment variables
@@ -47,7 +45,6 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app
 ENV NODE_ENV=production
-ENV NEXT_PUBLIC_API_URL=http://localhost:8000
 
 # Set work directory
 WORKDIR /app
@@ -60,20 +57,16 @@ COPY --from=backend-builder /usr/local/bin /usr/local/bin
 COPY . .
 
 # Copy built frontend from builder (using standalone output)
-COPY --from=frontend-builder /app/frontend/public ./frontend/public
-COPY --from=frontend-builder /app/frontend/.next/standalone ./frontend/
-COPY --from=frontend-builder /app/frontend/.next/static ./frontend/.next/static
+COPY --from=frontend-builder /frontend/.next/standalone ./frontend/
+COPY --from=frontend-builder /frontend/.next/static ./frontend/.next/static
+COPY --from=frontend-builder /frontend/public ./frontend/public
 
 # Create non-root user
 RUN useradd --create-home --shell /bin/bash app \
     && chown -R app:app /app
 
-# Configure Nginx
-COPY nginx/nginx.conf /etc/nginx/nginx.conf
-RUN mkdir -p /var/log/nginx /var/cache/nginx \
-    && chown -R app:app /var/log/nginx /var/cache/nginx
-
 # Configure Supervisor
+RUN mkdir -p /var/log/supervisor
 COPY <<EOF /etc/supervisor/conf.d/app.conf
 [supervisord]
 nodaemon=true
@@ -102,33 +95,17 @@ stdout_logfile_maxbytes=0
 stderr_logfile=/dev/stderr
 stderr_logfile_maxbytes=0
 environment=NEXT_PUBLIC_API_URL=http://localhost:8000,NODE_ENV=production,PORT=3000,HOSTNAME=0.0.0.0
-
-[program:nginx]
-command=nginx -g "daemon off;"
-user=root
-autostart=true
-autorestart=true
-stdout_logfile=/dev/stdout
-stdout_logfile_maxbytes=0
-stderr_logfile=/dev/stderr
-stderr_logfile_maxbytes=0
 EOF
-
-# Create startup script
-RUN echo '#!/bin/bash\n\
-# Start services with supervisor\n\
-exec /usr/bin/supervisord -c /etc/supervisor/conf.d/app.conf' > /app/start.sh \
-    && chmod +x /app/start.sh
 
 # Switch to non-root user
 USER app
 
 # Expose ports
-EXPOSE 80 8000
+EXPOSE 3000 8000
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=30s --start-period=30s --retries=3 \
-    CMD curl -f http://localhost/health || exit 1
+    CMD curl -f http://localhost:8000/health || exit 1
 
 # Start all services
-CMD ["/app/start.sh"]
+CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/app.conf"]

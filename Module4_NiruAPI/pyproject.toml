@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "api-amaniquery"
+version = "0.1.0"
+description = "AmaniQuery FastAPI backend"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "python-dotenv",
+    "httpx",
+    "trafilatura",
+    "PyPDF2",
+    "pdfplumber",
+    "langchain",
+    "langchain-community",
+    "sentence-transformers",
+    "tiktoken",
+    "textblob",
+    "youtube-transcript-api",
+    "chromadb",
+    "faiss-cpu",
+    "loguru",
+    "psycopg2-binary",
+    "sqlalchemy",
+    "alembic",
+    "pydantic",
+    "python-multipart",
+    "africastalking",
+    "openai",
+    "anthropic",
+    "google-generativeai",
+    "huggingface-hub",
+    "pyyaml",
+    "pandas",
+    "numpy",
+    "tqdm",
+    "colorama",
+    "loguru",
+    "psutil"
+]
+
+[project.scripts]
+app = "app:app"
+
+[tool.setuptools]
+packages = ["Module4_NiruAPI"]

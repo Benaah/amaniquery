@@ -2,21 +2,25 @@
   "version": 2,
   "builds": [
     {
-      "src": "vercel_app.py",
+      "src": "app.py",
       "use": "@vercel/python",
       "config": {
-        "runtime": "python3.11"
+        "maxLambdaSize": "50mb"
       }
     }
   ],
   "routes": [
     {
       "src": "/(.*)",
-      "dest": "vercel_app.py"
+      "dest": "app.py"
     }
   ],
   "env": {
     "CORS_ORIGINS": "@cors_origins"
   },
-  "regions": ["fra1"]
+  "functions": {
+    "app.py": {
+      "maxDuration": 30
+    }
+  }
 }

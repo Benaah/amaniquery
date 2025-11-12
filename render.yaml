@@ -1,5 +1,5 @@
 services:
-  - name: frontend
+  - name: amaniquery
     type: web
     runtime: node
     buildCommand: cd frontend && npm install && npm run build
@@ -11,7 +11,7 @@ services:
         value: https://api-amaniquery.onrender.com
     plan: free
 
-  - name: api
+  - name: api-amaniquery
     type: web
     runtime: python
     buildCommand: pip install -r requirements.txt

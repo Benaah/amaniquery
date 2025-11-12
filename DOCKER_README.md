@@ -9,7 +9,60 @@ This guide explains how to deploy AmaniQuery using Docker and Docker Compose.
 - At least 4GB RAM available
 - At least 10GB free disk space
 
-## Quick Start
+## Deployment Options
+
+### Option 1: Single Container (Recommended for Simple Deployment)
+
+Build and run both frontend and backend in a single container with Nginx reverse proxy:
+
+```bash
+# Clone the repository
+git clone <your-repo-url>
+cd amaniquery
+
+# Set up environment variables
+cp .env.example .env
+# Edit .env with your API keys
+
+# Build the image
+docker build -t amaniquery .
+
+# Run the container
+docker run -d \
+  --name amaniquery \
+  -p 80:80 \
+  -v $(pwd)/data:/app/data \
+  -v $(pwd)/config:/app/config \
+  --env-file .env \
+  amaniquery
+```
+
+**Access the application at:** http://localhost
+
+**What's included:**
+- Next.js frontend served on port 80
+- FastAPI backend running internally on port 8000
+- Nginx reverse proxy routing requests
+- Supervisor process manager
+- Health checks and monitoring
+
+**Environment Variables for Single Container:**
+```bash
+# Required
+LLM_PROVIDER=moonshot
+MOONSHOT_API_KEY=your_api_key_here
+
+# Optional
+GEMINI_API_KEY=your_gemini_key
+AT_USERNAME=your_africastalking_username
+AT_API_KEY=your_africastalking_key
+```
+
+### Option 2: Multi-Container with Docker Compose
+
+Use separate containers for better scalability and development workflow.
+
+## Quick Start (Multi-Container)
 
 1. **Clone the repository**
    ```bash

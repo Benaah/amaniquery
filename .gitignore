@@ -57,9 +57,11 @@ htmlcov/
 
 # Scrapy
 .scrapy/
-*.json
 *.jsonl
 *.csv
+# Keep package.json files
+!package.json
+!package-lock.json
 
 # Jupyter
 .ipynb_checkpoints/

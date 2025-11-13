@@ -38,6 +38,15 @@ class ProcessingPipeline:
             normalize=self.config.NORMALIZE_EMBEDDINGS,
         )
         
+        # Initialize database storage
+        try:
+            from Module3_NiruDB.database_storage import DatabaseStorage
+            self.db_storage = DatabaseStorage()
+            logger.info("Database storage initialized")
+        except Exception as e:
+            logger.warning(f"Database storage not available: {e}")
+            self.db_storage = None
+        
         logger.info("Pipeline initialized successfully")
     
     def process_document(self, raw_doc: Dict) -> List[Dict]:

@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Input } from "@/components/ui/input"
-import { Textarea } from "@/components/ui/textarea"
 import { 
   Database, 
   Activity, 
@@ -64,13 +63,41 @@ interface Document {
   score: number
 }
 
-interface ConfigEntry {
-  description: string
-  has_value: boolean
+interface Database {
+  name: string
+  type: string
+  status: string
+  total_chunks: number
+  categories: Record<string, number>
+  persist_directory: string
+  elasticsearch_docs: number
+  elasticsearch_enabled: boolean
+}
+
+interface DatabaseStorageStats {
+  raw_documents: {
+    total: number
+    processed: number
+    unprocessed: number
+    categories: Record<string, number>
+  }
+  processed_chunks: {
+    total: number
+    categories: Record<string, number>
+  }
 }
 
 interface ConfigData {
-  [key: string]: ConfigEntry
+  [key: string]: {
+    has_value: boolean
+    description?: string
+  }
+}
+
+interface DatabaseStats {
+  total_databases: number
+  active_databases: number
+  databases: Database[]
 }
 
 export default function AdminDashboard() {
@@ -79,7 +106,6 @@ export default function AdminDashboard() {
   const [crawlers, setCrawlers] = useState<Record<string, Crawler>>({})
   const [documents, setDocuments] = useState<Document[]>([])
   const [searchQuery, setSearchQuery] = useState("")
-  const [selectedCrawler, setSelectedCrawler] = useState<string | null>(null)
   const [command, setCommand] = useState("")
   const [commandHistory, setCommandHistory] = useState<CommandResult[]>([])
   const [isExecuting, setIsExecuting] = useState(false)
@@ -87,6 +113,8 @@ export default function AdminDashboard() {
   const [newConfigKey, setNewConfigKey] = useState("")
   const [newConfigValue, setNewConfigValue] = useState("")
   const [newConfigDescription, setNewConfigDescription] = useState("")
+  const [databaseStats, setDatabaseStats] = useState<DatabaseStats | null>(null)
+  const [databaseStorageStats, setDatabaseStorageStats] = useState<DatabaseStorageStats | null>(null)
 
   const fetchStats = async () => {
     try {
@@ -140,6 +168,30 @@ export default function AdminDashboard() {
     }
   }
 
+  const fetchDatabaseStats = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/admin/databases`)
+      if (response.ok) {
+        const data = await response.json()
+        setDatabaseStats(data)
+      }
+    } catch (error) {
+      console.error("Failed to fetch database stats:", error)
+    }
+  }
+
+  const fetchDatabaseStorageStats = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/admin/database-storage`)
+      if (response.ok) {
+        const data = await response.json()
+        setDatabaseStorageStats(data)
+      }
+    } catch (error) {
+      console.error("Failed to fetch database storage stats:", error)
+    }
+  }
+
   const searchDocuments = async () => {
     try {
       const params = new URLSearchParams()
@@ -186,6 +238,8 @@ export default function AdminDashboard() {
     fetchHealth()
     fetchCrawlers()
     fetchConfigs()
+    fetchDatabaseStats()
+    fetchDatabaseStorageStats()
   }, [])
 
   const runCrawler = async (crawlerName: string) => {
@@ -400,14 +454,6 @@ export default function AdminDashboard() {
                               <Play className="w-3 h-3 mr-1" />
                               Run
                             </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => setSelectedCrawler(name)}
-                              className="h-8 px-2 md:px-3 text-xs md:text-sm"
-                            >
-                              Logs
-                            </Button>
                           </div>
                         </TableCell>
                       </TableRow>
@@ -425,21 +471,103 @@ export default function AdminDashboard() {
           </CardContent>
         </Card>
 
-        {/* Log Viewer */}
-        {selectedCrawler && crawlers && crawlers[selectedCrawler] && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg md:text-xl">Logs - {selectedCrawler.replace('_', ' ')}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Textarea
-                value={crawlers[selectedCrawler].logs?.join('\n') || "No logs available"}
-                readOnly
-                className="min-h-[150px] md:min-h-[200px] font-mono text-xs md:text-sm"
-              />
-            </CardContent>
-          </Card>
-        )}
+        {/* Database Management */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center text-lg md:text-xl">
+              <Database className="w-5 h-5 mr-2" />
+              Database Management
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-blue-600">
+                    {databaseStats?.total_databases || 0}
+                  </div>
+                  <p className="text-sm text-muted-foreground">Total Databases</p>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-green-600">
+                    {databaseStats?.active_databases || 0}
+                  </div>
+                  <p className="text-sm text-muted-foreground">Active Databases</p>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-purple-600">
+                    {databaseStats?.databases?.reduce((sum, db) => sum + db.total_chunks, 0) || 0}
+                  </div>
+                  <p className="text-sm text-muted-foreground">Total Chunks</p>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                {databaseStats?.databases?.map((db) => (
+                  <Card key={`${db.name}-${db.type}`} className="bg-muted/50">
+                    <CardContent className="p-4">
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center space-x-3">
+                          <div className={`w-3 h-3 rounded-full ${
+                            db.status === 'active' ? 'bg-green-500' : 'bg-gray-400'
+                          }`} />
+                          <div>
+                            <h4 className="font-medium capitalize">{db.name}</h4>
+                            <p className="text-sm text-muted-foreground capitalize">{db.type} Database</p>
+                          </div>
+                        </div>
+                        <Badge variant={db.status === 'active' ? 'secondary' : 'outline'}>
+                          {db.status}
+                        </Badge>
+                      </div>
+
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                        <div>
+                          <span className="text-muted-foreground">Chunks:</span>
+                          <div className="font-medium">{db.total_chunks.toLocaleString()}</div>
+                        </div>
+                        {db.elasticsearch_enabled && (
+                          <div>
+                            <span className="text-muted-foreground">ES Docs:</span>
+                            <div className="font-medium">{db.elasticsearch_docs.toLocaleString()}</div>
+                          </div>
+                        )}
+                        <div>
+                          <span className="text-muted-foreground">Categories:</span>
+                          <div className="font-medium">{Object.keys(db.categories).length}</div>
+                        </div>
+                        {db.persist_directory && (
+                          <div>
+                            <span className="text-muted-foreground">Storage:</span>
+                            <div className="font-medium text-xs truncate max-w-24" title={db.persist_directory}>
+                              {db.persist_directory.split('/').pop() || 'Local'}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {Object.keys(db.categories).length > 0 && (
+                        <div className="mt-3 pt-3 border-t">
+                          <div className="text-sm text-muted-foreground mb-2">Top Categories:</div>
+                          <div className="flex flex-wrap gap-1">
+                            {Object.entries(db.categories)
+                              .sort(([,a], [,b]) => b - a)
+                              .slice(0, 5)
+                              .map(([category, count]) => (
+                                <Badge key={category} variant="outline" className="text-xs">
+                                  {category}: {count}
+                                </Badge>
+                              ))}
+                          </div>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
 
         {/* Command Shell */}
         <Card>
@@ -562,6 +690,73 @@ export default function AdminDashboard() {
                   <div><strong>Sources:</strong> {stats ? stats.sources.join(", ") : "Loading..."}</div>
                 </div>
               </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Database Storage */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center text-lg md:text-xl">
+              <Database className="w-5 h-5 mr-2" />
+              Database Storage
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              {databaseStorageStats ? (
+                <>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="text-center">
+                      <div className="text-2xl font-bold text-blue-600">
+                        {databaseStorageStats.raw_documents.total}
+                      </div>
+                      <p className="text-sm text-muted-foreground">Raw Documents</p>
+                      <div className="text-xs text-green-600">
+                        {databaseStorageStats.raw_documents.processed} processed
+                      </div>
+                      <div className="text-xs text-orange-600">
+                        {databaseStorageStats.raw_documents.unprocessed} unprocessed
+                      </div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-2xl font-bold text-purple-600">
+                        {databaseStorageStats.processed_chunks.total}
+                      </div>
+                      <p className="text-sm text-muted-foreground">Processed Chunks</p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <h4 className="font-medium mb-2">Raw Documents by Category</h4>
+                      <div className="space-y-1">
+                        {Object.entries(databaseStorageStats.raw_documents.categories).map(([category, count]) => (
+                          <div key={category} className="flex justify-between text-sm">
+                            <span className="truncate">{category}</span>
+                            <Badge variant="outline" className="text-xs">{count}</Badge>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <h4 className="font-medium mb-2">Processed Chunks by Category</h4>
+                      <div className="space-y-1">
+                        {Object.entries(databaseStorageStats.processed_chunks.categories).map(([category, count]) => (
+                          <div key={category} className="flex justify-between text-sm">
+                            <span className="truncate">{category}</span>
+                            <Badge variant="outline" className="text-xs">{count}</Badge>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="text-center text-muted-foreground py-8">
+                  Database storage stats not available
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>

@@ -20,17 +20,13 @@ class MetadataManager:
     
     def filter_by_category(self, category: str, limit: int = 100) -> List[Dict]:
         """Get documents by category"""
-        return self.vector_store.collection.get(
-            where={"category": category},
-            limit=limit,
-        )
+        # Use query method with filter instead of direct collection access
+        return self.vector_store.query("", n_results=limit, filter={"category": category})
     
     def filter_by_source(self, source_name: str, limit: int = 100) -> List[Dict]:
         """Get documents by source"""
-        return self.vector_store.collection.get(
-            where={"source_name": source_name},
-            limit=limit,
-        )
+        # Use query method with filter instead of direct collection access
+        return self.vector_store.query("", n_results=limit, filter={"source_name": source_name})
     
     def filter_by_date_range(
         self,
@@ -46,38 +42,40 @@ class MetadataManager:
             end_date: ISO format date string
             limit: Maximum results
         """
-        # Note: ChromaDB date filtering requires the dates to be stored as strings
-        # This is a simple implementation - can be enhanced
-        return self.vector_store.collection.get(
-            where={
-                "$and": [
-                    {"publication_date": {"$gte": start_date}},
-                    {"publication_date": {"$lte": end_date}},
-                ]
-            },
-            limit=limit,
-        )
+        # Note: Date filtering requires backend-specific implementation
+        # For now, return empty list as this needs backend-specific logic
+        logger.warning("Date range filtering not implemented for current vector store backend")
+        return []
     
     def get_categories(self) -> List[str]:
         """Get list of all unique categories"""
-        # Get all documents (or large sample)
-        docs = self.vector_store.collection.get(limit=10000)
-        
-        categories = set()
-        for meta in docs["metadatas"]:
-            categories.add(meta.get("category", "Unknown"))
-        
-        return sorted(list(categories))
+        try:
+            # Use a sample query to get categories from any backend
+            sample_docs = self.vector_store.query("", n_results=1000)
+            categories = set()
+            for doc in sample_docs:
+                meta = doc.get("metadata", {})
+                categories.add(meta.get("category", "Unknown"))
+            
+            return sorted(list(categories))
+        except Exception as e:
+            logger.error(f"Error getting categories: {e}")
+            return ["Unknown"]
     
     def get_sources(self) -> List[str]:
         """Get list of all unique sources"""
-        docs = self.vector_store.collection.get(limit=10000)
-        
-        sources = set()
-        for meta in docs["metadatas"]:
-            sources.add(meta.get("source_name", "Unknown"))
-        
-        return sorted(list(sources))
+        try:
+            # Use a sample query to get sources from any backend
+            sample_docs = self.vector_store.query("", n_results=1000)
+            sources = set()
+            for doc in sample_docs:
+                meta = doc.get("metadata", {})
+                sources.add(meta.get("source_name", "Unknown"))
+            
+            return sorted(list(sources))
+        except Exception as e:
+            logger.error(f"Error getting sources: {e}")
+            return ["Unknown"]
     
     def get_citation(self, chunk_id: str) -> Optional[Dict]:
         """
@@ -90,15 +88,22 @@ class MetadataManager:
             Citation dictionary
         """
         try:
-            result = self.vector_store.collection.get(
-                ids=[chunk_id],
-                include=["metadatas", "documents"]
-            )
-            
-            if not result["ids"]:
+            if hasattr(self.vector_store, 'collection') and self.vector_store.backend == "chromadb":
+                # ChromaDB specific method
+                result = self.vector_store.collection.get(
+                    ids=[chunk_id],
+                    include=["metadatas", "documents"]
+                )
+                
+                if not result["ids"]:
+                    return None
+                
+                meta = result["metadatas"][0]
+            else:
+                # For other backends, we can't easily get by ID
+                # Return a basic citation or None
+                logger.warning(f"get_citation not implemented for {self.vector_store.backend} backend")
                 return None
-            
-            meta = result["metadatas"][0]
             
             citation = {
                 "title": meta.get("title", "Untitled"),

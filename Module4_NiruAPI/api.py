@@ -4,7 +4,7 @@ FastAPI Application - REST API for AmaniQuery
 import os
 import sys
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List, Dict
 import subprocess
 import asyncio
 import threading
@@ -48,6 +48,7 @@ from Module4_NiruAPI.models import (
 )
 from Module4_NiruAPI.research_module import ResearchModule
 from Module4_NiruAPI.config_manager import ConfigManager
+from Module4_NiruAPI.report_generator import ReportGenerator
 
 # Load environment
 load_dotenv()
@@ -225,9 +226,16 @@ async def health_check():
     
     stats = vector_store.get_stats()
     
+    # Handle case where total_chunks might be "unknown" string
+    total_chunks = stats["total_chunks"]
+    if isinstance(total_chunks, str) and total_chunks == "unknown":
+        total_chunks = 0
+    elif not isinstance(total_chunks, int):
+        total_chunks = 0
+    
     return HealthResponse(
         status="healthy",
-        database_chunks=stats["total_chunks"],
+        database_chunks=total_chunks,
         embedding_model=os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2"),
         llm_provider=os.getenv("LLM_PROVIDER", "moonshot"),
     )
@@ -251,8 +259,15 @@ async def get_stats():
     # Convert to dict with counts
     categories_dict = {cat: stats["sample_categories"].get(cat, 0) for cat in categories_list}
     
+    # Handle case where total_chunks might be "unknown" string
+    total_chunks = stats["total_chunks"]
+    if isinstance(total_chunks, str) and total_chunks == "unknown":
+        total_chunks = 0
+    elif not isinstance(total_chunks, int):
+        total_chunks = 0
+    
     return StatsResponse(
-        total_chunks=stats["total_chunks"],
+        total_chunks=total_chunks,
         categories=categories_dict,
         sources=sources_list,
     )
@@ -981,7 +996,8 @@ async def get_crawler_status():
         raise HTTPException(status_code=503, detail="Crawler manager not initialized")
     
     try:
-        return crawler_manager.get_crawler_status()
+        crawlers = crawler_manager.get_crawler_status()
+        return {"crawlers": crawlers}
     except Exception as e:
         logger.error(f"Error getting crawler status: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -1159,7 +1175,11 @@ async def execute_command(command: str, cwd: Optional[str] = None):
 async def get_config_list():
     """Get list of all configuration keys"""
     if config_manager is None:
-        raise HTTPException(status_code=503, detail="Config manager not initialized")
+        return {
+            "error": "Config manager not initialized",
+            "message": "PostgreSQL database connection required for configuration management",
+            "status": "unavailable"
+        }
     
     try:
         return config_manager.list_configs()
@@ -1172,7 +1192,7 @@ async def get_config_list():
 async def set_config(key: str, value: str, description: str = ""):
     """Set a configuration value"""
     if config_manager is None:
-        raise HTTPException(status_code=503, detail="Config manager not initialized")
+        raise HTTPException(status_code=503, detail="Config manager not initialized - PostgreSQL database connection required")
     
     try:
         config_manager.set_config(key, value, description)
@@ -1182,17 +1202,95 @@ async def set_config(key: str, value: str, description: str = ""):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.delete("/admin/config/{key}", tags=["Admin"])
-async def delete_config(key: str):
-    """Delete a configuration entry"""
-    if config_manager is None:
-        raise HTTPException(status_code=503, detail="Config manager not initialized")
+@app.get("/admin/databases", tags=["Admin"])
+async def get_database_stats():
+    """Get statistics for all vector database backends"""
+    if vector_store is None:
+        raise HTTPException(status_code=503, detail="Vector store not initialized")
     
     try:
-        config_manager.delete_config(key)
-        return {"message": f"Config {key} deleted successfully"}
+        stats = vector_store.get_stats()
+        
+        # Format the response with detailed backend information
+        databases = []
+        used_names = set()  # Track used names to avoid duplicates
+        
+        # Primary backend
+        primary_name = stats.get("backend", "unknown")
+        if primary_name not in used_names:
+            primary_db = {
+                "name": primary_name,
+                "type": "primary",
+                "status": "active" if stats.get("total_chunks", 0) > 0 else "inactive",
+                "total_chunks": stats.get("total_chunks", 0),
+                "categories": stats.get("sample_categories", {}),
+                "persist_directory": stats.get("persist_directory", ""),
+                "elasticsearch_docs": stats.get("elasticsearch_docs", 0),
+                "elasticsearch_enabled": stats.get("elasticsearch_enabled", False)
+            }
+            databases.append(primary_db)
+            used_names.add(primary_name)
+        
+        # Cloud backends
+        cloud_backends = stats.get("cloud_backends", [])
+        for backend_name in cloud_backends:
+            if backend_name not in used_names:
+                # Get individual stats for each cloud backend
+                backend_stats = get_individual_backend_stats(backend_name)
+                db_info = {
+                    "name": backend_name,
+                    "type": "cloud",
+                    "status": "active",  # Assume active if configured
+                    "total_chunks": backend_stats.get("total_chunks", 0),
+                    "categories": backend_stats.get("categories", {}),
+                    "persist_directory": "",
+                    "elasticsearch_docs": 0,
+                    "elasticsearch_enabled": False
+                }
+                databases.append(db_info)
+                used_names.add(backend_name)
+        
+        return {
+            "databases": databases,
+            "total_databases": len(databases),
+            "active_databases": len([db for db in databases if db["status"] == "active"])
+        }
+        
     except Exception as e:
-        logger.error(f"Error deleting config {key}: {e}")
+        logger.error(f"Error getting database stats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+def get_individual_backend_stats(backend_name: str) -> Dict:
+    """Get statistics for an individual backend"""
+    try:
+        if backend_name == "upstash" and hasattr(vector_store, 'backends') and "upstash" in vector_store.backends:
+            # Upstash doesn't provide count API, return basic info
+            return {"total_chunks": 0, "categories": {}}
+        elif backend_name == "qdrant" and hasattr(vector_store, 'backends') and "qdrant" in vector_store.backends:
+            # Try to get QDrant collection count
+            try:
+                count_result = vector_store.backends["qdrant"].count(vector_store.collection_name)
+                return {"total_chunks": count_result.count, "categories": {}}
+            except:
+                return {"total_chunks": 0, "categories": {}}
+        else:
+            return {"total_chunks": 0, "categories": {}}
+    except Exception as e:
+        logger.error(f"Error getting stats for {backend_name}: {e}")
+        return {"total_chunks": 0, "categories": {}}
+
+
+@app.get("/admin/database-storage", tags=["Admin"])
+async def get_database_storage_stats():
+    """Get database storage statistics"""
+    try:
+        from Module3_NiruDB.database_storage import DatabaseStorage
+        db_storage = DatabaseStorage()
+        stats = db_storage.get_stats()
+        return stats
+    except Exception as e:
+        logger.error(f"Error getting database storage stats: {e}")
         raise HTTPException(status_code=500, detail=str(e))
     """Get system information"""
     try:
@@ -2117,10 +2215,15 @@ class CrawlerManager:
 
 if __name__ == "__main__":
     import uvicorn
+    import platform
     
     host = os.getenv("API_HOST", "0.0.0.0")
     port = int(os.getenv("API_PORT", 8000))
-    reload = os.getenv("API_RELOAD", "True").lower() == "true"
+    
+    # Disable reload on Windows to avoid multiprocessing import issues
+    is_windows = platform.system() == "Windows"
+    default_reload = "False" if is_windows else "True"
+    reload = os.getenv("API_RELOAD", default_reload).lower() == "true"
     
     print("=" * 60)
     print("🚀 Starting AmaniQuery API")
@@ -2128,6 +2231,9 @@ if __name__ == "__main__":
     print(f"📍 Server: http://{host}:{port}")
     print(f"📚 Docs: http://{host}:{port}/docs")
     print(f"🔧 Provider: {os.getenv('LLM_PROVIDER', 'moonshot')}")
+    print(f"🔄 Reload: {'Enabled' if reload else 'Disabled'}")
+    if is_windows and reload:
+        print("⚠️  Warning: Reload enabled on Windows may cause import issues")
     print("=" * 60)
     
     uvicorn.run(

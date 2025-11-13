@@ -66,6 +66,15 @@ def main():
         
         print(f"   Loaded {len(raw_docs)} documents")
         
+        # Save raw documents to database
+        if pipeline.db_storage:
+            try:
+                saved_raw = pipeline.db_storage.save_raw_documents(raw_docs)
+                print(f"   💾 Saved {saved_raw} raw documents to database")
+            except Exception as e:
+                logger.error(f"Failed to save raw documents to database: {e}")
+                print(f"   ❌ Failed to save raw documents to database")
+        
         # Process documents
         all_chunks = []
         for doc in tqdm(raw_docs, desc="  Documents", leave=False):
@@ -80,8 +89,24 @@ def main():
                 jsonl_file.stem + "_processed.jsonl"
             )
             
-            # Save processed chunks
+            # Save processed chunks to file
             pipeline.save_chunks(all_chunks, output_file)
+            
+            # Save processed chunks to database
+            if pipeline.db_storage:
+                try:
+                    saved_chunks = pipeline.db_storage.save_processed_chunks(all_chunks)
+                    print(f"   🗄️  Saved {saved_chunks} processed chunks to database")
+                    
+                    # Mark raw documents as processed
+                    urls = [doc.get("url") for doc in raw_docs if doc.get("url")]
+                    if urls:
+                        pipeline.db_storage.mark_raw_documents_processed(urls)
+                        print(f"   ✅ Marked {len(urls)} raw documents as processed")
+                        
+                except Exception as e:
+                    logger.error(f"Failed to save processed chunks to database: {e}")
+                    print(f"   ❌ Failed to save processed chunks to database")
             
             total_chunks += len(all_chunks)
             print(f"   ✅ Created {len(all_chunks)} chunks")

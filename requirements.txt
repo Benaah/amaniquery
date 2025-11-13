@@ -24,6 +24,11 @@ youtube-transcript-api  # YouTube transcript extraction
 chromadb
 faiss-cpu  # Alternative: faiss-gpu for GPU support
 loguru
+elasticsearch  # For document storage and search
+upstash-redis  # For cache and vector storage
+upstash-vector  # For vector database
+qdrant-client  # Fallback vector store
+cryptography  # For encrypting API keys
 
 # Database (PostgreSQL for sessions, feedback, chat history)
 psycopg2-binary

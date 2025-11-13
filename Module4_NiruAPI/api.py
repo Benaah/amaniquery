@@ -47,7 +47,7 @@ from Module4_NiruAPI.models import (
     SentimentResponse,
 )
 from Module4_NiruAPI.research_module import ResearchModule
-from Module4_NiruAPI.report_generator import ReportGenerator
+from Module4_NiruAPI.config_manager import ConfigManager
 
 # Load environment
 load_dotenv()
@@ -56,13 +56,22 @@ load_dotenv()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Handle application startup and shutdown"""
-    global vector_store, rag_pipeline, alignment_pipeline, sms_pipeline, sms_service, metadata_manager, chat_manager, crawler_manager, research_module, report_generator
+    global vector_store, rag_pipeline, alignment_pipeline, sms_pipeline, sms_service, metadata_manager, chat_manager, crawler_manager, research_module, report_generator, config_manager
     
     logger.info("Starting AmaniQuery API")
     
+    # Initialize config manager
+    try:
+        config_manager = ConfigManager()
+        logger.info("Config manager initialized")
+    except Exception as e:
+        logger.error(f"Failed to initialize config manager: {e}")
+        config_manager = None
+    
     # Initialize vector store
     try:
-        vector_store = VectorStore()
+        backend = os.getenv("VECTOR_STORE_BACKEND", "chromadb")  # upstash, qdrant, chromadb
+        vector_store = VectorStore(backend=backend, config_manager=config_manager)
         logger.info("Vector store initialized")
     except Exception as e:
         logger.error(f"Failed to initialize vector store: {e}")
@@ -694,40 +703,170 @@ async def add_chat_message(session_id: str, message: ChatMessageCreate):
             raise HTTPException(status_code=404, detail="Session not found")
         
         if message.role == "user":
-            # Process user message with RAG (optimized for chat)
-            result = rag_pipeline.query(
-                query=message.content,
-                top_k=3,  # Reduced for faster chat responses
-                max_tokens=1000,  # Shorter responses for chat
-                max_context_length=2000,  # Smaller context for chat
-                temperature=0.7
-            )
+            # Check if streaming is requested
+            stream = message.stream
             
-            # Add user message
-            user_msg_id = chat_manager.add_message(
-                session_id=session_id,
-                content=message.content,
-                role="user"
-            )
-            
-            # Add assistant response
-            assistant_msg_id = chat_manager.add_message(
-                session_id=session_id,
-                content=result["answer"],
-                role="assistant",
-                token_count=result.get("retrieved_chunks", 0),
-                model_used=result.get("model_used", "unknown"),
-                sources=result.get("sources", [])
-            )
-            
-            # Generate session title if needed
-            if not session.title:
-                title = chat_manager.generate_session_title(session_id)
-                chat_manager.update_session_title(session_id, title)
-            
-            # Return the assistant message
-            messages = chat_manager.get_messages(session_id, limit=1)
-            return messages[-1] if messages else None
+            if stream:
+                # Use streaming RAG
+                result = rag_pipeline.query_stream(
+                    query=message.content,
+                    top_k=3,  # Reduced for faster chat responses
+                    max_tokens=1000,  # Shorter responses for chat
+                    max_context_length=2000,  # Smaller context for chat
+                    temperature=0.7
+                )
+                
+                # Add user message
+                user_msg_id = chat_manager.add_message(
+                    session_id=session_id,
+                    content=message.content,
+                    role="user"
+                )
+                
+                # Return streaming response
+                from fastapi.responses import StreamingResponse
+                import json
+                
+                async def generate_stream():
+                    try:
+                        # First send sources
+                        sources_data = {
+                            "type": "sources",
+                            "sources": result["sources"],
+                            "retrieved_chunks": result["retrieved_chunks"],
+                            "model_used": result["model_used"]
+                        }
+                        yield f"data: {json.dumps(sources_data)}\n\n"
+                        
+                        # Then stream the answer
+                        full_answer = ""
+                        
+                        # Check if we have streaming response or fallback to regular answer
+                        if "answer_stream" in result and result["answer_stream"] is not None:
+                            # Handle streaming response
+                            if hasattr(result["answer_stream"], '__iter__') and not isinstance(result["answer_stream"], str):
+                                # True streaming response (OpenAI/Moonshot/Anthropic)
+                                for chunk in result["answer_stream"]:
+                                    if hasattr(chunk, 'choices') and chunk.choices:
+                                        delta = chunk.choices[0].delta
+                                        if hasattr(delta, 'content') and delta.content:
+                                            content = delta.content
+                                            full_answer += content
+                                            chunk_data = {
+                                                "type": "content",
+                                                "content": content
+                                            }
+                                            yield f"data: {json.dumps(chunk_data)}\n\n"
+                                    elif hasattr(chunk, 'delta') and hasattr(chunk.delta, 'text'):
+                                        # Anthropic format
+                                        content = chunk.delta.text
+                                        full_answer += content
+                                        chunk_data = {
+                                            "type": "content",
+                                            "content": content
+                                        }
+                                        yield f"data: {json.dumps(chunk_data)}\n\n"
+                            else:
+                                # Fallback for non-streaming providers (Gemini) - send as single chunk
+                                content = str(result["answer_stream"])
+                                full_answer = content
+                                chunk_data = {
+                                    "type": "content",
+                                    "content": content
+                                }
+                                yield f"data: {json.dumps(chunk_data)}\n\n"
+                        elif "answer" in result:
+                            # Fallback to regular answer when no streaming available
+                            content = str(result["answer"])
+                            full_answer = content
+                            chunk_data = {
+                                "type": "content",
+                                "content": content
+                            }
+                            yield f"data: {json.dumps(chunk_data)}\n\n"
+                        else:
+                            # No answer available
+                            error_content = "I apologize, but I was unable to generate a response. Please try again."
+                            full_answer = error_content
+                            chunk_data = {
+                                "type": "content",
+                                "content": error_content
+                            }
+                            yield f"data: {json.dumps(chunk_data)}\n\n"
+                        
+                        # Send completion
+                        completion_data = {
+                            "type": "done",
+                            "full_answer": full_answer
+                        }
+                        yield f"data: {json.dumps(completion_data)}\n\n"
+                        
+                        # Add assistant message to chat after streaming
+                        assistant_msg_id = chat_manager.add_message(
+                            session_id=session_id,
+                            content=full_answer,
+                            role="assistant",
+                            token_count=result.get("retrieved_chunks", 0),
+                            model_used=result.get("model_used", "unknown"),
+                            sources=result.get("sources", [])
+                        )
+                        
+                        # Generate session title if needed
+                        if not session.title:
+                            title = chat_manager.generate_session_title(session_id)
+                            chat_manager.update_session_title(session_id, title)
+                            
+                    except Exception as e:
+                        logger.error(f"Error in streaming: {e}")
+                        error_data = {
+                            "type": "error",
+                            "error": str(e)
+                        }
+                        yield f"data: {json.dumps(error_data)}\n\n"
+                
+                return StreamingResponse(
+                    generate_stream(),
+                    media_type="text/event-stream",
+                    headers={
+                        "Cache-Control": "no-cache",
+                        "Connection": "keep-alive",
+                    }
+                )
+            else:
+                # Regular non-streaming response
+                result = rag_pipeline.query(
+                    query=message.content,
+                    top_k=3,  # Reduced for faster chat responses
+                    max_tokens=1000,  # Shorter responses for chat
+                    max_context_length=2000,  # Smaller context for chat
+                    temperature=0.7
+                )
+                
+                # Add user message
+                user_msg_id = chat_manager.add_message(
+                    session_id=session_id,
+                    content=message.content,
+                    role="user"
+                )
+                
+                # Add assistant response
+                assistant_msg_id = chat_manager.add_message(
+                    session_id=session_id,
+                    content=result["answer"],
+                    role="assistant",
+                    token_count=result.get("retrieved_chunks", 0),
+                    model_used=result.get("model_used", "unknown"),
+                    sources=result.get("sources", [])
+                )
+                
+                # Generate session title if needed
+                if not session.title:
+                    title = chat_manager.generate_session_title(session_id)
+                    chat_manager.update_session_title(session_id, title)
+                
+                # Return the assistant message
+                messages = chat_manager.get_messages(session_id, limit=1)
+                return messages[-1] if messages else None
             
         else:
             # Add assistant message directly
@@ -1016,8 +1155,45 @@ async def execute_command(command: str, cwd: Optional[str] = None):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/admin/system", tags=["Admin"])
-async def get_system_info():
+@app.get("/admin/config", tags=["Admin"])
+async def get_config_list():
+    """Get list of all configuration keys"""
+    if config_manager is None:
+        raise HTTPException(status_code=503, detail="Config manager not initialized")
+    
+    try:
+        return config_manager.list_configs()
+    except Exception as e:
+        logger.error(f"Error getting config list: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/admin/config", tags=["Admin"])
+async def set_config(key: str, value: str, description: str = ""):
+    """Set a configuration value"""
+    if config_manager is None:
+        raise HTTPException(status_code=503, detail="Config manager not initialized")
+    
+    try:
+        config_manager.set_config(key, value, description)
+        return {"message": f"Config {key} set successfully"}
+    except Exception as e:
+        logger.error(f"Error setting config {key}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/admin/config/{key}", tags=["Admin"])
+async def delete_config(key: str):
+    """Delete a configuration entry"""
+    if config_manager is None:
+        raise HTTPException(status_code=503, detail="Config manager not initialized")
+    
+    try:
+        config_manager.delete_config(key)
+        return {"message": f"Config {key} deleted successfully"}
+    except Exception as e:
+        logger.error(f"Error deleting config {key}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
     """Get system information"""
     try:
         # Get basic system info

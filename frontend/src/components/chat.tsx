@@ -251,7 +251,7 @@ ${additionalConsiderations}
           const reader = response.body?.getReader()
           const decoder = new TextDecoder()
           let accumulatedContent = ""
-          let metadata: StreamMetadata = {}
+          const metadata: StreamMetadata = {}
           
           if (reader) {
             try {
@@ -270,7 +270,13 @@ ${additionalConsiderations}
                     try {
                       const parsed = JSON.parse(data)
                       
-                      if (parsed.content) {
+                      if (parsed.type === 'sources') {
+                        // Store sources metadata
+                        metadata.sources = parsed.sources
+                        metadata.token_count = parsed.retrieved_chunks
+                        metadata.model_used = parsed.model_used
+                      } else if (parsed.type === 'content') {
+                        // Accumulate content chunks
                         accumulatedContent += parsed.content
                         // Update message content in real-time
                         setMessages(prev => prev.map(msg => 
@@ -278,22 +284,29 @@ ${additionalConsiderations}
                             ? { ...msg, content: accumulatedContent }
                             : msg
                         ))
-                      }
-                      
-                      if (parsed.metadata) {
-                        metadata = { ...metadata, ...parsed.metadata }
-                      }
-                      
-                      if (parsed.done) {
-                        // Final update with metadata
+                      } else if (parsed.type === 'done') {
+                        // Final update with complete answer
                         setMessages(prev => prev.map(msg => 
                           msg.id === assistantMessageId 
                             ? { 
                                 ...msg, 
-                                content: accumulatedContent,
+                                content: parsed.full_answer || accumulatedContent,
                                 token_count: metadata.token_count,
                                 model_used: metadata.model_used,
                                 sources: metadata.sources
+                              }
+                            : msg
+                        ))
+                        break
+                      } else if (parsed.type === 'error') {
+                        // Handle streaming error
+                        console.error('Streaming error:', parsed.error)
+                        setMessages(prev => prev.map(msg => 
+                          msg.id === assistantMessageId 
+                            ? { 
+                                ...msg, 
+                                content: `Error: ${parsed.error}`,
+                                model_used: 'error'
                               }
                             : msg
                         ))
@@ -539,45 +552,46 @@ ${additionalConsiderations}
   return (
     <div className="flex h-screen max-w-6xl mx-auto">
       {/* Chat History Sidebar - Desktop */}
-      <div className="hidden md:flex w-80 border-r bg-muted/30 overflow-y-auto flex-col">
-        <div className="p-4 border-b">
+      <div className="hidden md:flex w-64 border-r bg-muted/30 overflow-y-auto flex-col transition-all duration-300 ease-in-out">
+        <div className="p-3 border-b">
           <div className="flex items-center justify-between">
-            <h3 className="font-semibold">Chat History</h3>
+            <h3 className="font-semibold text-sm">Chat History</h3>
             <Button 
               variant="ghost" 
               size="sm" 
               onClick={createNewSession}
+              className="h-8 px-2"
             >
-              <Plus className="w-4 h-4 mr-2" />
-              New Chat
+              <Plus className="w-3 h-3 mr-1" />
+              New
             </Button>
           </div>
         </div>
         <div className="p-2 space-y-1 flex-1">
           {chatHistory.map((session) => (
-            <div key={session.id} className="flex items-center space-x-2 p-1">
+            <div key={session.id} className="flex items-center space-x-1 p-1 group">
               <Button
                 variant={currentSessionId === session.id ? "secondary" : "ghost"}
-                className="flex-1 justify-start text-left h-auto p-3"
+                className="flex-1 justify-start text-left h-auto p-2 text-xs transition-colors duration-200"
                 onClick={() => loadSession(session.id)}
               >
-                <MessageSquare className="w-4 h-4 mr-2 flex-shrink-0" />
+                <MessageSquare className="w-3 h-3 mr-2 flex-shrink-0" />
                 <div className="flex-1 min-w-0">
-                  <div className="font-medium truncate">
-                    {session.title || `Chat ${session.id.slice(-8)}`}
+                  <div className="font-medium truncate text-xs">
+                    {session.title || `Chat ${session.id.slice(-6)}`}
                   </div>
                   <div className="text-xs text-muted-foreground">
-                    {session.message_count} messages
+                    {session.message_count} msgs
                   </div>
                 </div>
               </Button>
               <Button
                 variant="ghost"
                 size="sm"
-                className="text-muted-foreground hover:text-destructive"
+                className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive h-6 w-6 p-0 transition-opacity duration-200"
                 onClick={() => deleteSession(session.id)}
               >
-                <Trash2 className="w-4 h-4" />
+                <Trash2 className="w-3 h-3" />
               </Button>
             </div>
           ))}
@@ -743,7 +757,7 @@ ${additionalConsiderations}
                   {message.role === 'user' ? <User className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
                 </div>
                 <div className="flex-1">
-                  <Card className={`max-w-full ${message.role === 'user' ? 'bg-primary text-primary-foreground' : ''}`}>
+                  <Card className={`max-w-full transition-all duration-300 ease-in-out hover:shadow-md animate-in slide-in-from-bottom-2 ${message.role === 'user' ? 'bg-primary text-primary-foreground' : ''}`}>
                     <CardContent className="p-3 md:p-4">
                       {message.model_used === 'gemini-research' && (
                         <div className="flex items-center gap-2 mb-2">
@@ -834,7 +848,7 @@ ${additionalConsiderations}
                 <div className="flex-shrink-0 w-8 h-8 rounded-full bg-muted flex items-center justify-center mr-2">
                   <Bot className="w-4 h-4" />
                 </div>
-                <Card>
+                <Card className="transition-all duration-300 ease-in-out animate-in slide-in-from-bottom-2">
                   <CardContent className="p-3 md:p-4">
                     <div className="flex space-x-1">
                       <div className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce"></div>

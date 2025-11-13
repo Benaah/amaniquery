@@ -75,6 +75,7 @@ class ChatSessionResponse(BaseModel):
 class ChatMessageCreate(BaseModel):
     content: str
     role: str = "user"
+    stream: bool = False
 
 class ChatMessageResponse(BaseModel):
     id: str

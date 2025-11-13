@@ -41,6 +41,12 @@ interface Crawler {
   last_run: string
   logs: string[]
 }
+interface CommandResult { 
+  command: string
+  exit_code: number
+  stdout: string
+  stderr: string
+}
 
 interface Document {
   id: string
@@ -58,12 +64,13 @@ interface Document {
   score: number
 }
 
-interface CommandResult {
-  command: string
-  exit_code: number
-  stdout: string
-  stderr: string
-  cwd: string
+interface ConfigEntry {
+  description: string
+  has_value: boolean
+}
+
+interface ConfigData {
+  [key: string]: ConfigEntry
 }
 
 export default function AdminDashboard() {
@@ -76,6 +83,10 @@ export default function AdminDashboard() {
   const [command, setCommand] = useState("")
   const [commandHistory, setCommandHistory] = useState<CommandResult[]>([])
   const [isExecuting, setIsExecuting] = useState(false)
+  const [configs, setConfigs] = useState<ConfigData>({})
+  const [newConfigKey, setNewConfigKey] = useState("")
+  const [newConfigValue, setNewConfigValue] = useState("")
+  const [newConfigDescription, setNewConfigDescription] = useState("")
 
   const fetchStats = async () => {
     try {
@@ -114,6 +125,18 @@ export default function AdminDashboard() {
     } catch (error) {
       console.error("Failed to fetch crawlers:", error)
       setCrawlers({})
+    }
+  }
+
+  const fetchConfigs = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/admin/config`)
+      if (response.ok) {
+        const data = await response.json()
+        setConfigs(data)
+      }
+    } catch (error) {
+      console.error("Failed to fetch configs:", error)
     }
   }
 
@@ -162,6 +185,7 @@ export default function AdminDashboard() {
     fetchStats()
     fetchHealth()
     fetchCrawlers()
+    fetchConfigs()
   }, [])
 
   const runCrawler = async (crawlerName: string) => {
@@ -175,6 +199,45 @@ export default function AdminDashboard() {
       }
     } catch (error) {
       console.error("Failed to start crawler:", error)
+    }
+  }
+
+  const setConfig = async () => {
+    if (!newConfigKey.trim() || !newConfigValue.trim()) return
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/admin/config`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          key: newConfigKey,
+          value: newConfigValue,
+          description: newConfigDescription
+        }),
+      })
+      if (response.ok) {
+        setNewConfigKey("")
+        setNewConfigValue("")
+        setNewConfigDescription("")
+        fetchConfigs()
+      }
+    } catch (error) {
+      console.error("Failed to set config:", error)
+    }
+  }
+
+  const deleteConfig = async (key: string) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/admin/config/${key}`, {
+        method: "DELETE",
+      })
+      if (response.ok) {
+        fetchConfigs()
+      }
+    } catch (error) {
+      console.error("Failed to delete config:", error)
     }
   }
 
@@ -497,6 +560,106 @@ export default function AdminDashboard() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <div><strong>Categories:</strong> {stats ? Object.keys(stats.categories).join(", ") : "Loading..."}</div>
                   <div><strong>Sources:</strong> {stats ? stats.sources.join(", ") : "Loading..."}</div>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Configuration Management */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center text-lg md:text-xl">
+              <Database className="w-5 h-5 mr-2" />
+              Configuration Management
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              {/* Add New Config */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <Input
+                  placeholder="Config Key (e.g., ELASTICSEARCH_URL)"
+                  value={newConfigKey}
+                  onChange={(e) => setNewConfigKey(e.target.value)}
+                  className="text-sm"
+                />
+                <Input
+                  placeholder="Config Value"
+                  value={newConfigValue}
+                  onChange={(e) => setNewConfigValue(e.target.value)}
+                  type="password"
+                  className="text-sm"
+                />
+                <div className="flex space-x-2">
+                  <Input
+                    placeholder="Description (optional)"
+                    value={newConfigDescription}
+                    onChange={(e) => setNewConfigDescription(e.target.value)}
+                    className="flex-1 text-sm"
+                  />
+                  <Button 
+                    onClick={setConfig}
+                    disabled={!newConfigKey.trim() || !newConfigValue.trim()}
+                    className="px-4"
+                  >
+                    Add
+                  </Button>
+                </div>
+              </div>
+
+              {/* Config List */}
+              <div className="space-y-2">
+                <h4 className="font-medium text-sm">Current Configurations</h4>
+                <div className="max-h-64 overflow-y-auto space-y-2">
+                  {Object.entries(configs).map(([key, config]) => (
+                    <Card key={key} className="bg-muted/50">
+                      <CardContent className="p-3">
+                        <div className="flex items-center justify-between">
+                          <div className="flex-1 min-w-0">
+                            <div className="font-mono text-sm font-medium truncate">{key}</div>
+                            <div className="text-xs text-muted-foreground">{config.description || "No description"}</div>
+                          </div>
+                          <div className="flex items-center space-x-2 ml-4">
+                            <Badge variant={config.has_value ? "secondary" : "outline"} className="text-xs">
+                              {config.has_value ? "Set" : "Empty"}
+                            </Badge>
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              onClick={() => deleteConfig(key)}
+                              className="h-8 px-2 text-xs"
+                            >
+                              Delete
+                            </Button>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                  {Object.keys(configs).length === 0 && (
+                    <div className="text-center text-muted-foreground py-4 text-sm">
+                      No configurations found
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Common Config Templates */}
+              <div className="text-xs text-muted-foreground bg-muted/50 p-3 rounded-lg">
+                <div className="font-medium mb-2">Common Configuration Keys:</div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-1 text-xs">
+                  <div>• ELASTICSEARCH_URL - Elasticsearch cloud URL</div>
+                  <div>• ELASTICSEARCH_API_KEY - Elasticsearch API key</div>
+                  <div>• UPSTASH_VECTOR_URL - Upstash Vector URL</div>
+                  <div>• UPSTASH_VECTOR_TOKEN - Upstash Vector token</div>
+                  <div>• QDRANT_URL - QDrant cloud URL</div>
+                  <div>• QDRANT_API_KEY - QDrant API key</div>
+                  <div>• UPSTASH_REDIS_URL - Upstash Redis URL</div>
+                  <div>• UPSTASH_REDIS_TOKEN - Upstash Redis token</div>
+                  <div>• LLM_PROVIDER - LLM provider (moonshot, openai, etc.)</div>
+                  <div>• GEMINI_API_KEY - Gemini API key</div>
+                  <div>• OPENAI_API_KEY - OpenAI API key</div>
                 </div>
               </div>
             </div>

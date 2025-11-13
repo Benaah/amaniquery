@@ -22,7 +22,7 @@ services:
       - key: API_HOST
         value: 0.0.0.0
       - key: API_PORT
-        value: $PORT
+        value: 8000
       - key: LLM_PROVIDER
         value: moonshot
       - key: DEFAULT_MODEL

@@ -281,52 +281,65 @@ class RAGPipeline:
         """
         start_time = time.time()
         
-        # 1. Retrieve relevant documents (same as regular query)
-        logger.info(f"Retrieving documents for query: {query[:50]}...")
-        
-        filter_dict = {}
-        if category:
-            filter_dict["category"] = category
-        if source:
-            filter_dict["source_name"] = source
-        
-        retrieved_docs = self.vector_store.query(
-            query_text=query,
-            n_results=top_k,
-            filter=filter_dict if filter_dict else None,
-        )
-        
-        if not retrieved_docs:
-            # Return non-streaming response for empty results
+        try:
+            # 1. Retrieve relevant documents (same as regular query)
+            logger.info(f"Retrieving documents for query: {query[:50]}...")
+            
+            filter_dict = {}
+            if category:
+                filter_dict["category"] = category
+            if source:
+                filter_dict["source_name"] = source
+            
+            retrieved_docs = self.vector_store.query(
+                query_text=query,
+                n_results=top_k,
+                filter=filter_dict if filter_dict else None,
+            )
+            
+            if not retrieved_docs:
+                # Return non-streaming response for empty results
+                return {
+                    "answer": "I couldn't find any relevant information to answer your question.",
+                    "sources": [],
+                    "query_time": time.time() - start_time,
+                    "retrieved_chunks": 0,
+                    "model_used": self.model,
+                    "stream": False,
+                }
+            
+            # 2. Prepare context
+            context = self._prepare_context(retrieved_docs, max_context_length)
+            
+            # 3. Generate answer with streaming
+            logger.info("Generating streaming answer with LLM")
+            answer_stream = self._generate_answer_stream(query, context, temperature, max_tokens)
+            
+            # 4. Format sources
+            sources = self._format_sources(retrieved_docs)
+            
+            query_time = time.time() - start_time
+            
             return {
-                "answer": "I couldn't find any relevant information to answer your question.",
+                "answer_stream": answer_stream,
+                "sources": sources,
+                "query_time": query_time,
+                "retrieved_chunks": len(retrieved_docs),
+                "model_used": self.model,
+                "stream": True,
+            }
+            
+        except Exception as e:
+            logger.error(f"Error in query_stream: {e}")
+            # Return non-streaming fallback response
+            return {
+                "answer": f"I encountered an error while processing your query: {str(e)}. Please try again.",
                 "sources": [],
                 "query_time": time.time() - start_time,
                 "retrieved_chunks": 0,
                 "model_used": self.model,
                 "stream": False,
             }
-        
-        # 2. Prepare context
-        context = self._prepare_context(retrieved_docs, max_context_length)
-        
-        # 3. Generate answer with streaming
-        logger.info("Generating streaming answer with LLM")
-        answer_stream = self._generate_answer_stream(query, context, temperature, max_tokens)
-        
-        # 4. Format sources
-        sources = self._format_sources(retrieved_docs)
-        
-        query_time = time.time() - start_time
-        
-        return {
-            "answer_stream": answer_stream,
-            "sources": sources,
-            "query_time": query_time,
-            "retrieved_chunks": len(retrieved_docs),
-            "model_used": self.model,
-            "stream": True,
-        }
     
     def _prepare_context(self, docs: List[Dict], max_context_length: int = 3000) -> str:
         """Prepare context from retrieved documents"""
@@ -368,13 +381,21 @@ class RAGPipeline:
         # System prompt
         system_prompt = """You are AmaniQuery, an AI assistant specialized in Kenyan law, parliamentary proceedings, and current affairs.
 
-Your role is to provide accurate, well-sourced answers based on the provided context. Always:
-1. Base your answer primarily on the provided context when available
-2. Cite sources using [Source #] notation when using information from context
-3. Be precise and factual
-4. If the context contains relevant information, use it with citations
-5. If the context doesn't contain enough specific information, provide general knowledge about the topic while noting the limitation
-6. Use clear, professional language"""
+Your role is to provide accurate, well-sourced answers based on the provided context and your knowledge. Always:
+1. Use the provided context when available and relevant to cite sources using [Source #] notation
+2. Combine context information with your general knowledge to provide comprehensive answers
+3. Be precise and factual in all responses
+4. Provide relevant information even when context is limited
+5. Use clear, professional language
+
+RESPONSE STRUCTURE:
+- Start with a brief summary/overview (2-3 sentences)
+- Use clear headings and subheadings for different aspects
+- Break down complex information into bullet points or numbered lists
+- Use bold text for key terms and important concepts
+- Keep paragraphs short (3-4 sentences maximum)
+- End with practical implications or next steps when relevant
+- Ensure the response is scannable and easy to read"""
 
         # User prompt
         user_prompt = f"""Context from relevant documents:
@@ -481,13 +502,21 @@ Please provide a detailed answer based on the context above. If the context cont
         # System prompt
         system_prompt = """You are AmaniQuery, an AI assistant specialized in Kenyan law, parliamentary proceedings, and current affairs.
 
-Your role is to provide accurate, well-sourced answers based on the provided context. Always:
-1. Base your answer primarily on the provided context when available
-2. Cite sources using [Source #] notation when using information from context
-3. Be precise and factual
-4. If the context contains relevant information, use it with citations
-5. If the context doesn't contain enough specific information, provide general knowledge about the topic while noting the limitation
-6. Use clear, professional language"""
+Your role is to provide accurate, well-sourced answers based on the provided context and your knowledge. Always:
+1. Use the provided context when available and relevant to cite sources using [Source #] notation
+2. Combine context information with your general knowledge to provide comprehensive answers
+3. Be precise and factual in all responses
+4. Provide relevant information even when context is limited
+5. Use clear, professional language
+
+RESPONSE STRUCTURE:
+- Start with a brief summary/overview (2-3 sentences)
+- Use clear headings and subheadings for different aspects
+- Break down complex information into bullet points or numbered lists
+- Use bold text for key terms and important concepts
+- Keep paragraphs short (3-4 sentences maximum)
+- End with practical implications or next steps when relevant
+- Ensure the response is scannable and easy to read"""
 
         # User prompt
         user_prompt = f"""Context from relevant documents:
@@ -496,7 +525,18 @@ Your role is to provide accurate, well-sourced answers based on the provided con
 
 Question: {query}
 
-Please provide a detailed answer based on the context above. If the context contains relevant information, cite sources using [Source #] notation. If the context doesn't provide specific details, use your general knowledge to provide a helpful answer while noting that the information comes from general knowledge rather than the provided documents."""
+Please provide a detailed, well-structured answer based on the context above. Structure your response for easy readability:
+
+**Response Guidelines:**
+- Start with a concise summary (2-3 sentences)
+- Use descriptive headings for different sections
+- Break down complex information into bullet points or numbered lists
+- Highlight key terms and important concepts in **bold**
+- Keep paragraphs short and focused
+- Include practical implications when relevant
+- Cite sources using [Source #] notation when using specific information
+
+If the context contains relevant information, cite sources using [Source #] notation. Otherwise, provide comprehensive answers based on your knowledge of Kenyan law and current affairs."""
 
         try:
             if self.llm_provider in ["openai", "moonshot"]:

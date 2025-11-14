@@ -15,6 +15,7 @@ from datetime import datetime
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from fastapi import FastAPI, HTTPException, Request, Form
+from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
@@ -49,6 +50,7 @@ from Module4_NiruAPI.models import (
 from Module4_NiruAPI.research_module import ResearchModule
 from Module4_NiruAPI.config_manager import ConfigManager
 from Module4_NiruAPI.report_generator import ReportGenerator
+from Module5_NiruShare.api import router as share_router
 
 # Load environment
 load_dotenv()
@@ -194,6 +196,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(share_router)
 
 @app.get("/", tags=["General"])
 async def root():
@@ -1188,17 +1191,43 @@ async def get_config_list():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class ConfigSetRequest(BaseModel):
+    key: str
+    value: str
+    description: Optional[str] = ""
+
+
 @app.post("/admin/config", tags=["Admin"])
-async def set_config(key: str, value: str, description: str = ""):
+async def set_config(config: ConfigSetRequest):
     """Set a configuration value"""
     if config_manager is None:
-        raise HTTPException(status_code=503, detail="Config manager not initialized - PostgreSQL database connection required")
-    
+        raise HTTPException(
+            status_code=503,
+            detail="Config manager not initialized - PostgreSQL database connection required",
+        )
+
     try:
-        config_manager.set_config(key, value, description)
-        return {"message": f"Config {key} set successfully"}
+        config_manager.set_config(config.key, config.value, config.description or "")
+        return {"message": f"Config {config.key} set successfully"}
     except Exception as e:
-        logger.error(f"Error setting config {key}: {e}")
+        logger.error(f"Error setting config {config.key}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/admin/config/{key}", tags=["Admin"])
+async def delete_config_entry(key: str):
+    """Delete a configuration value"""
+    if config_manager is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Config manager not initialized - PostgreSQL database connection required",
+        )
+
+    try:
+        config_manager.delete_config(key)
+        return {"message": f"Config {key} deleted successfully"}
+    except Exception as e:
+        logger.error(f"Error deleting config {key}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

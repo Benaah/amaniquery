@@ -103,6 +103,17 @@ class VectorStore:
         
         raise ValueError("All vector store backends failed to initialize")
     
+    def _get_config_value(self, key: str) -> Optional[str]:
+        """Fetch configuration value from encrypted config store"""
+        if not self.config_manager:
+            return None
+
+        try:
+            return self.config_manager.get_config(key)
+        except Exception as exc:
+            logger.warning(f"Failed to read config '{key}' from ConfigManager: {exc}")
+            return None
+
     def _init_all_cloud_backends(self):
         """Initialize all available cloud backends for multi-cloud storage"""
         cloud_backends = ["upstash", "qdrant"]
@@ -111,9 +122,14 @@ class VectorStore:
             try:
                 logger.info(f"Trying to initialize cloud backend: {backend}")
                 if backend == "upstash":
-                    # Try environment variables first, then config manager
-                    url = os.getenv("UPSTASH_VECTOR_URL") or (self.config_manager.get_config("UPSTASH_VECTOR_URL") if self.config_manager else None)
-                    token = os.getenv("UPSTASH_VECTOR_TOKEN") or (self.config_manager.get_config("UPSTASH_VECTOR_TOKEN") if self.config_manager else None)
+                    # Prefer environment variables, then fall back to config manager
+                    url = os.getenv("UPSTASH_VECTOR_URL")
+                    token = os.getenv("UPSTASH_VECTOR_TOKEN")
+
+                    if (not url or not url.strip()) and self.config_manager:
+                        url = self._get_config_value("UPSTASH_VECTOR_URL")
+                    if (not token or not token.strip()) and self.config_manager:
+                        token = self._get_config_value("UPSTASH_VECTOR_TOKEN")
                     
                     if url and token:
                         self.backends["upstash"] = Index(url=url, token=token)
@@ -122,9 +138,14 @@ class VectorStore:
                         logger.warning("Upstash Vector credentials not found")
                         
                 elif backend == "qdrant":
-                    # Try environment variables first, then config manager
-                    url = os.getenv("QDRANT_URL") or (self.config_manager.get_config("QDRANT_URL") if self.config_manager else None)
-                    api_key = os.getenv("QDRANT_API_KEY") or (self.config_manager.get_config("QDRANT_API_KEY") if self.config_manager else None)
+                    # Prefer environment variables, then fall back to config manager
+                    url = os.getenv("QDRANT_URL")
+                    api_key = os.getenv("QDRANT_API_KEY")
+
+                    if (not url or not url.strip()) and self.config_manager:
+                        url = self._get_config_value("QDRANT_URL")
+                    if (not api_key or not api_key.strip()) and self.config_manager:
+                        api_key = self._get_config_value("QDRANT_API_KEY")
                     
                     if url:
                         client = QdrantClient(url=url, api_key=api_key)
@@ -149,8 +170,14 @@ class VectorStore:
     
     def _init_elasticsearch(self):
         """Initialize Elasticsearch client"""
-        es_url = os.getenv("ELASTICSEARCH_URL") or (self.config_manager.get_config("ELASTICSEARCH_URL") if self.config_manager else None)
-        es_api_key = os.getenv("ELASTICSEARCH_API_KEY") or (self.config_manager.get_config("ELASTICSEARCH_API_KEY") if self.config_manager else None)
+        es_url = os.getenv("ELASTICSEARCH_URL")
+        es_api_key = os.getenv("ELASTICSEARCH_API_KEY")
+
+        # Fall back to encrypted config only when env vars are missing
+        if (not es_url or (es_url and es_url.strip().startswith("error"))) and self.config_manager:
+            es_url = self._get_config_value("ELASTICSEARCH_URL")
+        if (not es_api_key or (es_api_key and es_api_key.strip().startswith("error"))) and self.config_manager:
+            es_api_key = self._get_config_value("ELASTICSEARCH_API_KEY")
         
         if es_url:
             self.es_client = Elasticsearch(es_url, api_key=es_api_key)
@@ -164,8 +191,13 @@ class VectorStore:
     
     def _init_redis(self):
         """Initialize Upstash Redis for caching"""
-        redis_url = os.getenv("UPSTASH_REDIS_URL") or (self.config_manager.get_config("UPSTASH_REDIS_URL") if self.config_manager else None)
-        redis_token = os.getenv("UPSTASH_REDIS_TOKEN") or (self.config_manager.get_config("UPSTASH_REDIS_TOKEN") if self.config_manager else None)
+        redis_url = os.getenv("UPSTASH_REDIS_URL")
+        redis_token = os.getenv("UPSTASH_REDIS_TOKEN")
+
+        if (not redis_url or (redis_url and redis_url.strip().startswith("error"))) and self.config_manager:
+            redis_url = self._get_config_value("UPSTASH_REDIS_URL")
+        if (not redis_token or (redis_token and redis_token.strip().startswith("error"))) and self.config_manager:
+            redis_token = self._get_config_value("UPSTASH_REDIS_TOKEN")
         
         if redis_url and redis_token:
             self.redis_client = Redis(url=redis_url, token=redis_token)
@@ -176,8 +208,13 @@ class VectorStore:
     
     def _init_upstash(self):
         """Initialize Upstash Vector"""
-        url = os.getenv("UPSTASH_VECTOR_URL") or (self.config_manager.get_config("UPSTASH_VECTOR_URL") if self.config_manager else None)
-        token = os.getenv("UPSTASH_VECTOR_TOKEN") or (self.config_manager.get_config("UPSTASH_VECTOR_TOKEN") if self.config_manager else None)
+        url = os.getenv("UPSTASH_VECTOR_URL")
+        token = os.getenv("UPSTASH_VECTOR_TOKEN")
+
+        if (not url or not url.strip()) and self.config_manager:
+            url = self._get_config_value("UPSTASH_VECTOR_URL")
+        if (not token or not token.strip()) and self.config_manager:
+            token = self._get_config_value("UPSTASH_VECTOR_TOKEN")
         
         if not url or not token:
             raise ValueError("Upstash Vector URL and token required")
@@ -186,8 +223,13 @@ class VectorStore:
     
     def _init_qdrant(self):
         """Initialize QDrant"""
-        url = os.getenv("QDRANT_URL") or (self.config_manager.get_config("QDRANT_URL") if self.config_manager else None)
-        api_key = os.getenv("QDRANT_API_KEY") or (self.config_manager.get_config("QDRANT_API_KEY") if self.config_manager else None)
+        url = os.getenv("QDRANT_URL")
+        api_key = os.getenv("QDRANT_API_KEY")
+
+        if (not url or not url.strip()) and self.config_manager:
+            url = self._get_config_value("QDRANT_URL")
+        if (not api_key or not api_key.strip()) and self.config_manager:
+            api_key = self._get_config_value("QDRANT_API_KEY")
         
         if not url:
             raise ValueError("QDrant URL required")
@@ -342,16 +384,16 @@ class VectorStore:
         vectors = []
         for chunk in chunks:
             metadata = {
-                "title": chunk.get("title", ""),
-                "category": chunk.get("category", ""),
-                "source_url": chunk.get("source_url", ""),
-                "source_name": chunk.get("source_name", ""),
-                "chunk_index": chunk.get("chunk_index", 0),
-                "total_chunks": chunk.get("total_chunks", 1),
-                "text": chunk["text"]
+                "title": str(chunk.get("title", "")),
+                "category": str(chunk.get("category", "")),
+                "source_url": str(chunk.get("source_url", "")),
+                "source_name": str(chunk.get("source_name", "")),
+                "chunk_index": str(chunk.get("chunk_index", 0)),
+                "total_chunks": str(chunk.get("total_chunks", 1)),
+                "text": str(chunk["text"])
             }
             vectors.append({
-                "id": chunk["chunk_id"],
+                "id": str(chunk["chunk_id"]),
                 "vector": chunk["embedding"],
                 "metadata": metadata
             })
@@ -367,14 +409,14 @@ class VectorStore:
         points = []
         for i, chunk in enumerate(chunks):
             payload = {
-                "title": chunk.get("title", ""),
-                "category": chunk.get("category", ""),
-                "source_url": chunk.get("source_url", ""),
-                "source_name": chunk.get("source_name", ""),
-                "chunk_index": chunk.get("chunk_index", 0),
-                "total_chunks": chunk.get("total_chunks", 1),
-                "text": chunk["text"],
-                "chunk_id": chunk["chunk_id"]  # Store original chunk_id in payload
+                "title": str(chunk.get("title", "")),
+                "category": str(chunk.get("category", "")),
+                "source_url": str(chunk.get("source_url", "")),
+                "source_name": str(chunk.get("source_name", "")),
+                "chunk_index": str(chunk.get("chunk_index", 0)),
+                "total_chunks": str(chunk.get("total_chunks", 1)),
+                "text": str(chunk["text"]),
+                "chunk_id": str(chunk["chunk_id"])  # Store original chunk_id in payload
             }
             # Use hash of chunk_id as integer ID for QDrant
             point_id = hash(chunk["chunk_id"]) % (2**63 - 1)  # Ensure positive integer
@@ -394,9 +436,9 @@ class VectorStore:
             batch = chunks[i:i + batch_size]
             
             # Prepare data
-            ids = [chunk["chunk_id"] for chunk in batch]
+            ids = [str(chunk["chunk_id"]) for chunk in batch]
             embeddings = [chunk["embedding"] for chunk in batch]
-            documents = [chunk["text"] for chunk in batch]
+            documents = [str(chunk["text"]) for chunk in batch]
             
             # Prepare metadata
             metadatas = []
@@ -406,8 +448,8 @@ class VectorStore:
                     "category": str(chunk.get("category", "")),
                     "source_url": str(chunk.get("source_url", "")),
                     "source_name": str(chunk.get("source_name", "")),
-                    "chunk_index": int(chunk.get("chunk_index", 0)),
-                    "total_chunks": int(chunk.get("total_chunks", 1)),
+                    "chunk_index": str(chunk.get("chunk_index", 0)),
+                    "total_chunks": str(chunk.get("total_chunks", 1)),
                 }
                 
                 # Add optional fields if available
@@ -509,7 +551,7 @@ class VectorStore:
         filter_dict = {}
         if filter:
             for k, v in filter.items():
-                filter_dict[f"metadata.{k}"] = v
+                filter_dict[f"metadata.{k}"] = str(v)
         
         results = self.client.query(
             vector=query_embedding,
@@ -521,10 +563,11 @@ class VectorStore:
         
         formatted_results = []
         for hit in results:
+            metadata = {k: str(v) if not isinstance(v, str) else v for k, v in hit.metadata.items()}
             formatted_results.append({
                 "id": hit.id,
-                "text": hit.metadata.get("text", ""),
-                "metadata": hit.metadata,
+                "text": metadata.get("text", ""),
+                "metadata": metadata,
                 "distance": hit.score,
             })
         
@@ -537,7 +580,7 @@ class VectorStore:
         if filter:
             conditions = []
             for k, v in filter.items():
-                conditions.append(models.FieldCondition(key=k, match=models.MatchValue(value=v)))
+                conditions.append(models.FieldCondition(key=k, match=models.MatchValue(value=str(v))))
             scroll_filter = models.Filter(must=conditions)
         
         results = self.client.search(
@@ -550,10 +593,11 @@ class VectorStore:
         
         formatted_results = []
         for hit in results:
+            metadata = {k: str(v) if not isinstance(v, str) else v for k, v in hit.payload.items()}
             formatted_results.append({
-                "id": hit.payload.get("chunk_id", str(hit.id)),  # Use original chunk_id from payload
-                "text": hit.payload.get("text", ""),
-                "metadata": hit.payload,
+                "id": metadata.get("chunk_id", str(hit.id)),  # Use original chunk_id from payload
+                "text": metadata.get("text", ""),
+                "metadata": metadata,
                 "distance": hit.score,
             })
         
@@ -563,19 +607,24 @@ class VectorStore:
     def _query_chromadb(self, query_embedding: List[float], n_results: int, filter: Optional[Dict]) -> List[Dict]:
         """Query ChromaDB (existing logic)"""
         # Query collection
+        where = None
+        if filter:
+            where = {k: str(v) for k, v in filter.items()}
+        
         results = self.collection.query(
             query_embeddings=[query_embedding],
             n_results=n_results,
-            where=filter,
+            where=where,
         )
         
         # Format results
         formatted_results = []
         for i in range(len(results["ids"][0])):
+            metadata = {k: str(v) if not isinstance(v, str) else v for k, v in results["metadatas"][0][i].items()}
             formatted_results.append({
                 "id": results["ids"][0][i],
                 "text": results["documents"][0][i],
-                "metadata": results["metadatas"][0][i],
+                "metadata": metadata,
                 "distance": results["distances"][0][i] if "distances" in results else None,
             })
         

@@ -2,7 +2,7 @@
 RAG Pipeline - Retrieval-Augmented Generation
 """
 import os
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 import time
 from loguru import logger
 from openai import OpenAI
@@ -27,6 +27,7 @@ class RAGPipeline:
         vector_store: Optional[VectorStore] = None,
         llm_provider: str = "moonshot",
         model: str = "moonshot-v1-8k",
+        config_manager: Optional[Any] = None,
     ):
         """
         Initialize RAG pipeline
@@ -39,8 +40,10 @@ class RAGPipeline:
         # Load environment variables
         load_dotenv()
         
+        self.config_manager = config_manager
+
         # Initialize vector store
-        self.vector_store = vector_store or VectorStore()
+        self.vector_store = vector_store or VectorStore(config_manager=config_manager)
         self.metadata_manager = MetadataManager(self.vector_store)
         
         # Initialize cache
@@ -52,17 +55,17 @@ class RAGPipeline:
         self.model = model
         
         if llm_provider == "openai":
-            api_key = os.getenv("OPENAI_API_KEY")
+            api_key = self._get_secret("OPENAI_API_KEY")
             if not api_key:
                 raise ValueError("OPENAI_API_KEY not set in environment")
             self.client = OpenAI(api_key=api_key)
         elif llm_provider == "anthropic":
-            api_key = os.getenv("ANTHROPIC_API_KEY")
+            api_key = self._get_secret("ANTHROPIC_API_KEY")
             if not api_key:
                 raise ValueError("ANTHROPIC_API_KEY not set in environment")
             self.client = Anthropic(api_key=api_key)
         elif llm_provider == "gemini":
-            api_key = os.getenv("GEMINI_API_KEY")
+            api_key = self._get_secret("GEMINI_API_KEY")
             if not api_key:
                 raise ValueError("GEMINI_API_KEY not set in environment")
             try:
@@ -87,8 +90,12 @@ class RAGPipeline:
                 else:
                     raise
         elif llm_provider == "moonshot":
-            api_key = os.getenv("MOONSHOT_API_KEY")
-            base_url = os.getenv("MOONSHOT_BASE_URL", "https://api.moonshot.ai/v1")
+            api_key = self._get_secret("MOONSHOT_API_KEY")
+            base_url = (
+                os.getenv("MOONSHOT_BASE_URL")
+                or self._get_secret("MOONSHOT_BASE_URL")
+                or "https://api.moonshot.ai/v1"
+            )
             if not api_key:
                 raise ValueError("MOONSHOT_API_KEY not set in environment")
             
@@ -121,8 +128,12 @@ class RAGPipeline:
         else:
             # Local model support can be added here
             logger.warning(f"Unknown provider {llm_provider}, defaulting to Moonshot")
-            api_key = os.getenv("MOONSHOT_API_KEY")
-            base_url = os.getenv("MOONSHOT_BASE_URL", "https://api.moonshot.ai/v1")
+            api_key = self._get_secret("MOONSHOT_API_KEY")
+            base_url = (
+                os.getenv("MOONSHOT_BASE_URL")
+                or self._get_secret("MOONSHOT_BASE_URL")
+                or "https://api.moonshot.ai/v1"
+            )
             if api_key:
                 try:
                     self.client = OpenAI(
@@ -137,6 +148,22 @@ class RAGPipeline:
                 raise ValueError("MOONSHOT_API_KEY not set in environment")
         
         logger.info(f"RAG Pipeline initialized with {llm_provider}/{model}")
+
+    def _get_secret(self, key: str, default: Optional[str] = None) -> Optional[str]:
+        """Fetch secret values from environment variables with ConfigManager fallback."""
+        value = os.getenv(key)
+        if value:
+            return value
+
+        if self.config_manager:
+            try:
+                secret = self.config_manager.get_config(key)
+                if secret:
+                    return secret
+            except Exception as exc:
+                logger.warning(f"Failed to fetch {key} from config store: {exc}")
+
+        return default
     
     def _get_cache_key(self, query: str, top_k: int, category: Optional[str], source: Optional[str]) -> str:
         """Generate cache key for query"""

@@ -253,6 +253,11 @@ async def get_stats():
         
         stats = vector_store.get_stats()
         
+        # Ensure stats is a dict and has expected keys
+        if not isinstance(stats, dict):
+            logger.warning(f"vector_store.get_stats() returned non-dict type: {type(stats)}, defaulting to empty stats")
+            stats = {"sample_categories": {}, "total_chunks": 0}
+        
         # Get categories and sources
         try:
             from Module3_NiruDB.metadata_manager import MetadataManager
@@ -2112,10 +2117,10 @@ class CrawlerManager:
         """Get status of all crawlers"""
         # Initialize default crawlers if not exists
         default_crawlers = {
-            "kenya_law": {"status": "idle", "last_run": "2024-01-15T10:30:00Z"},
-            "parliament": {"status": "idle", "last_run": "2024-01-15T09:15:00Z"},
-            "news_rss": {"status": "idle", "last_run": "2024-01-15T11:00:00Z"},
-            "global_trends": {"status": "idle", "last_run": "2024-01-14T16:45:00Z"}
+            "kenya_law": {"status": "idle", "last_run": None},
+            "parliament": {"status": "idle", "last_run": None},
+            "news_rss": {"status": "idle", "last_run": None},
+            "global_trends": {"status": "idle", "last_run": None}
         }
         
         # Merge with saved status
@@ -2123,6 +2128,9 @@ class CrawlerManager:
             if name not in self.crawlers:
                 self.crawlers[name] = default_status
                 self.logs[name] = []
+        
+        # Try to get actual last run times from database
+        self._update_last_run_times()
         
         # Return current status with logs
         result = {}
@@ -2133,6 +2141,49 @@ class CrawlerManager:
             }
         
         return result
+    
+    def _update_last_run_times(self):
+        """Update last run times from database"""
+        try:
+            from Module3_NiruDB.database_storage import DatabaseStorage
+            db_storage = DatabaseStorage()
+            
+            # Map crawler names to database categories/sources
+            crawler_mapping = {
+                "kenya_law": {"category": "Kenyan Law"},
+                "parliament": {"category": "Parliament"},
+                "news_rss": {"source_name": "News RSS"},
+                "global_trends": {"category": "Global Trend"}
+            }
+            
+            with db_storage.get_db_session() as db:
+                for crawler_name, filters in crawler_mapping.items():
+                    try:
+                        # Query the most recent crawl_date for this crawler type
+                        from sqlalchemy import func
+                        from Module3_NiruDB.database_storage import RawDocument
+                        
+                        query = db.query(func.max(RawDocument.crawl_date))
+                        
+                        if "category" in filters:
+                            query = query.filter(RawDocument.category == filters["category"])
+                        if "source_name" in filters:
+                            query = query.filter(RawDocument.source_name == filters["source_name"])
+                        
+                        last_run = query.scalar()
+                        
+                        if last_run:
+                            self.crawlers[crawler_name]["last_run"] = last_run.isoformat() + 'Z'
+                        else:
+                            # No data found, keep as None or set to never
+                            self.crawlers[crawler_name]["last_run"] = None
+                            
+                    except Exception as e:
+                        logger.warning(f"Error getting last run time for {crawler_name}: {e}")
+                        self.crawlers[crawler_name]["last_run"] = None
+                        
+        except Exception as e:
+            logger.warning(f"Error updating last run times from database: {e}")
     
     def start_crawler(self, crawler_name: str):
         """Start a specific crawler"""
@@ -2149,10 +2200,10 @@ class CrawlerManager:
             
             # Map crawler names to spider names
             spider_mapping = {
-                "kenya_law": "kenya_law",
-                "parliament": "parliament", 
-                "news_rss": "news_rss",
-                "global_trends": "global_trends"
+                "kenya_law": "kenya_law_spider",
+                "parliament": "parliament_spider", 
+                "news_rss": "news_rss_spider",
+                "global_trends": "global_trends_spider"
             }
             
             if crawler_name not in spider_mapping:
@@ -2161,7 +2212,7 @@ class CrawlerManager:
             spider_name = spider_mapping[crawler_name]
             
             # Start subprocess with log capture
-            cmd = [sys.executable, "-m", "scrapy", "crawl", spider_name, "-L", "INFO"]
+            cmd = [sys.executable, "crawl_spider.py", spider_name]
             
             # Create subprocess with pipes for log capture
             process = subprocess.Popen(

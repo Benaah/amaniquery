@@ -59,6 +59,7 @@ interface Message {
     excerpt: string
   }>
   feedback_type?: "like" | "dislike"
+  saved?: boolean
 }
 
 interface Source {
@@ -258,7 +259,8 @@ export function Chat() {
       session_id: sessionId,
       role: "user",
       content: content.trim(),
-      created_at: new Date().toISOString()
+      created_at: new Date().toISOString(),
+      saved: false
     }
 
     setMessages(prev => [...prev, userMessage])
@@ -345,7 +347,8 @@ ${additionalConsiderations}
             role: "assistant",
             content: researchContent,
             created_at: new Date().toISOString(),
-            model_used: data.model_used || "gemini-research"
+            model_used: data.model_used || "gemini-research",
+            saved: true
           }
           setMessages(prev => [...prev, assistantMessage])
           
@@ -363,7 +366,8 @@ ${additionalConsiderations}
             role: "assistant",
             content: "",
             created_at: new Date().toISOString(),
-            model_used: "streaming"
+            model_used: "streaming",
+            saved: false
           }
           
           // Add initial empty assistant message
@@ -414,7 +418,8 @@ ${additionalConsiderations}
                                 content: parsed.full_answer || accumulatedContent,
                                 token_count: metadata.token_count,
                                 model_used: metadata.model_used,
-                                sources: metadata.sources
+                                sources: metadata.sources,
+                                saved: true
                               }
                             : msg
                         ))
@@ -427,7 +432,8 @@ ${additionalConsiderations}
                             ? { 
                                 ...msg, 
                                 content: `Error: ${parsed.error}`,
-                                model_used: 'error'
+                                model_used: 'error',
+                                saved: true
                               }
                             : msg
                         ))
@@ -1235,6 +1241,7 @@ ${additionalConsiderations}
                           variant="ghost"
                           size="sm"
                           onClick={() => submitFeedback(message.id, "like")}
+                          disabled={!message.saved}
                           className={`h-9 rounded-full px-3 text-xs ${message.feedback_type === "like" ? "text-green-500" : "text-muted-foreground"}`}
                         >
                           <ThumbsUp className="w-4 h-4 mr-1" />
@@ -1244,6 +1251,7 @@ ${additionalConsiderations}
                           variant="ghost"
                           size="sm"
                           onClick={() => submitFeedback(message.id, "dislike")}
+                          disabled={!message.saved}
                           className={`h-9 rounded-full px-3 text-xs ${message.feedback_type === "dislike" ? "text-red-500" : "text-muted-foreground"}`}
                         >
                           <ThumbsDown className="w-4 h-4 mr-1" />
@@ -1262,6 +1270,7 @@ ${additionalConsiderations}
                           variant="ghost"
                           size="sm"
                           onClick={() => openShareSheet(message)}
+                          disabled={!message.saved}
                           className={`h-9 rounded-full px-3 text-xs ${shareSheet?.messageId === message.id ? "bg-white/10" : "text-muted-foreground"}`}
                         >
                           <Share2 className="w-4 h-4 mr-1" />
@@ -1273,6 +1282,7 @@ ${additionalConsiderations}
                               variant="ghost"
                               size="sm"
                               onClick={() => generatePDF(message.id)}
+                              disabled={!message.saved}
                               className="h-9 rounded-full px-3 text-xs text-muted-foreground"
                             >
                               <FileText className="w-4 h-4 mr-1" />
@@ -1282,6 +1292,7 @@ ${additionalConsiderations}
                               variant="ghost"
                               size="sm"
                               onClick={() => generateWord(message.id)}
+                              disabled={!message.saved}
                               className="h-9 rounded-full px-3 text-xs text-muted-foreground"
                             >
                               <Download className="w-4 h-4 mr-1" />

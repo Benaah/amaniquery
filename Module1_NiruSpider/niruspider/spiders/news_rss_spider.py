@@ -30,6 +30,18 @@ class NewsRSSSpider(scrapy.Spider):
             "url": "https://www.businessdailyafrica.com/bd/rss",
             "name": "Business Daily Africa",
         },
+        {
+            "url": "https://www.capitalfm.co.ke/news/rss/",
+            "name": "Capital FM",
+        },
+        {
+            "url": "https://www.kenyans.co.ke/rss",
+            "name": "Kenyans.co.ke",
+        },
+        {
+            "url": "https://www.theeastafrican.co.ke/rss",
+            "name": "The East African",
+        },
     ]
     
     custom_settings = {

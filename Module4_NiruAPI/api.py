@@ -247,33 +247,49 @@ async def health_check():
 @app.get("/stats", response_model=StatsResponse, tags=["General"])
 async def get_stats():
     """Get database statistics"""
-    if vector_store is None:
-        raise HTTPException(status_code=503, detail="Service not initialized")
-    
-    stats = vector_store.get_stats()
-    
-    # Get categories and sources
-    from Module3_NiruDB.metadata_manager import MetadataManager
-    meta_manager = MetadataManager(vector_store)
-    
-    categories_list = meta_manager.get_categories()
-    sources_list = meta_manager.get_sources()
-    
-    # Convert to dict with counts
-    categories_dict = {cat: stats["sample_categories"].get(cat, 0) for cat in categories_list}
-    
-    # Handle case where total_chunks might be "unknown" string
-    total_chunks = stats["total_chunks"]
-    if isinstance(total_chunks, str) and total_chunks == "unknown":
-        total_chunks = 0
-    elif not isinstance(total_chunks, int):
-        total_chunks = 0
-    
-    return StatsResponse(
-        total_chunks=total_chunks,
-        categories=categories_dict,
-        sources=sources_list,
-    )
+    try:
+        if vector_store is None:
+            raise HTTPException(status_code=503, detail="Service not initialized")
+        
+        stats = vector_store.get_stats()
+        
+        # Get categories and sources
+        try:
+            from Module3_NiruDB.metadata_manager import MetadataManager
+            meta_manager = MetadataManager(vector_store)
+            
+            categories_list = meta_manager.get_categories()
+            sources_list = meta_manager.get_sources()
+        except Exception as e:
+            logger.error(f"Error getting metadata: {e}")
+            categories_list = ["Unknown"]
+            sources_list = ["Unknown"]
+        
+        # Convert to dict with counts
+        categories_dict = {cat: stats["sample_categories"].get(cat, 0) for cat in categories_list}
+        
+        # Handle case where total_chunks might be "unknown" string
+        total_chunks = stats["total_chunks"]
+        if isinstance(total_chunks, str) and total_chunks == "unknown":
+            total_chunks = 0
+        elif not isinstance(total_chunks, int):
+            total_chunks = 0
+        
+        return StatsResponse(
+            total_chunks=total_chunks,
+            categories=categories_dict,
+            sources=sources_list,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in get_stats: {e}")
+        # Return default stats to prevent fetch failure
+        return StatsResponse(
+            total_chunks=0,
+            categories={},
+            sources=[],
+        )
 
 
 @app.post("/query", response_model=QueryResponse, tags=["Query"])
@@ -923,12 +939,12 @@ async def add_feedback(feedback: FeedbackCreate):
         raise HTTPException(status_code=503, detail="Chat service not initialized")
     
     try:
-        # First check if the message exists
+        # Check if the message exists (optional, for logging)
         with chat_manager.get_db_session() as db:
             message = db.query(ChatMessage).filter(ChatMessage.id == feedback.message_id).first()
             if not message:
-                logger.error(f"Message {feedback.message_id} not found in database")
-                raise HTTPException(status_code=404, detail="Message not found")
+                logger.warning(f"Message {feedback.message_id} not found in database, but feedback submitted anyway")
+            # Proceed with adding feedback regardless
         
         feedback_id = chat_manager.add_feedback(
             message_id=feedback.message_id,

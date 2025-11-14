@@ -309,7 +309,7 @@ class RAGPipeline:
         start_time = time.time()
         
         try:
-            # 1. Retrieve relevant documents (same as regular query)
+            # 1. Retrieve relevant documents
             logger.info(f"Retrieving documents for query: {query[:50]}...")
             
             filter_dict = {}
@@ -324,21 +324,10 @@ class RAGPipeline:
                 filter=filter_dict if filter_dict else None,
             )
             
-            if not retrieved_docs:
-                # Return non-streaming response for empty results
-                return {
-                    "answer": "I couldn't find any relevant information to answer your question.",
-                    "sources": [],
-                    "query_time": time.time() - start_time,
-                    "retrieved_chunks": 0,
-                    "model_used": self.model,
-                    "stream": False,
-                }
-            
-            # 2. Prepare context
+            # 2. Prepare context (use available docs or empty)
             context = self._prepare_context(retrieved_docs, max_context_length)
             
-            # 3. Generate answer with streaming
+            # 3. Generate answer with streaming (always provide response)
             logger.info("Generating streaming answer with LLM")
             answer_stream = self._generate_answer_stream(query, context, temperature, max_tokens)
             
@@ -410,10 +399,11 @@ class RAGPipeline:
 
 Your role is to provide accurate, well-sourced answers based on the provided context and your knowledge. Always:
 1. Use the provided context when available and relevant to cite sources using [Source #] notation
-2. Combine context information with your general knowledge to provide comprehensive answers
-3. Be precise and factual in all responses
-4. Provide relevant information even when context is limited
-5. Use clear, professional language
+2. Combine context information with your general knowledge and understanding of Kenyan affairs
+3. If context is limited, provide comprehensive answers based on your knowledge and reasoning
+4. Be precise and factual in all responses
+5. Provide relevant information even when context is limited
+6. Use clear, professional language
 
 RESPONSE STRUCTURE:
 - Start with a brief summary/overview (2-3 sentences)
@@ -531,10 +521,11 @@ Please provide a detailed answer based on the context above. If the context cont
 
 Your role is to provide accurate, well-sourced answers based on the provided context and your knowledge. Always:
 1. Use the provided context when available and relevant to cite sources using [Source #] notation
-2. Combine context information with your general knowledge to provide comprehensive answers
-3. Be precise and factual in all responses
-4. Provide relevant information even when context is limited
-5. Use clear, professional language
+2. Combine context information with your general knowledge and understanding of Kenyan affairs
+3. If context is limited, provide comprehensive answers based on your knowledge and reasoning
+4. Be precise and factual in all responses
+5. Provide relevant information even when context is limited
+6. Use clear, professional language
 
 RESPONSE STRUCTURE:
 - Start with a brief summary/overview (2-3 sentences)

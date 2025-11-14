@@ -83,8 +83,8 @@ class VectorStore:
         return self._embedding_model
     
     def _init_with_fallback(self) -> str:
-        """Initialize with fallback: Upstash -> QDrant -> ChromaDB"""
-        backends = ["upstash", "qdrant", "chromadb"]
+        """Initialize with fallback: QDrant -> ChromaDB -> Upstash"""
+        backends = ["qdrant", "chromadb", "upstash"]
         
         for backend in backends:
             try:

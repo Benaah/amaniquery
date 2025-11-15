@@ -24,7 +24,9 @@
     "rehype-raw": "^7.0.0",
     "remark-gfm": "^4.0.1",
     "sonner": "^2.0.7",
-    "tailwind-merge": "^3.4.0"
+    "tailwind-merge": "^3.4.0",
+    "livekit-client": "^2.5.0",
+    "livekit-server-sdk": "^2.5.0"
   },
   "devDependencies": {
     "@types/node": "^20",

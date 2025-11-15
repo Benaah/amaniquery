@@ -57,6 +57,8 @@ schedule  # For automated crawling
 colorama  # Colored terminal output
 loguru  # Advanced logging
 psutil  # System monitoring
+reportlab
+python-docx
 
 # Development
 pytest

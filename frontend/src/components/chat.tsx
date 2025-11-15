@@ -211,12 +211,23 @@ export function Chat() {
     loadChatHistory()
   }, [loadChatHistory])
 
-  const createNewSession = async () => {
+  const createNewSession = async (firstMessage?: string) => {
+    // Generate title from first message if provided
+    let title = "New Chat"
+    if (firstMessage) {
+      const content = firstMessage.trim()
+      if (content.length <= 50) {
+        title = content
+      } else {
+        title = content.substring(0, 50).split(' ').slice(0, -1).join(' ') + "..."
+      }
+    }
+
     try {
       const response = await fetch(`${API_BASE_URL}/chat/sessions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: "New Chat" })
+        body: JSON.stringify({ title })
       })
       if (response.ok) {
         const session = await response.json()
@@ -250,7 +261,7 @@ export function Chat() {
 
     let sessionId = currentSessionId
     if (!sessionId) {
-      sessionId = await createNewSession()
+      sessionId = await createNewSession(content.trim())
       if (!sessionId) return
     }
 
@@ -1406,7 +1417,7 @@ ${additionalConsiderations}
                   <Card className="rounded-3xl border border-white/5 bg-white/5 px-5 py-4">
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
                       <Loader2 className="w-4 h-4 animate-spin" />
-                      Streaming response...
+                      Thinking...
                     </div>
                   </Card>
                 </div>

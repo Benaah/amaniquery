@@ -55,15 +55,15 @@ async def format_for_platform(request: FormatRequest):
     try:
         formatted = share_service.format_for_platform(
             answer=request.answer,
-            sources=request.sources,
+            sources=request.sources or [],
             platform=request.platform,
             query=request.query,
             include_hashtags=request.include_hashtags,
         )
         
         return FormatResponse(
-            platform=formatted["platform"],
-            content=formatted["content"],
+            platform=formatted.get("platform", request.platform),
+            content=formatted.get("content", ""),
             character_count=formatted.get("character_count"),
             hashtags=formatted.get("hashtags", []),
             metadata={
@@ -96,7 +96,14 @@ async def generate_share_link(request: ShareLinkRequest):
         # Handle thread case (take first tweet)
         content = request.content
         if isinstance(content, list):
-            content = content[0]
+            if not content:
+                raise ValueError("Content list cannot be empty")
+            content = str(content[0]) if content[0] else ""
+        else:
+            content = str(content) if content else ""
+        
+        if not content:
+            raise ValueError("Content cannot be empty")
         
         share_url = share_service.generate_share_link(
             platform=request.platform,
@@ -114,7 +121,7 @@ async def generate_share_link(request: ShareLinkRequest):
         return ShareLinkResponse(
             platform=request.platform,
             share_url=share_url,
-            instructions=instructions.get(request.platform),
+            instructions=instructions.get(request.platform.lower()),
         )
         
     except ValueError as e:
@@ -142,7 +149,7 @@ async def preview_all_platforms(request: PreviewRequest):
     try:
         previews = share_service.preview_all_platforms(
             answer=request.answer,
-            sources=request.sources,
+            sources=request.sources or [],
             query=request.query,
         )
         
@@ -152,6 +159,8 @@ async def preview_all_platforms(request: PreviewRequest):
             facebook=previews.get("facebook", {}),
         )
         
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generating previews: {str(e)}")
 

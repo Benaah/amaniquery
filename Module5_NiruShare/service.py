@@ -46,13 +46,28 @@ class ShareService:
         Returns:
             Formatted post with metadata
         """
-        platform = platform.lower()
+        # Validate inputs
+        if not answer or not isinstance(answer, str):
+            raise ValueError("Answer must be a non-empty string")
+        if not isinstance(sources, list):
+            raise ValueError("Sources must be a list")
+        if not platform or not isinstance(platform, str):
+            raise ValueError("Platform must be a non-empty string")
+        
+        platform = platform.lower().strip()
         
         if platform not in self.formatters:
             raise ValueError(f"Unsupported platform: {platform}. Supported: {list(self.formatters.keys())}")
         
+        # Normalize query
+        if query is not None:
+            query = str(query).strip() if query else None
+        
         formatter = self.formatters[platform]
-        return formatter.format_post(answer, sources, query, include_hashtags)
+        try:
+            return formatter.format_post(answer, sources, query, include_hashtags)
+        except Exception as e:
+            raise ValueError(f"Error formatting post for {platform}: {str(e)}") from e
     
     def generate_share_link(
         self,
@@ -71,7 +86,13 @@ class ShareService:
         Returns:
             Share URL
         """
-        platform = platform.lower()
+        if not platform or not isinstance(platform, str):
+            raise ValueError("Platform must be a non-empty string")
+        
+        if not formatted_content:
+            raise ValueError("Formatted content cannot be empty")
+        
+        platform = platform.lower().strip()
         
         if platform == "twitter":
             return self._generate_twitter_link(formatted_content, url)
@@ -128,6 +149,12 @@ class ShareService:
         Returns:
             Dictionary with platform names as keys and formatted posts as values
         """
+        # Validate inputs
+        if not answer or not isinstance(answer, str):
+            raise ValueError("Answer must be a non-empty string")
+        if not isinstance(sources, list):
+            raise ValueError("Sources must be a list")
+        
         previews = {}
         
         for platform in self.formatters.keys():
@@ -136,7 +163,11 @@ class ShareService:
                     answer, sources, platform, query
                 )
             except Exception as e:
-                previews[platform] = {"error": str(e)}
+                previews[platform] = {
+                    "error": str(e),
+                    "platform": platform,
+                    "status": "error"
+                }
         
         return previews
     

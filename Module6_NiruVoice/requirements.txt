@@ -1,0 +1,21 @@
+# LiveKit Voice Agent Dependencies
+
+# Core LiveKit Agents Framework
+livekit-agents[openai,assemblyai,silero]>=0.8.0
+livekit>=0.10.0
+
+# Optional: Additional TTS providers
+# livekit-plugins-elevenlabs  # For ElevenLabs TTS
+# livekit-plugins-deepgram    # For Deepgram STT
+
+# Noise cancellation (optional but recommended)
+livekit-plugins-noise-cancellation
+
+# Environment management
+python-dotenv
+
+# Note: The following dependencies are already in the main project requirements.txt:
+# - loguru (for logging)
+# - openai (for OpenAI STT/TTS)
+# - All RAG pipeline dependencies from Module4_NiruAPI
+

@@ -1,0 +1,91 @@
+"use client"
+
+import { useState } from "react"
+import { VoiceAgent } from "./voice-agent"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+
+export function VoiceAgentWrapper() {
+  const [roomName, setRoomName] = useState(`voice-${Date.now()}`)
+  const [token, setToken] = useState<string | null>(null)
+  const [isConnecting, setIsConnecting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const livekitUrl = process.env.NEXT_PUBLIC_LIVEKIT_URL || ""
+
+  const generateToken = async () => {
+    if (!roomName.trim()) {
+      setError("Room name is required")
+      return
+    }
+
+    setIsConnecting(true)
+    setError(null)
+
+    try {
+      const response = await fetch("/api/livekit-token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          roomName: roomName.trim(),
+          participantName: "user",
+        }),
+      })
+
+      if (!response.ok) {
+        const data = await response.json()
+        throw new Error(data.error || "Failed to generate token")
+      }
+
+      const data = await response.json()
+      setToken(data.token)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to connect")
+    } finally {
+      setIsConnecting(false)
+    }
+  }
+
+  if (token) {
+    return (
+      <VoiceAgent
+        livekitUrl={livekitUrl}
+        token={token}
+        roomName={roomName}
+      />
+    )
+  }
+
+  return (
+    <Card className="w-full max-w-md mx-auto">
+      <CardHeader>
+        <CardTitle>Start Voice Session</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div>
+          <label className="text-sm font-medium mb-2 block">Room Name</label>
+          <Input
+            value={roomName}
+            onChange={(e) => setRoomName(e.target.value)}
+            placeholder="voice-session"
+            disabled={isConnecting}
+          />
+        </div>
+
+        {error && (
+          <p className="text-sm text-destructive">{error}</p>
+        )}
+
+        <Button
+          onClick={generateToken}
+          disabled={isConnecting || !roomName.trim()}
+          className="w-full"
+        >
+          {isConnecting ? "Connecting..." : "Connect"}
+        </Button>
+      </CardContent>
+    </Card>
+  )
+}
+

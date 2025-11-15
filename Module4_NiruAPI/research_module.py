@@ -52,126 +52,96 @@ class ResearchModule:
         if context:
             context_info = f"\n\nADDITIONAL CONTEXT:\n{json.dumps(context, indent=2)}"
 
+        # Very simplified prompt for faster response
         prompt = f"""
-You are a senior legal researcher specializing in Kenyan law. Conduct comprehensive legal research and analysis for the following query:
+You are a legal expert on Kenyan law. Answer this legal query concisely:
 
-LEGAL QUERY: {query}{context_info}
+QUERY: {query}{context_info}
 
-Provide a detailed research report in the following structured JSON format:
-
+Provide JSON response:
 {{
-  "original_query": "{query}",
-  "executive_summary": "Concise overview of key findings, legal implications, and main recommendations (2-3 paragraphs)",
-  "background_context": "Historical, social, and legal context relevant to the query (comprehensive background)",
-  "methodology": "Research methodology, sources consulted, and analytical approach used",
-  "applicable_laws": [
-    {{
-      "law_name": "Full name of the law/act",
-      "citation": "Official citation (e.g., Cap 123 Laws of Kenya)",
-      "key_provisions": ["Specific sections relevant to the query"],
-      "amendments": "Recent amendments or changes",
-      "interpretation": "How the law applies to this query"
-    }}
-  ],
-  "constitutional_analysis": {{
-    "relevant_articles": ["Specific constitutional articles"],
-    "fundamental_rights": ["Rights implicated"],
-    "constitutional_remedies": ["Available constitutional remedies"],
-    "court_jurisdiction": "Which courts have jurisdiction"
-  }},
-  "case_law_precedents": [
-    {{
-      "case_name": "Full case citation",
-      "court": "Court that decided the case",
-      "year": "Year decided",
-      "key_holding": "Main legal principle established",
-      "relevance": "How it applies to this query"
-    }}
-  ],
-  "detailed_legal_analysis": "Comprehensive legal analysis including step-by-step reasoning, legal principles, and implications (detailed explanation)",
-  "practical_guidance": {{
-    "immediate_steps": ["Step-by-step actions to take"],
-    "required_documents": ["Documents needed"],
-    "relevant_institutions": ["Government agencies, courts, or organizations involved"],
-    "procedural_requirements": "Detailed procedures to follow",
-    "timeframes": "Relevant deadlines and time considerations",
-    "costs": "Associated costs and fees"
-  }},
-  "risk_assessment": {{
-    "legal_risks": ["Potential legal risks and consequences"],
-    "compliance_requirements": ["Legal obligations to fulfill"],
-    "mitigation_strategies": ["Ways to minimize risks"],
-    "alternative_approaches": ["Alternative legal strategies"]
-  }},
-  "recommendations": [
-    {{
-      "priority": "High/Medium/Low",
-      "action": "Specific recommended action",
-      "rationale": "Reason for the recommendation",
-      "timeline": "When to implement",
-      "responsible_party": "Who should take action"
-    }}
-  ],
-  "additional_considerations": {{
-    "related_legal_areas": ["Other areas of law that may be relevant"],
-    "ethical_considerations": "Ethical issues to consider",
-    "policy_implications": "Broader policy or societal implications",
-    "future_developments": "Upcoming legal changes or developments"
-  }},
-  "sources_and_references": [
-    {{
-      "type": "Primary/Secondary",
-      "title": "Source title",
-      "author": "Author or institution",
-      "publication_date": "Date published",
-      "url": "Web link if available",
-      "relevance": "How it was used in this analysis"
-    }}
-  ],
-  "disclaimer": "Comprehensive legal disclaimer emphasizing that this is not formal legal advice and professional consultation is recommended",
+  "executive_summary": "Brief summary (2-3 sentences)",
+  "applicable_laws": ["Law 1", "Law 2"],
+  "practical_guidance": {{"steps": ["Step 1", "Step 2"]}},
+  "recommendations": ["Recommendation 1"],
+  "disclaimer": "Legal disclaimer",
   "model_used": "gemini-research",
-  "research_timestamp": "{datetime.utcnow().isoformat()}",
-  "report_confidence": "High/Medium/Low confidence in the analysis based on available information"
+  "timestamp": "{datetime.utcnow().isoformat()}"
 }}
-
-Ensure the analysis is comprehensive, accurate, and based on Kenyan legal framework. Include specific references to laws, cases, and legal principles. Structure the response as valid JSON with detailed, actionable information.
 """
 
         try:
-            response = self.model.generate_content(
-                prompt,
-                generation_config=self.genai.types.GenerationConfig(
-                    temperature=0.2,
-                    max_output_tokens=12000,
-                    response_mime_type="application/json"
+            # Add timeout and retry logic
+            import asyncio
+            import time
+            
+            start_time = time.time()
+            timeout_seconds = 20  # Reduced timeout for faster failure
+            
+            try:
+                response = self.model.generate_content(
+                    prompt,
+                    generation_config=self.genai.types.GenerationConfig(
+                        temperature=0.2,
+                        max_output_tokens=4000,  # Reduced for faster response
+                        response_mime_type="application/json"
+                    ),
+                    request_options={"timeout": timeout_seconds}
                 )
-            )
+                
+                # Check if we exceeded our timeout
+                if time.time() - start_time > timeout_seconds:
+                    raise TimeoutError("Request timed out")
+                    
+            except Exception as e:
+                if "504" in str(e) or "timeout" in str(e).lower() or "deadline" in str(e).lower():
+                    logger.warning(f"Gemini API timeout for query: {query[:50]}...")
+                    return self._fallback_quick_analysis(query, context)
+                raise
             
             # Parse the JSON response
             result = json.loads(response.text.strip())
             
             # Ensure required fields are present
-            if 'research_timestamp' not in result:
-                result['research_timestamp'] = datetime.utcnow().isoformat()
+            result["original_query"] = query
+            result["research_timestamp"] = datetime.utcnow().isoformat()
             
-            if 'model_used' not in result:
-                result['model_used'] = 'gemini-research'
-                
-            return result
+            # Wrap in analysis object for frontend compatibility
+            analysis_result = {
+                "original_query": result.get("original_query", query),
+                "analysis": {
+                    "query_interpretation": result.get("executive_summary", "Analyzing your legal question..."),
+                    "applicable_laws": result.get("applicable_laws", ["Researching relevant Kenyan laws..."]),
+                    "legal_analysis": result.get("detailed_legal_analysis", "Conducting detailed legal analysis..."),
+                    "practical_guidance": result.get("practical_guidance", {"steps": ["Developing practical guidance..."]}),
+                    "additional_considerations": result.get("recommendations", ["Reviewing additional legal considerations..."])
+                },
+                "model_used": result.get("model_used", "gemini-research"),
+                "research_timestamp": result.get("research_timestamp", datetime.utcnow().isoformat()),
+                "report_confidence": result.get("report_confidence", "High")
+            }
+            
+            return analysis_result
             
         except json.JSONDecodeError as e:
             logger.error(f"JSON parsing error in legal analysis: {e}")
             # Fallback to text processing
-            return self._fallback_text_analysis(query, context)
+            return self._fallback_quick_analysis(query, context)
         except Exception as e:
             logger.error(f"Error in legal query analysis: {e}")
             return {
                 "original_query": query,
-                "error": f"Research analysis failed: {str(e)}",
-                "executive_summary": "Unable to complete research analysis due to technical error.",
+                "analysis": {
+                    "query_interpretation": "Unable to complete research analysis due to technical error.",
+                    "applicable_laws": ["Error occurred during analysis"],
+                    "legal_analysis": "Technical error prevented analysis completion.",
+                    "practical_guidance": {"steps": ["Please try again later"]},
+                    "additional_considerations": ["Contact support if issue persists"]
+                },
                 "model_used": "gemini-research",
                 "research_timestamp": datetime.utcnow().isoformat(),
-                "report_confidence": "Low"
+                "report_confidence": "Low",
+                "error": f"Research analysis failed: {str(e)}"
             }
 
     def generate_legal_report(self, analysis_results: Dict[str, Any], report_focus: str = "comprehensive") -> Dict[str, Any]:
@@ -361,44 +331,70 @@ Ensure the analysis is comprehensive, accurate, and based on Kenyan legal framew
                 "questions": research_questions
             }
 
-    def _fallback_text_analysis(self, query: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """Fallback analysis when JSON parsing fails"""
+    def _fallback_quick_analysis(self, query: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Quick fallback analysis when API times out"""
         context_info = ""
         if context:
-            context_info = f"\n\nADDITIONAL CONTEXT:\n{json.dumps(context, indent=2)}"
+            context_info = f"\n\nContext: {json.dumps(context, indent=2)}"
 
+        # Very short prompt for quick response
         prompt = f"""
-        Analyze the following legal query about Kenya's laws and provide comprehensive information:
+Analyze this Kenyan legal query briefly: {query}{context_info}
 
-        LEGAL QUERY: {query}{context_info}
-
-        Provide a detailed analysis covering all legal aspects, applicable laws, practical guidance, and recommendations.
-        Include specific references to Kenyan laws and legal sources.
-        """
+Provide concise JSON:
+{{
+  "executive_summary": "Brief summary (2-3 sentences)",
+  "applicable_laws": ["Law 1", "Law 2"],
+  "practical_guidance": {{"steps": ["Step 1", "Step 2"]}},
+  "recommendations": ["Recommendation 1"],
+  "disclaimer": "Legal disclaimer",
+  "model_used": "gemini-research-fallback",
+  "timestamp": "{datetime.utcnow().isoformat()}"
+}}
+"""
 
         try:
-            response = self.model.generate_content(prompt)
-            text_analysis = response.text
-
-            return {
+            response = self.model.generate_content(
+                prompt,
+                generation_config=self.genai.types.GenerationConfig(
+                    temperature=0.3,
+                    max_output_tokens=2000,
+                    response_mime_type="application/json"
+                ),
+                request_options={"timeout": 15}  # Shorter timeout for fallback
+            )
+            
+            result = json.loads(response.text.strip())
+            
+            # Wrap in analysis object for frontend compatibility
+            analysis_result = {
                 "original_query": query,
-                "executive_summary": self._extract_section(text_analysis, "EXECUTIVE SUMMARY") or "Comprehensive legal analysis completed.",
-                "detailed_legal_analysis": text_analysis,
-                "applicable_laws": self._extract_section(text_analysis, "APPLICABLE LAWS") or "Analysis of relevant Kenyan laws conducted.",
-                "practical_guidance": self._extract_section(text_analysis, "PRACTICAL GUIDANCE") or "Legal guidance provided in the analysis.",
-                "recommendations": self._extract_section(text_analysis, "RECOMMENDATIONS") or "Legal recommendations included.",
-                "model_used": "gemini-research",
-                "research_timestamp": datetime.utcnow().isoformat(),
-                "report_confidence": "Medium",
-                "fallback_mode": True
+                "analysis": {
+                    "query_interpretation": result.get("executive_summary", "Analyzing your legal question..."),
+                    "applicable_laws": result.get("applicable_laws", ["Researching relevant Kenyan laws..."]),
+                    "legal_analysis": result.get("detailed_legal_analysis", "Conducting detailed legal analysis..."),
+                    "practical_guidance": result.get("practical_guidance", {"steps": ["Developing practical guidance..."]}),
+                    "additional_considerations": result.get("recommendations", ["Reviewing additional legal considerations..."])
+                },
+                "model_used": result.get("model_used", "gemini-research-fallback"),
+                "research_timestamp": result.get("timestamp", datetime.utcnow().isoformat()),
+                "report_confidence": result.get("report_confidence", "Medium")
             }
+            
+            return analysis_result
+            
         except Exception as e:
+            logger.error(f"Fallback analysis also failed: {e}")
             return {
                 "original_query": query,
-                "error": f"Fallback analysis failed: {str(e)}",
-                "model_used": "gemini-research",
-                "research_timestamp": datetime.utcnow().isoformat(),
-                "report_confidence": "Low"
+                "executive_summary": f"This query concerns: {query[:100]}... Please consult a legal professional for detailed analysis.",
+                "applicable_laws": ["Please consult relevant Kenyan legislation"],
+                "practical_guidance": {"steps": ["Consult a qualified legal professional", "Review official government legal resources"]},
+                "recommendations": ["Seek professional legal advice"],
+                "disclaimer": "This is not legal advice. Please consult a qualified legal professional.",
+                "model_used": "fallback-only",
+                "timestamp": datetime.utcnow().isoformat(),
+                "error": "Analysis service temporarily unavailable"
             }
 
     def generate_pdf_report(self, analysis_results: Dict[str, Any], output_path: str) -> str:

@@ -28,25 +28,58 @@ class BaseFormatter(ABC):
         """
         pass
     
+    def _validate_input(self, answer: str, sources: List[Dict]) -> None:
+        """Validate input parameters"""
+        if not answer or not isinstance(answer, str):
+            raise ValueError("Answer must be a non-empty string")
+        if not isinstance(sources, list):
+            raise ValueError("Sources must be a list")
+    
     def _extract_key_points(self, text: str, max_points: int = 3) -> List[str]:
         """Extract key points from text"""
-        # Split by sentences
-        sentences = re.split(r'[.!?]+', text)
-        sentences = [s.strip() for s in sentences if len(s.strip()) > 20]
+        if not text or not isinstance(text, str):
+            return []
+        
+        # Improved sentence splitting - handle multiple delimiters properly
+        # Split on sentence boundaries while preserving the delimiter
+        sentences = re.split(r'([.!?]+[\s\n]+)', text)
+        
+        # Reconstruct sentences with their delimiters
+        reconstructed = []
+        for i in range(0, len(sentences) - 1, 2):
+            if i + 1 < len(sentences):
+                sentence = (sentences[i] + sentences[i + 1]).strip()
+            else:
+                sentence = sentences[i].strip()
+            
+            # Filter out very short sentences and empty strings
+            if len(sentence) > 20:
+                reconstructed.append(sentence)
+        
+        # If reconstruction didn't work well, fall back to simpler method
+        if not reconstructed:
+            sentences = re.split(r'[.!?]+\s+', text)
+            reconstructed = [s.strip() for s in sentences if len(s.strip()) > 20]
         
         # Return first N sentences as key points
-        return sentences[:max_points]
+        return reconstructed[:max_points] if reconstructed else [text[:200] + "..." if len(text) > 200 else text]
     
     def _generate_hashtags(self, text: str, sources: List[Dict], max_tags: int = 5) -> List[str]:
         """Generate relevant hashtags"""
+        if not text:
+            text = ""
+        if not sources:
+            sources = []
+        
         hashtags = set()
         
         # Category-based hashtags
         categories = set()
         for source in sources[:3]:
-            cat = source.get('category', '')
-            if cat:
-                categories.add(cat)
+            if isinstance(source, dict):
+                cat = source.get('category', '')
+                if cat and isinstance(cat, str):
+                    categories.add(cat)
         
         category_map = {
             "Kenyan Law": ["KenyanLaw", "LegalKenya", "KenyaConstitution"],
@@ -64,37 +97,50 @@ class BaseFormatter(ABC):
         
         # Keyword-based hashtags
         keywords = ['AI', 'technology', 'law', 'parliament', 'policy', 'constitution']
-        text_lower = text.lower()
+        text_lower = text.lower() if text else ""
         
         for keyword in keywords:
             if keyword.lower() in text_lower:
-                hashtags.add(keyword.title().replace(' ', ''))
+                hashtag = keyword.title().replace(' ', '')
+                if hashtag:
+                    hashtags.add(hashtag)
         
         # Limit and format
-        hashtags = list(hashtags)[:max_tags]
-        return [f"#{tag}" for tag in hashtags]
+        hashtags_list = list(hashtags)[:max_tags]
+        return [f"#{tag}" if not tag.startswith('#') else tag for tag in hashtags_list]
     
     def _truncate_smart(self, text: str, max_length: int, suffix: str = "...") -> str:
         """Truncate text at sentence boundary if possible"""
+        if not text:
+            return ""
+        
+        if not isinstance(text, str):
+            text = str(text)
+        
         if len(text) <= max_length:
             return text
         
-        # Try to cut at sentence
-        truncated = text[:max_length - len(suffix)]
+        # Ensure suffix fits within max_length
+        suffix_len = len(suffix)
+        if max_length < suffix_len:
+            return text[:max_length]
         
-        # Find last sentence ending
-        for punct in ['. ', '! ', '? ']:
-            last_punct = truncated.rfind(punct)
-            if last_punct > max_length * 0.6:  # At least 60% of max length
-                return text[:last_punct + 1].strip()
+        available_length = max_length - suffix_len
+        
+        # Try to cut at sentence boundary
+        for punct in ['. ', '! ', '? ', '.\n', '!\n', '?\n']:
+            last_punct = text.rfind(punct, 0, available_length + len(punct))
+            if last_punct > available_length * 0.6:  # At least 60% of max length
+                return text[:last_punct + 1].strip() + suffix
         
         # Fall back to word boundary
-        truncated = text[:max_length - len(suffix)]
+        truncated = text[:available_length]
         last_space = truncated.rfind(' ')
-        if last_space > 0:
-            return truncated[:last_space] + suffix
+        if last_space > available_length * 0.5:  # At least 50% of max length
+            return truncated[:last_space].strip() + suffix
         
-        return truncated + suffix
+        # Last resort: hard truncate
+        return truncated.strip() + suffix
     
     def _format_sources(self, sources: List[Dict], max_sources: int = 3) -> str:
         """Format source citations"""
@@ -103,12 +149,22 @@ class BaseFormatter(ABC):
         
         citations = []
         for i, source in enumerate(sources[:max_sources], 1):
-            title = source.get('title', 'Untitled')
+            if not isinstance(source, dict):
+                continue
+            
+            title = source.get('title', 'Untitled') or 'Untitled'
             url = source.get('url', '')
             
+            # Sanitize title
+            title = str(title).strip()
+            
             if url:
+                url = str(url).strip()
                 citations.append(f"{i}. {title}\n   {url}")
             else:
                 citations.append(f"{i}. {title}")
+        
+        if not citations:
+            return ""
         
         return "\n\n📚 Sources:\n" + "\n".join(citations)

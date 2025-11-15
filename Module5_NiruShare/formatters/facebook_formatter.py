@@ -21,6 +21,8 @@ class FacebookFormatter(BaseFormatter):
         include_hashtags: bool = True,
     ) -> Dict:
         """Format response for Facebook"""
+        # Validate input
+        self._validate_input(answer, sources)
         
         # Engaging opening
         opening = self._create_opening(query)
@@ -38,15 +40,22 @@ class FacebookFormatter(BaseFormatter):
         hashtags = self._generate_hashtags(answer, sources, max_tags=5) if include_hashtags else []
         hashtag_text = "\n\n" + " ".join(hashtags) if hashtags else ""
         
-        # Combine
-        full_post = f"{opening}\n\n{main_content}\n\n{cta}\n\n{sources_section}{hashtag_text}"
+        # Build sections efficiently
+        sections = [opening, main_content, cta]
+        
+        if sources_section:
+            sections.append(sources_section)
+        
+        # Combine with proper spacing
+        full_post = "\n\n".join(s.strip() for s in sections if s.strip())
+        full_post += hashtag_text
         
         return {
             "platform": "facebook",
             "content": full_post.strip(),
-            "character_count": len(full_post),
+            "character_count": len(full_post.strip()),
             "hashtags": hashtags,
-            "word_count": len(full_post.split()),
+            "word_count": len(full_post.strip().split()),
         }
     
     def _create_opening(self, query: Optional[str]) -> str:
@@ -57,16 +66,25 @@ class FacebookFormatter(BaseFormatter):
     
     def _format_content(self, answer: str) -> str:
         """Format content for Facebook engagement"""
+        if not answer:
+            return ""
+        
         # Keep it concise for better engagement
         if len(answer) > 800:
             # Use key points format
             key_points = self._extract_key_points(answer, max_points=4)
             
-            formatted = "📌 Key Points:\n\n"
-            for i, point in enumerate(key_points, 1):
-                formatted += f"{i}. {point}\n\n"
+            if not key_points:
+                # Fallback: truncate answer
+                return self._truncate_smart(answer, 800, suffix="...")
             
-            return formatted.strip()
+            formatted_parts = ["📌 Key Points:"]
+            for i, point in enumerate(key_points, 1):
+                # Ensure each point isn't too long
+                point_text = self._truncate_smart(point, 200, suffix="...")
+                formatted_parts.append(f"{i}. {point_text}")
+            
+            return "\n\n".join(formatted_parts)
         else:
             return answer
     
@@ -86,13 +104,19 @@ class FacebookFormatter(BaseFormatter):
         if not sources:
             return "📱 Powered by AmaniQuery"
         
-        sources_text = "📚 Learn more:\n"
+        sources_parts = ["📚 Learn more:"]
+        
         for i, source in enumerate(sources[:3], 1):
-            title = source.get('title', 'Untitled')
-            url = source.get('url', '')
+            if not isinstance(source, dict):
+                continue
             
-            sources_text += f"• {title}\n  {url}\n\n"
+            title = str(source.get('title', 'Untitled')).strip() or 'Untitled'
+            url = str(source.get('url', '')).strip()
+            
+            sources_parts.append(f"• {title}")
+            if url:
+                sources_parts.append(f"  {url}")
         
-        sources_text += "📱 Powered by AmaniQuery - Your Kenyan Intelligence Hub"
+        sources_parts.append("\n📱 Powered by AmaniQuery - Your Kenyan Intelligence Hub")
         
-        return sources_text.strip()
+        return "\n".join(sources_parts).strip()

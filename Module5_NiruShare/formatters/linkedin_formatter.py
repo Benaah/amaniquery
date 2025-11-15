@@ -22,6 +22,8 @@ class LinkedInFormatter(BaseFormatter):
         include_hashtags: bool = True,
     ) -> Dict:
         """Format response for LinkedIn"""
+        # Validate input
+        self._validate_input(answer, sources)
         
         # Professional opening
         opening = self._create_opening(query)
@@ -39,22 +41,53 @@ class LinkedInFormatter(BaseFormatter):
         hashtags = self._generate_hashtags(answer, sources, max_tags=10) if include_hashtags else []
         hashtag_text = "\n\n" + " ".join(hashtags) if hashtags else ""
         
-        # Combine all sections
-        full_post = f"{opening}\n\n{main_content}\n\n{insights}\n\n{sources_section}{hashtag_text}"
+        # Build sections efficiently
+        sections = [opening, main_content]
         
-        # Ensure within limit
+        if insights:
+            sections.append(insights)
+        
+        if sources_section:
+            sections.append(sources_section)
+        
+        # Combine sections with proper spacing
+        full_post = "\n\n".join(s.strip() for s in sections if s.strip())
+        full_post += hashtag_text
+        
+        # Ensure within limit - truncate intelligently
         if len(full_post) > self.CHAR_LIMIT:
-            # Truncate main content
+            # Calculate what we need to remove
             overflow = len(full_post) - self.CHAR_LIMIT
-            main_content = main_content[:-overflow-50] + "...\n\n[Full analysis available]"
-            full_post = f"{opening}\n\n{main_content}\n\n{insights}\n\n{sources_section}{hashtag_text}"
+            
+            # Reserve space for closing message
+            closing_msg = "\n\n[Full analysis available at AmaniQuery]"
+            available_for_content = self.CHAR_LIMIT - len(opening) - len(insights) - len(sources_section) - len(hashtag_text) - len(closing_msg) - 20  # spacing
+            
+            # Truncate main content
+            if available_for_content > 100:
+                main_content = self._truncate_smart(main_content, available_for_content, suffix="...")
+                main_content += closing_msg
+            else:
+                # If we're really tight, truncate more aggressively
+                main_content = self._truncate_smart(answer, available_for_content, suffix="...")
+                main_content += closing_msg
+            
+            # Rebuild
+            sections = [opening, main_content]
+            if insights:
+                sections.append(insights)
+            if sources_section:
+                sections.append(sources_section)
+            
+            full_post = "\n\n".join(s.strip() for s in sections if s.strip())
+            full_post += hashtag_text
         
         return {
             "platform": "linkedin",
             "content": full_post.strip(),
-            "character_count": len(full_post),
+            "character_count": len(full_post.strip()),
             "hashtags": hashtags,
-            "optimal_length": len(full_post) <= self.OPTIMAL_LENGTH,
+            "optimal_length": len(full_post.strip()) <= self.OPTIMAL_LENGTH,
         }
     
     def _create_opening(self, query: Optional[str]) -> str:
@@ -96,24 +129,28 @@ class LinkedInFormatter(BaseFormatter):
         if not sources:
             return ""
         
-        sources_text = "📚 References:\n"
+        sources_parts = ["📚 References:"]
+        
         for i, source in enumerate(sources[:5], 1):
-            title = source.get('title', 'Untitled')
-            url = source.get('url', '')
-            source_name = source.get('source_name', '')
-            category = source.get('category', '')
+            if not isinstance(source, dict):
+                continue
+            
+            title = str(source.get('title', 'Untitled')).strip() or 'Untitled'
+            url = str(source.get('url', '')).strip()
+            source_name = str(source.get('source_name', '')).strip()
+            category = str(source.get('category', '')).strip()
             
             # LinkedIn format with category
             if category:
-                sources_text += f"{i}. {title} [{category}]\n"
+                sources_parts.append(f"{i}. {title} [{category}]")
             else:
-                sources_text += f"{i}. {title}\n"
+                sources_parts.append(f"{i}. {title}")
             
             if source_name:
-                sources_text += f"   Source: {source_name}\n"
+                sources_parts.append(f"   Source: {source_name}")
             if url:
-                sources_text += f"   Link: {url}\n"
+                sources_parts.append(f"   Link: {url}")
         
-        sources_text += "\n🤖 Powered by AmaniQuery - RAG for Kenyan Intelligence"
+        sources_parts.append("\n🤖 Powered by AmaniQuery - RAG for Kenyan Intelligence")
         
-        return sources_text.strip()
+        return "\n".join(sources_parts).strip()

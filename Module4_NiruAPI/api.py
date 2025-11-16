@@ -63,7 +63,7 @@ load_dotenv()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Handle application startup and shutdown"""
-    global vector_store, rag_pipeline, alignment_pipeline, sms_pipeline, sms_service, metadata_manager, chat_manager, crawler_manager, research_module, report_generator, config_manager, notification_service
+    global vector_store, rag_pipeline, alignment_pipeline, sms_pipeline, sms_service, metadata_manager, chat_manager, crawler_manager, research_module, report_generator, config_manager, notification_service, hybrid_rag_pipeline
     
     logger.info("Starting AmaniQuery API")
     
@@ -140,6 +140,39 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Failed to initialize SMS pipeline: {e}")
         sms_pipeline = None
+    
+    # Initialize Hybrid RAG Pipeline (optional - for enhanced retrieval)
+    try:
+        if vector_store and rag_pipeline:
+            from Module7_NiruHybrid.integration.rag_integration import HybridRAGPipeline
+            from Module7_NiruHybrid.hybrid_encoder import HybridEncoder
+            from Module7_NiruHybrid.retention.adaptive_retriever import AdaptiveRetriever
+            from Module7_NiruHybrid.config import default_config
+            
+            # Initialize components
+            hybrid_encoder = HybridEncoder(config=default_config.encoder)
+            adaptive_retriever = AdaptiveRetriever(
+                hybrid_encoder=hybrid_encoder,
+                vector_store=vector_store,
+                config=default_config.retention
+            )
+            
+            # Create hybrid RAG pipeline
+            hybrid_rag_pipeline = HybridRAGPipeline(
+                base_rag_pipeline=rag_pipeline,
+                hybrid_encoder=hybrid_encoder,
+                adaptive_retriever=adaptive_retriever,
+                use_hybrid=True,
+                use_adaptive_retrieval=True,
+                config=default_config
+            )
+            logger.info("Hybrid RAG pipeline initialized")
+        else:
+            hybrid_rag_pipeline = None
+            logger.warning("Hybrid RAG pipeline not initialized: vector_store or rag_pipeline not available")
+    except Exception as e:
+        logger.warning(f"Hybrid RAG pipeline not available: {e}")
+        hybrid_rag_pipeline = None
     
     # Initialize chat database manager
     try:
@@ -529,38 +562,6 @@ async def query_hybrid(request: QueryRequest):
     Uses hybrid convolutional-transformer encoder for improved embeddings
     and adaptive retrieval for context-aware document selection.
     """
-    global hybrid_rag_pipeline
-    
-    if hybrid_rag_pipeline is None:
-        # Initialize hybrid RAG pipeline if not already initialized
-        try:
-            from Module7_NiruHybrid.integration.rag_integration import HybridRAGPipeline
-            from Module7_NiruHybrid.hybrid_encoder import HybridEncoder
-            from Module7_NiruHybrid.retention.adaptive_retriever import AdaptiveRetriever
-            from Module7_NiruHybrid.config import default_config
-            
-            # Initialize components
-            hybrid_encoder = HybridEncoder(config=default_config.encoder)
-            adaptive_retriever = AdaptiveRetriever(
-                hybrid_encoder=hybrid_encoder,
-                vector_store=vector_store,
-                config=default_config.retention
-            )
-            
-            # Create hybrid RAG pipeline
-            hybrid_rag_pipeline = HybridRAGPipeline(
-                base_rag_pipeline=rag_pipeline,
-                hybrid_encoder=hybrid_encoder,
-                adaptive_retriever=adaptive_retriever,
-                use_hybrid=True,
-                use_adaptive_retrieval=True,
-                config=default_config
-            )
-            logger.info("Hybrid RAG pipeline initialized")
-        except Exception as e:
-            logger.error(f"Failed to initialize hybrid RAG pipeline: {e}")
-            raise HTTPException(status_code=503, detail=f"Hybrid RAG not available: {str(e)}")
-    
     if hybrid_rag_pipeline is None:
         raise HTTPException(status_code=503, detail="Hybrid RAG pipeline not initialized")
     
@@ -653,8 +654,6 @@ async def stream_query(request: QueryRequest):
     Processes queries in real-time with streaming response for both
     queries and generated data.
     """
-    global hybrid_rag_pipeline
-    
     if hybrid_rag_pipeline is None:
         raise HTTPException(status_code=503, detail="Hybrid RAG pipeline not initialized")
     
@@ -687,13 +686,16 @@ async def stream_query(request: QueryRequest):
             try:
                 answer_stream = result["answer_stream"]
                 
-                if rag_pipeline.llm_provider in ["openai", "moonshot"]:
+                # Get LLM provider from hybrid pipeline's base RAG
+                llm_provider = hybrid_rag_pipeline.base_rag.llm_provider
+                
+                if llm_provider in ["openai", "moonshot"]:
                     async for chunk in answer_stream:
                         if chunk.choices and chunk.choices[0].delta.content:
                             content = chunk.choices[0].delta.content
                             yield f"data: {content}\n\n"
                 
-                elif rag_pipeline.llm_provider == "anthropic":
+                elif llm_provider == "anthropic":
                     async for chunk in answer_stream:
                         if chunk.type == "content_block_delta" and chunk.delta.text:
                             yield f"data: {chunk.delta.text}\n\n"

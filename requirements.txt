@@ -17,7 +17,8 @@ PyPDF2
 pdfplumber
 langchain
 langchain-community
-sentence-transformers
+sentence-transformers>=2.2.0
+huggingface-hub>=0.20.0
 tiktoken  # Token counting
 textblob  # Sentiment analysis
 youtube-transcript-api  # YouTube transcript extraction
@@ -49,7 +50,7 @@ africastalking  # SMS gateway for Kenya
 openai # For OpenAI models and Moonshot AI (compatible API)
 anthropic  # For Claude
 google-generativeai  # For Gemini AI
-huggingface-hub
+# huggingface-hub is already specified above
 
 # Utilities
 pyyaml
@@ -71,7 +72,7 @@ livekit-plugins-noise-cancellation
 
 # Module 7: NiruHybrid - Hybrid Conv-Transformer Pipeline
 torch # PyTorch for neural networks
-transformers  # Hugging Face transformers
+transformers>=4.30.0  # Hugging Face transformers (compatible with huggingface-hub>=0.20.0)
 bitsandbytes  # Quantization support
 accelerate  # Mixed precision training
 diffusers  # Diffusion model framework

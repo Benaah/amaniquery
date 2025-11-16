@@ -148,7 +148,43 @@ class TalksasaNotificationService:
             }
 
             response = requests.post(url, json=payload, headers=headers, timeout=10)
-            response.raise_for_status()
+            
+            # Handle 403 Forbidden specifically (check before raise_for_status)
+            if response.status_code == 403:
+                try:
+                    error_data = response.json()
+                    error_message = error_data.get("message", "Forbidden")
+                except:
+                    error_message = response.text or "Forbidden"
+                
+                logger.error(f"WhatsApp 403 Forbidden: {error_message}")
+                logger.error(f"Response status: {response.status_code}")
+                logger.error(f"Response headers: {dict(response.headers)}")
+                
+                return {
+                    "status": "error",
+                    "message": f"WhatsApp access forbidden (403): {error_message}",
+                    "error_code": 403,
+                    "details": "This usually means: 1) Your account doesn't have WhatsApp enabled, 2) Your API token lacks WhatsApp permissions, or 3) WhatsApp service is not available for your account. Please contact Talksasa support or use SMS instead.",
+                    "response_body": error_message
+                }
+            
+            # Check for other error status codes before raising
+            if not response.ok:
+                try:
+                    error_data = response.json()
+                    error_message = error_data.get("message", f"HTTP {response.status_code}")
+                except:
+                    error_message = response.text or f"HTTP {response.status_code}"
+                
+                logger.error(f"WhatsApp HTTP {response.status_code}: {error_message}")
+                return {
+                    "status": "error",
+                    "message": f"HTTP {response.status_code}: {error_message}",
+                    "error_code": response.status_code,
+                    "response_body": error_message
+                }
+            
             result = response.json()
 
             if result.get("status") == "success":
@@ -164,11 +200,37 @@ class TalksasaNotificationService:
                     "message": result.get("message", "Unknown error")
                 }
 
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Error sending WhatsApp: {e}")
+        except requests.exceptions.HTTPError as e:
+            # Handle HTTP errors that weren't caught above (shouldn't happen now, but keep as fallback)
+            status_code = e.response.status_code if e.response else None
+            try:
+                error_data = e.response.json() if e.response else {}
+                error_message = error_data.get("message", str(e))
+            except:
+                error_message = e.response.text if e.response else str(e)
+            
+            logger.error(f"HTTP error sending WhatsApp (status {status_code}): {error_message}")
+            
+            # Special handling for 403
+            if status_code == 403:
+                return {
+                    "status": "error",
+                    "message": f"WhatsApp access forbidden (403): {error_message}",
+                    "error_code": 403,
+                    "details": "This usually means: 1) Your account doesn't have WhatsApp enabled, 2) Your API token lacks WhatsApp permissions, or 3) WhatsApp service is not available for your account. Please contact Talksasa support or use SMS instead.",
+                    "response_body": error_message
+                }
+            
             return {
                 "status": "error",
-                "message": str(e)
+                "message": f"HTTP {status_code}: {error_message}",
+                "error_code": status_code
+            }
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Request error sending WhatsApp: {e}")
+            return {
+                "status": "error",
+                "message": f"Request failed: {str(e)}"
             }
         except Exception as e:
             logger.error(f"Unexpected error sending WhatsApp: {e}")
@@ -195,7 +257,12 @@ class TalksasaNotificationService:
             # Try WhatsApp first, fallback to SMS on error
             result = self.send_whatsapp(recipient, message)
             if result.get("status") == "error":
-                logger.info(f"WhatsApp failed, falling back to SMS for {recipient}")
+                error_code = result.get("error_code")
+                # If it's a 403 (forbidden), log it but still fallback to SMS
+                if error_code == 403:
+                    logger.warning(f"WhatsApp access forbidden (403) for {recipient}. This usually means WhatsApp is not enabled for your account. Falling back to SMS.")
+                else:
+                    logger.info(f"WhatsApp failed (error code: {error_code}), falling back to SMS for {recipient}")
                 return self.send_sms(recipient, message)
             return result
         elif notification_type == "both":

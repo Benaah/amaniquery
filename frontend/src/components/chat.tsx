@@ -40,7 +40,9 @@ import {
   Trash2,
   Twitter,
   User,
-  X
+  X,
+  Edit,
+  RotateCw
 } from "lucide-react"
 
 interface Message {
@@ -60,6 +62,8 @@ interface Message {
   }>
   feedback_type?: "like" | "dislike"
   saved?: boolean
+  failed?: boolean
+  originalQuery?: string
 }
 
 interface Source {
@@ -488,13 +492,23 @@ ${additionalConsiderations}
                       } else if (parsed.type === 'error') {
                         // Handle streaming error
                         console.error('Streaming error:', parsed.error)
+                        
+                        // Mark the user message as failed
+                        setMessages(prev => prev.map(msg => 
+                          msg.id === userMessage.id 
+                            ? { ...msg, failed: true, originalQuery: content.trim() }
+                            : msg
+                        ))
+                        
                         setMessages(prev => prev.map(msg => 
                           msg.id === assistantMessageId 
                             ? { 
                                 ...msg, 
                                 content: `Error: ${parsed.error}`,
                                 model_used: 'error',
-                                saved: true
+                                saved: true,
+                                failed: true,
+                                originalQuery: content.trim()
                               }
                             : msg
                         ))
@@ -514,6 +528,13 @@ ${additionalConsiderations}
         }
         loadChatHistory() // Refresh history to update message count
       } else {
+        // Mark the user message as failed and store original query
+        setMessages(prev => prev.map(msg => 
+          msg.id === userMessage.id 
+            ? { ...msg, failed: true, originalQuery: content.trim() }
+            : msg
+        ))
+        
         const errorMessage: Message = {
           id: (Date.now() + 1).toString(),
           session_id: sessionId,
@@ -521,12 +542,22 @@ ${additionalConsiderations}
           content: isResearchMode 
             ? "Sorry, I encountered an error processing your legal research request."
             : "Sorry, I encountered an error processing your request.",
-          created_at: new Date().toISOString()
+          created_at: new Date().toISOString(),
+          failed: true,
+          originalQuery: content.trim()
         }
         setMessages(prev => [...prev, errorMessage])
       }
     } catch (error) {
       console.error("Failed to send message:", error)
+      
+      // Mark the user message as failed and store original query
+      setMessages(prev => prev.map(msg => 
+        msg.id === userMessage.id 
+          ? { ...msg, failed: true, originalQuery: content.trim() }
+          : msg
+      ))
+      
       const errorMessage: Message = {
         id: (Date.now() + 1).toString(),
         session_id: sessionId,
@@ -534,7 +565,9 @@ ${additionalConsiderations}
         content: isResearchMode 
           ? "Sorry, I couldn't connect to the research service. Please try again."
           : "Sorry, I couldn't connect to the server. Please try again.",
-        created_at: new Date().toISOString()
+        created_at: new Date().toISOString(),
+        failed: true,
+        originalQuery: content.trim()
       }
       setMessages(prev => [...prev, errorMessage])
     } finally {
@@ -576,6 +609,42 @@ ${additionalConsiderations}
       console.error("Failed to copy to clipboard:", error)
       toast.error("Failed to copy to clipboard")
     }
+  }
+
+  const copyFailedQuery = async (message: Message) => {
+    const query = message.originalQuery || message.content
+    try {
+      await navigator.clipboard.writeText(query)
+      toast.success("Query copied to clipboard!")
+    } catch (error) {
+      console.error("Failed to copy query:", error)
+      toast.error("Failed to copy query")
+    }
+  }
+
+  const editFailedQuery = (message: Message) => {
+    const query = message.originalQuery || message.content
+    setInput(query)
+    // Scroll to input
+    setTimeout(() => {
+      const inputElement = document.querySelector('input[type="text"]') as HTMLInputElement
+      inputElement?.focus()
+      inputElement?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }, 100)
+  }
+
+  const resendFailedQuery = async (message: Message) => {
+    const query = message.originalQuery || (message.role === "user" ? message.content : "")
+    if (!query.trim()) return
+    
+    // Remove the failed messages (both user and assistant error messages with the same query)
+    setMessages(prev => prev.filter(msg => 
+      msg.id !== message.id && 
+      !(msg.failed && (msg.originalQuery === query || (msg.role === "user" && msg.content === query)))
+    ))
+    
+    // Resend the query
+    await sendMessage(query)
   }
 
   const deleteSession = async (sessionId: string) => {
@@ -1281,13 +1350,19 @@ ${additionalConsiderations}
                     <Card
                       className={`rounded-3xl border border-white/5 bg-white/5 text-sm md:text-base shadow-xl ${
                         message.role === "user" ? "bg-primary/90 text-primary-foreground" : "backdrop-blur-xl"
-                      }`}
+                      } ${message.failed ? "border-red-500/50 bg-red-500/10" : ""}`}
                     >
                       <CardContent className="p-4 md:p-6 space-y-3">
                         <div className="flex flex-wrap items-center gap-2 text-xs uppercase tracking-wider text-muted-foreground">
                           <span>{message.role === "user" ? "You" : "AmaniQuery"}</span>
                           <span className="h-1 w-1 rounded-full bg-muted-foreground/50" />
                           <span>{formatTimestamp(message.created_at)}</span>
+                          {message.failed && (
+                            <>
+                              <span className="h-1 w-1 rounded-full bg-red-500/50" />
+                              <span className="text-red-400">Failed</span>
+                            </>
+                          )}
                           {message.model_used && (
                             <>
                               <span className="h-1 w-1 rounded-full bg-muted-foreground/50" />
@@ -1323,7 +1398,40 @@ ${additionalConsiderations}
                       </CardContent>
                     </Card>
 
-                    {message.role === "assistant" && (
+                    {message.failed && (
+                      <div className="flex flex-wrap items-center gap-2 justify-start">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => copyFailedQuery(message)}
+                          className="h-9 rounded-full px-3 text-xs border-red-500/50 text-red-400 hover:bg-red-500/10"
+                        >
+                          <Copy className="w-4 h-4 mr-1" />
+                          Copy Query
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => editFailedQuery(message)}
+                          className="h-9 rounded-full px-3 text-xs border-red-500/50 text-red-400 hover:bg-red-500/10"
+                        >
+                          <Edit className="w-4 h-4 mr-1" />
+                          Edit
+                        </Button>
+                        <Button
+                          variant="default"
+                          size="sm"
+                          onClick={() => resendFailedQuery(message)}
+                          disabled={isLoading}
+                          className="h-9 rounded-full px-3 text-xs bg-red-600 hover:bg-red-700 text-white"
+                        >
+                          <RotateCw className="w-4 h-4 mr-1" />
+                          Retry
+                        </Button>
+                      </div>
+                    )}
+
+                    {message.role === "assistant" && !message.failed && (
                       <div className="flex flex-wrap items-center gap-2 justify-start">
                         <Button
                           variant="ghost"

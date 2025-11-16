@@ -147,6 +147,7 @@ export function Chat() {
   const [input, setInput] = useState("")
   const [isLoading, setIsLoading] = useState(false)
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null)
+  const [useHybrid, setUseHybrid] = useState(false)
   const [chatHistory, setChatHistory] = useState<ChatSession[]>([])
   const [showHistory, setShowHistory] = useState(false)
   const [showSources, setShowSources] = useState(false)
@@ -289,8 +290,20 @@ export function Chat() {
             query: content.trim()
           })
         })
+      } else if (useHybrid) {
+        // Use hybrid streaming endpoint
+        response = await fetch(`${API_BASE_URL}/stream/query`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            query: content.trim(),
+            top_k: 5,
+            include_sources: true,
+            stream: true
+          })
+        })
       } else {
-        // Use streaming chat endpoint
+        // Use standard streaming chat endpoint
         response = await fetch(`${API_BASE_URL}/chat/sessions/${sessionId}/messages`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -402,6 +415,43 @@ ${additionalConsiderations}
                   if (line.startsWith('data: ')) {
                     const data = line.slice(6)
                     if (data === '[DONE]') continue
+                    
+                    // Handle hybrid endpoint format: data: [DONE]{json} or plain text chunks
+                    if (data.startsWith('[DONE]')) {
+                      try {
+                        const parsed = JSON.parse(data.slice(7))
+                        metadata.sources = parsed.sources || []
+                        metadata.token_count = parsed.retrieved_chunks
+                        metadata.model_used = parsed.model_used || (parsed.hybrid_used ? 'hybrid' : 'standard')
+                        // Final update
+                        setMessages(prev => prev.map(msg => 
+                          msg.id === assistantMessageId 
+                            ? { 
+                                ...msg, 
+                                content: accumulatedContent,
+                                token_count: metadata.token_count,
+                                model_used: metadata.model_used,
+                                sources: metadata.sources,
+                                saved: true
+                              }
+                            : msg
+                        ))
+                        break
+                      } catch {
+                        // Fall through to regular parsing
+                      }
+                    }
+                    
+                    // Handle plain text chunks from hybrid endpoint
+                    if (useHybrid && !data.startsWith('{') && !data.startsWith('[')) {
+                      accumulatedContent += data
+                      setMessages(prev => prev.map(msg => 
+                        msg.id === assistantMessageId 
+                          ? { ...msg, content: accumulatedContent }
+                          : msg
+                      ))
+                      continue
+                    }
                     
                     try {
                       const parsed = JSON.parse(data)
@@ -980,7 +1030,7 @@ ${additionalConsiderations}
               <p className="text-xs uppercase tracking-widest text-muted-foreground">Sessions</p>
               <h3 className="font-semibold text-sm">Chat History</h3>
             </div>
-            <Button variant="ghost" size="sm" onClick={createNewSession} className="h-8 w-8 rounded-full">
+            <Button variant="ghost" size="sm" onClick={() => createNewSession()} className="h-8 w-8 rounded-full">
               <Plus className="w-3 h-3" />
             </Button>
           </div>
@@ -1094,12 +1144,35 @@ ${additionalConsiderations}
                     Research Mode
                   </Badge>
                 )}
+                {useHybrid && !isResearchMode && (
+                  <Badge variant="default" className="bg-purple-600/90">
+                    <Sparkles className="w-3 h-3 mr-1" />
+                    Hybrid Mode
+                  </Badge>
+                )}
               </div>
               <div className="flex items-center gap-2">
                 <Button
+                  variant={useHybrid && !isResearchMode ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => {
+                    setUseHybrid(!useHybrid)
+                    setIsResearchMode(false)
+                  }}
+                  disabled={isResearchMode}
+                  className={`h-9 rounded-full px-3 ${useHybrid && !isResearchMode ? "bg-purple-600 hover:bg-purple-700" : ""}`}
+                >
+                  <Sparkles className="w-4 h-4 mr-2" />
+                  <span className="hidden sm:inline">Hybrid</span>
+                  <span className="sm:hidden">Hybrid</span>
+                </Button>
+                <Button
                   variant={isResearchMode ? "default" : "outline"}
                   size="sm"
-                  onClick={() => setIsResearchMode(!isResearchMode)}
+                  onClick={() => {
+                    setIsResearchMode(!isResearchMode)
+                    setUseHybrid(false)
+                  }}
                   className={`h-9 rounded-full px-3 ${isResearchMode ? "bg-blue-600 hover:bg-blue-700" : ""}`}
                 >
                   <Search className="w-4 h-4 mr-2" />
@@ -1133,7 +1206,9 @@ ${additionalConsiderations}
               </div>
               <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2">
                 <p className="text-muted-foreground uppercase tracking-wider text-[10px]">Mode</p>
-                <p className="font-semibold">{isResearchMode ? "Deep research" : "Chat"}</p>
+                <p className="font-semibold">
+                  {isResearchMode ? "Deep research" : useHybrid ? "Hybrid RAG" : "Chat"}
+                </p>
               </div>
               <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2">
                 <p className="text-muted-foreground uppercase tracking-wider text-[10px]">Share</p>
@@ -1154,11 +1229,13 @@ ${additionalConsiderations}
                   <Bot className="h-7 w-7 text-primary" />
                 </div>
                 <h2 className="text-lg md:text-2xl font-semibold">
-                  Welcome to AmaniQuery {isResearchMode && "(Research Mode)"}
+                  Welcome to AmaniQuery {isResearchMode && "(Research Mode)"} {useHybrid && !isResearchMode && "(Hybrid Mode)"}
                 </h2>
                 <p className="text-muted-foreground mt-2 text-sm md:text-base max-w-xl mx-auto">
                   {isResearchMode
                     ? "Submit a detailed Kenyan legal question and receive structured analysis built for citations and downstream reporting."
+                    : useHybrid
+                    ? "Enhanced RAG with hybrid encoder and adaptive retrieval. Ask about Kenyan law, parliament, or current affairs with improved accuracy."
                     : "Ask about Kenyan law, parliament, or current affairs. Answers stream in real time with sources you can trust."}
                 </p>
                 <div className="mt-8 grid gap-3 md:grid-cols-2 max-w-3xl mx-auto">
@@ -1247,7 +1324,7 @@ ${additionalConsiderations}
                     </Card>
 
                     {message.role === "assistant" && (
-                      <div className={`flex flex-wrap items-center gap-2 ${message.role === "user" ? "justify-end" : "justify-start"}`}>
+                      <div className="flex flex-wrap items-center gap-2 justify-start">
                         <Button
                           variant="ghost"
                           size="sm"

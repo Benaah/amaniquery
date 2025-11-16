@@ -59,6 +59,7 @@ Create or update your `.env` file with the following:
 # LiveKit Configuration (Required)
 LIVEKIT_URL=wss://your-livekit-server.com
 LIVEKIT_API_KEY=your_api_key
+LIVEKIT_API_SECRET=your_api_secret
 
 # Voice Agent Configuration (Optional - defaults shown)
 VOICE_STT_PROVIDER=openai          # openai or assemblyai

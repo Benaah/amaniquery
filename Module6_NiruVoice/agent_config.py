@@ -40,11 +40,20 @@ class VoiceAgentConfig:
         # Required LiveKit credentials
         livekit_url = os.getenv("LIVEKIT_URL")
         livekit_api_key = os.getenv("LIVEKIT_API_KEY")
+        livekit_api_secret = os.getenv("LIVEKIT_API_SECRET")
         
         if not livekit_url:
             raise ValueError("LIVEKIT_URL environment variable is required")
         if not livekit_api_key:
             raise ValueError("LIVEKIT_API_KEY environment variable is required")
+        if not livekit_api_secret:
+            raise ValueError("LIVEKIT_API_SECRET environment variable is required. This is needed for the agent to authenticate with LiveKit server.")
+        
+        # Validate API secret format (should not be a JWT token)
+        if livekit_api_secret.strip().startswith('eyJ'):
+            raise ValueError("LIVEKIT_API_SECRET appears to be a JWT token, not a secret key. The API secret should be a long random string, not a token. Get it from LiveKit Cloud dashboard (Settings > Keys) or your LiveKit server configuration.")
+        
+        logger.info(f"LiveKit credentials validated: URL={'set' if livekit_url else 'missing'}, Key={'set' if livekit_api_key else 'missing'}, Secret={'set' if livekit_api_secret else 'missing'}")
         
         # Optional STT/TTS settings
         stt_provider = os.getenv("VOICE_STT_PROVIDER", "openai").lower()

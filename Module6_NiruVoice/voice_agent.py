@@ -17,9 +17,31 @@ from livekit.agents import (
     cli,
     AutoSubscribe,
     llm,
-    voice_assistant,
 )
-from livekit.plugins import openai, silero
+# Import VoiceAssistant - try different import paths based on livekit-agents version
+VoiceAssistant = None
+try:
+    # Try the most common import path
+    from livekit.agents import VoiceAssistant
+except ImportError:
+    try:
+        # Alternative import path
+        from livekit.agents.voice_assistant import VoiceAssistant
+    except ImportError:
+        try:
+            # Another possible location
+            from livekit.agents.voice import VoiceAssistant
+        except ImportError:
+            logger.error("Could not import VoiceAssistant from livekit.agents")
+            logger.error("Please check your livekit-agents version. Required: >=0.8.0")
+            logger.error("Try: pip install --upgrade 'livekit-agents[openai,silero]'")
+            VoiceAssistant = None
+# Plugins will be imported lazily (only when needed) to avoid registration issues
+# They MUST be registered on main thread before this module is imported
+# See start_api.py for plugin registration
+# We set these to None here and import them only when needed in entrypoint()
+openai = None
+silero = None
 
 from Module6_NiruVoice.agent_config import VoiceAgentConfig
 from Module6_NiruVoice.rag_integration import VoiceRAGIntegration
@@ -96,29 +118,50 @@ class AmaniQueryVoiceAgent:
         session_id = ctx.room.name or ctx.room.sid
         voice_session = self.session_manager.get_or_create_session(session_id)
         
+        # Import plugins if not already imported (lazy import)
+        if openai is None or silero is None:
+            from livekit.plugins import openai, silero
+        
         # Create STT based on provider
         if self.config.stt_provider == "openai":
+            if openai is None:
+                raise ImportError("OpenAI plugin not available. Ensure plugins are registered on main thread.")
             stt = openai.STT()
         else:
             # Default to OpenAI if provider not supported
             logger.warning(f"STT provider {self.config.stt_provider} not fully supported, using OpenAI")
+            if openai is None:
+                raise ImportError("OpenAI plugin not available. Ensure plugins are registered on main thread.")
             stt = openai.STT()
         
         # Create TTS based on provider
         if self.config.tts_provider == "openai":
+            if openai is None:
+                raise ImportError("OpenAI plugin not available. Ensure plugins are registered on main thread.")
             tts = openai.TTS(voice=self.tts_handler.config.get("voice", "alloy"))
         elif self.config.tts_provider == "silero":
+            if silero is None:
+                raise ImportError("Silero plugin not available. Ensure plugins are registered on main thread.")
             tts = silero.TTS()
         else:
             # Default to OpenAI
             logger.warning(f"TTS provider {self.config.tts_provider} not fully supported, using OpenAI")
+            if openai is None:
+                raise ImportError("OpenAI plugin not available. Ensure plugins are registered on main thread.")
             tts = openai.TTS()
         
         # Create custom LLM that uses RAG pipeline
         rag_llm = RAGLLM(self.rag_integration, self.session_manager, session_id)
         
         # Create agent session using VoiceAssistant
-        assistant = voice_assistant.VoiceAssistant(
+        if VoiceAssistant is None:
+            raise ImportError("VoiceAssistant not available in livekit.agents. Please check your livekit-agents version.")
+        
+        # Ensure silero is available for VAD
+        if silero is None:
+            raise ImportError("Silero plugin not available. Ensure plugins are registered on main thread.")
+        
+        assistant = VoiceAssistant(
             vad=silero.VAD.load(),
             stt=stt,
             llm=rag_llm,
@@ -190,8 +233,8 @@ class RAGLLM(llm.LLM):
         self,
         *,
         chat_ctx: llm.ChatContext,
-        fnc_ctx: Optional[llm.FunctionContext] = None,
         temperature: Optional[float] = None,
+        **kwargs,  # Accept additional kwargs for compatibility with different versions
     ) -> "llm.ChatStream":
         """
         Process chat request through RAG pipeline

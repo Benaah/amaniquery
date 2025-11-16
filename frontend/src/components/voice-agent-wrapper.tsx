@@ -15,6 +15,19 @@ export function VoiceAgentWrapper() {
   const livekitUrl = process.env.NEXT_PUBLIC_LIVEKIT_URL || ""
 
   const generateToken = async () => {
+    if (!livekitUrl || livekitUrl.trim() === "") {
+      setError("LiveKit URL is not configured. Please set NEXT_PUBLIC_LIVEKIT_URL environment variable.")
+      return
+    }
+
+    // Validate URL format
+    try {
+      new URL(livekitUrl)
+    } catch {
+      setError(`Invalid LiveKit URL format: ${livekitUrl}. URL must start with ws:// or wss://`)
+      return
+    }
+
     if (!roomName.trim()) {
       setError("Room name is required")
       return

@@ -19,11 +19,44 @@ export function VoiceAgent({ livekitUrl, token, roomName }: VoiceAgentProps) {
   const [isSpeaking, setIsSpeaking] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const audioRef = useRef<HTMLAudioElement>(null)
+  const roomRef = useRef<Room | null>(null)
 
   useEffect(() => {
     const connect = async () => {
+      // Validate URL before attempting connection
+      if (!livekitUrl || livekitUrl.trim() === "") {
+        setError("LiveKit URL is not configured")
+        return
+      }
+
+      // Validate URL format
+      try {
+        new URL(livekitUrl)
+      } catch {
+        setError(`Invalid LiveKit URL format: ${livekitUrl}. URL must be a valid WebSocket URL (ws:// or wss://)`)
+        return
+      }
+
+      if (!token || token.trim() === "") {
+        setError("Token is missing")
+        return
+      }
+
+      // Check if media devices are available (required for microphone access)
+      if (typeof window !== "undefined" && !navigator.mediaDevices?.getUserMedia) {
+        const isSecure = window.location.protocol === "https:" || window.location.hostname === "localhost"
+        if (!isSecure) {
+          setError("Microphone access requires HTTPS. Please access this page over HTTPS or use localhost.")
+          return
+        } else {
+          setError("Your browser doesn't support microphone access. Please use a modern browser like Chrome, Firefox, or Edge.")
+          return
+        }
+      }
+
       try {
         const newRoom = new Room()
+        roomRef.current = newRoom
         
         newRoom.on(RoomEvent.Connected, () => {
           setIsConnected(true)
@@ -59,19 +92,46 @@ export function VoiceAgent({ livekitUrl, token, roomName }: VoiceAgentProps) {
         })
 
         await newRoom.connect(livekitUrl, token)
-        await newRoom.localParticipant.enableCameraAndMicrophone()
+        
+        // Enable only microphone (not camera) for voice-only agent
+        // Request microphone permission explicitly
+        try {
+          if (navigator.mediaDevices?.getUserMedia) {
+            // Request permission first
+            await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+          }
+          await newRoom.localParticipant.setMicrophoneEnabled(true)
+        } catch (mediaError) {
+          if (mediaError instanceof Error) {
+            if (mediaError.name === "NotAllowedError" || mediaError.name === "PermissionDeniedError") {
+              setError("Microphone permission denied. Please allow microphone access and try again.")
+            } else if (mediaError.name === "NotFoundError" || mediaError.name === "DevicesNotFoundError") {
+              setError("No microphone found. Please connect a microphone and try again.")
+            } else {
+              setError(`Microphone error: ${mediaError.message}`)
+            }
+          } else {
+            setError("Failed to access microphone. Please check your browser permissions.")
+          }
+          await newRoom.disconnect()
+          roomRef.current = null
+          return
+        }
+        
         setRoom(newRoom)
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to connect")
         setIsConnected(false)
+        roomRef.current = null
       }
     }
 
     connect()
 
     return () => {
-      if (room) {
-        room.disconnect()
+      if (roomRef.current) {
+        roomRef.current.disconnect()
+        roomRef.current = null
       }
     }
   }, [livekitUrl, token])

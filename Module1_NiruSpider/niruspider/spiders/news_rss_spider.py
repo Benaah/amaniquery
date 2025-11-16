@@ -6,14 +6,20 @@ import feedparser
 from datetime import datetime
 from dateutil import parser as date_parser
 from ..items import RSSItem, DocumentItem
+from ..extractors import ArticleExtractor
 import time
 
 
 class NewsRSSSpider(scrapy.Spider):
     name = "news_rss"
     
-    # Kenyan news RSS feeds
+    def __init__(self, *args, **kwargs):
+        super(NewsRSSSpider, self).__init__(*args, **kwargs)
+        self.article_extractor = ArticleExtractor()
+    
+    # Kenyan news RSS feeds - Expanded list
     rss_feeds = [
+        # Major National Newspapers
         {
             "url": "https://nation.africa/kenya/rss",
             "name": "Nation Africa",
@@ -31,16 +37,51 @@ class NewsRSSSpider(scrapy.Spider):
             "name": "Business Daily Africa",
         },
         {
+            "url": "https://www.theeastafrican.co.ke/rss",
+            "name": "The East African",
+        },
+        # TV Stations
+        {
+            "url": "https://citizen.digital/rss",
+            "name": "Citizen TV",
+        },
+        {
+            "url": "https://www.ktnnews.co.ke/rss",
+            "name": "KTN News",
+        },
+        {
+            "url": "https://www.ntv.co.ke/rss",
+            "name": "NTV Kenya",
+        },
+        # Radio Stations
+        {
             "url": "https://www.capitalfm.co.ke/news/rss/",
             "name": "Capital FM",
+        },
+        {
+            "url": "https://www.radiocitizen.co.ke/rss",
+            "name": "Radio Citizen",
+        },
+        # Online News Portals
+        {
+            "url": "https://www.tuko.co.ke/rss",
+            "name": "Tuko.co.ke",
+        },
+        {
+            "url": "https://www.hivisasa.com/rss",
+            "name": "Hivisasa",
+        },
+        {
+            "url": "https://www.pulselive.co.ke/rss",
+            "name": "Pulse Live",
         },
         {
             "url": "https://www.kenyans.co.ke/rss",
             "name": "Kenyans.co.ke",
         },
         {
-            "url": "https://www.theeastafrican.co.ke/rss",
-            "name": "The East African",
+            "url": "https://nairobinews.co.ke/rss",
+            "name": "Nairobi News",
         },
     ]
     
@@ -118,43 +159,41 @@ class NewsRSSSpider(scrapy.Spider):
             )
     
     def parse_article(self, response):
-        """Parse full article from URL"""
+        """Parse full article from URL using enhanced extractor"""
         rss_item = response.meta["rss_item"]
         
-        # Extract main article content
-        # Try multiple common selectors
-        content_selectors = [
-            'article .article-body::text',
-            '.article-content::text',
-            '.story-body::text',
-            '[itemprop="articleBody"]::text',
-            'article p::text',
-            '.entry-content p::text',
-        ]
+        # Use enhanced article extractor
+        extracted = self.article_extractor.extract(response.text, url=response.url)
         
-        content = []
-        for selector in content_selectors:
-            content = response.css(selector).getall()
-            if content:
-                break
+        # Use extracted content, fallback to RSS summary if extraction failed
+        content = extracted.get("text", "")
+        if not content or len(content) < 100:
+            content = rss_item.get("summary", "")
+            self.logger.warning(f"Extraction failed for {response.url}, using RSS summary")
         
-        # Fallback: get all paragraph text from article tag
-        if not content:
-            content = response.css('article p::text, main p::text').getall()
+        # Use extracted title if better than RSS title
+        title = extracted.get("title", "") or rss_item["title"]
         
-        full_content = '\n'.join([t.strip() for t in content if t.strip()])
+        # Use extracted author if available
+        author = extracted.get("author", "") or rss_item.get("author", "")
+        
+        # Use extracted date if available
+        publication_date = extracted.get("date", "") or rss_item.get("published", "")
+        
+        # Use extracted description if available
+        summary = extracted.get("description", "") or rss_item.get("summary", "")
         
         # Create document item
         yield DocumentItem(
             url=rss_item["url"],
-            title=rss_item["title"],
-            content=full_content,
+            title=title,
+            content=content,
             content_type="html",
             category="Kenyan News",
             source_name=rss_item["source_name"],
-            author=rss_item.get("author"),
-            publication_date=rss_item.get("published"),
-            summary=rss_item.get("summary"),
+            author=author,
+            publication_date=publication_date,
+            summary=summary,
             raw_html=response.text,
             status_code=response.status,
         )

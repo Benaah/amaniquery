@@ -75,6 +75,7 @@ sources:
     schedule: "daily"
     priority: "medium"
     feeds:
+      # Major National Newspapers
       - name: "Nation Africa"
         url: "https://nation.africa/kenya/rss"
         language: "en"
@@ -82,10 +83,65 @@ sources:
         url: "https://www.standardmedia.co.ke/rss/headlines.xml"
         language: "en"
       - name: "The Star"
-        url: "https://www.the-star.co.ke/feed"
+        url: "https://www.the-star.co.ke/rss"
         language: "en"
       - name: "Business Daily"
         url: "https://www.businessdailyafrica.com/bd/rss"
+        language: "en"
+      - name: "The East African"
+        url: "https://www.theeastafrican.co.ke/rss"
+        language: "en"
+      
+      # TV Stations
+      - name: "Citizen TV"
+        url: "https://citizen.digital/rss"
+        language: "en"
+      - name: "KTN News"
+        url: "https://www.ktnnews.co.ke/rss"
+        language: "en"
+      - name: "NTV Kenya"
+        url: "https://www.ntv.co.ke/rss"
+        language: "en"
+      
+      # Radio Stations
+      - name: "Capital FM"
+        url: "https://www.capitalfm.co.ke/news/rss/"
+        language: "en"
+      - name: "Radio Citizen"
+        url: "https://www.radiocitizen.co.ke/rss"
+        language: "en"
+      
+      # Online News Portals
+      - name: "Tuko.co.ke"
+        url: "https://www.tuko.co.ke/rss"
+        language: "en"
+      - name: "Hivisasa"
+        url: "https://www.hivisasa.com/rss"
+        language: "en"
+      - name: "Pulse Live"
+        url: "https://www.pulselive.co.ke/rss"
+        language: "en"
+      - name: "Kenyans.co.ke"
+        url: "https://www.kenyans.co.ke/rss"
+        language: "en"
+      - name: "Kenya News Agency"
+        url: "https://www.kenyanews.go.ke/rss"
+        language: "en"
+      
+      # Government & Official
+      - name: "State House Kenya"
+        url: "https://www.president.go.ke/rss"
+        language: "en"
+      - name: "Ministry of Information"
+        url: "https://www.information.go.ke/rss"
+        language: "en"
+      
+      # County News
+      - name: "Nairobi News"
+        url: "https://nairobinews.co.ke/rss"
+        language: "en"
+      - name: "Mombasa News"
+        url: "https://www.mombasatimes.co.ke/rss"
         language: "en"
     settings:
       download_delay: 2.0

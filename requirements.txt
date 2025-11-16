@@ -8,9 +8,11 @@ requests
 beautifulsoup4
 feedparser  # RSS feed parsing
 lxml
+celery
 
 # Module 2: NiruParser (ETL & Embedding)
 trafilatura  # HTML text extraction
+newspaper3k  # Alternative article extraction
 PyPDF2
 pdfplumber
 langchain
@@ -29,6 +31,7 @@ upstash-redis  # For cache and vector storage
 upstash-vector  # For vector database
 qdrant-client  # Fallback vector store
 cryptography  # For encrypting API keys
+redis  # For rate limiting and caching
 
 # Database (PostgreSQL for sessions, feedback, chat history)
 psycopg2-binary
@@ -54,6 +57,7 @@ pandas
 numpy
 tqdm
 schedule  # For automated crawling
+celery  # Async task queue
 colorama  # Colored terminal output
 loguru  # Advanced logging
 psutil  # System monitoring

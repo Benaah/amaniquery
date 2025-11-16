@@ -129,6 +129,124 @@ class VectorStorePipeline:
             return item
 
 
+class DeduplicationPipeline:
+    """Deduplicate articles using URL and content hashing"""
+    
+    def __init__(self):
+        self.dedup_engine = None
+    
+    def open_spider(self, spider):
+        """Initialize deduplication engine"""
+        try:
+            from ..deduplication import DeduplicationEngine
+            self.dedup_engine = DeduplicationEngine()
+            spider.logger.info("Deduplication pipeline initialized")
+        except Exception as e:
+            spider.logger.error(f"Failed to initialize deduplication: {e}")
+            self.dedup_engine = None
+    
+    def process_item(self, item, spider):
+        """Check for duplicates and register article"""
+        if not self.dedup_engine:
+            return item
+        
+        adapter = ItemAdapter(item)
+        url = adapter.get("url")
+        content = adapter.get("content", "")
+        title = adapter.get("title", "")
+        source_name = adapter.get("source_name", "")
+        
+        # Parse publication date
+        pub_date = None
+        pub_date_str = adapter.get("publication_date")
+        if pub_date_str:
+            try:
+                from dateutil import parser as date_parser
+                pub_date = date_parser.parse(pub_date_str)
+            except:
+                pass
+        
+        # Check if duplicate
+        is_dup, reason = self.dedup_engine.is_duplicate(url, content, title)
+        if is_dup:
+            spider.logger.debug(f"Dropping duplicate article: {url} (reason: {reason})")
+            raise scrapy.exceptions.DropItem(f"Duplicate article: {reason}")
+        
+        # Register article
+        registered = self.dedup_engine.register_article(
+            url=url,
+            content=content,
+            title=title,
+            source_name=source_name,
+            publication_date=pub_date
+        )
+        
+        if not registered:
+            spider.logger.debug(f"Failed to register article (likely duplicate): {url}")
+            raise scrapy.exceptions.DropItem("Failed to register article")
+        
+        return item
+
+
+class QualityScoringPipeline:
+    """Score articles for quality and filter low-quality articles"""
+    
+    def __init__(self, min_quality_score=0.6):
+        self.quality_scorer = None
+        self.min_quality_score = min_quality_score
+    
+    def open_spider(self, spider):
+        """Initialize quality scorer"""
+        try:
+            from ..quality_scorer import QualityScorer
+            self.quality_scorer = QualityScorer()
+            # Get min score from settings
+            self.min_quality_score = spider.settings.getfloat("MIN_QUALITY_SCORE", 0.6)
+            spider.logger.info(f"Quality scoring pipeline initialized (min_score={self.min_quality_score})")
+        except Exception as e:
+            spider.logger.error(f"Failed to initialize quality scorer: {e}")
+            self.quality_scorer = None
+    
+    def process_item(self, item, spider):
+        """Score article and filter if below threshold"""
+        if not self.quality_scorer:
+            return item
+        
+        adapter = ItemAdapter(item)
+        
+        # Prepare article dict for scoring
+        article = {
+            "url": adapter.get("url", ""),
+            "content": adapter.get("content", ""),
+            "title": adapter.get("title", ""),
+            "author": adapter.get("author", ""),
+            "publication_date": adapter.get("publication_date", ""),
+            "source_name": adapter.get("source_name", ""),
+        }
+        
+        # Score article
+        score_result = self.quality_scorer.score_article(article)
+        
+        # Add quality score to item
+        adapter["quality_score"] = score_result["total_score"]
+        adapter["quality_breakdown"] = score_result["breakdown"]
+        
+        # Filter if below threshold
+        if score_result["total_score"] < self.min_quality_score:
+            spider.logger.debug(
+                f"Filtering low-quality article: {adapter.get('title', 'Unknown')[:50]} "
+                f"(score: {score_result['total_score']:.2f})"
+            )
+            raise scrapy.exceptions.DropItem(
+                f"Low quality score: {score_result['total_score']:.2f} < {self.min_quality_score}"
+            )
+        
+        spider.logger.debug(
+            f"Article quality score: {score_result['total_score']:.2f} - {adapter.get('title', 'Unknown')[:50]}"
+        )
+        return item
+
+
 class DataValidationPipeline:
     """Validate and clean scraped data"""
     

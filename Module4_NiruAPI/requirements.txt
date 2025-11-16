@@ -34,6 +34,7 @@ uvicorn[standard]
 pydantic
 python-multipart
 africastalking  # SMS gateway for Kenya
+requests  # For Talksasa SMS/WhatsApp API
 
 # LLM Integration
 openai # For OpenAI models and Moonshot AI (compatible API)

@@ -1,7 +1,11 @@
+"use client"
+
+import { useState } from "react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import NotificationSubscriptionDialog from "@/components/NotificationSubscriptionDialog"
 import {
   Brain,
   Scale,
@@ -16,10 +20,12 @@ import {
   MessageSquare,
   Database,
   Zap,
-  Mic
+  Mic,
+  Bell
 } from "lucide-react"
 
 export default function LandingPage() {
+  const [isDialogOpen, setIsDialogOpen] = useState(false)
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-primary/5 to-accent/10 relative overflow-hidden">
       {/* Animated Background Elements */}
@@ -159,6 +165,32 @@ export default function LandingPage() {
                     Every answer backed by verifiable sources from official government
                     publications and reputable news outlets.
                   </p>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* News Notifications Section */}
+            <div className="mt-12 md:mt-16">
+              <Card className="bg-card/50 backdrop-blur-sm border-accent/20 max-w-2xl mx-auto">
+                <CardHeader>
+                  <CardTitle className="flex items-center justify-center text-lg md:text-xl">
+                    <Bell className="w-5 h-5 md:w-6 md:h-6 mr-2 text-accent" />
+                    Stay Updated with News Notifications
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="text-center">
+                  <p className="text-sm md:text-base text-muted-foreground mb-4 md:mb-6">
+                    Get instant notifications via WhatsApp or SMS when new articles are published.
+                    Choose your preferred categories and sources to stay informed.
+                  </p>
+                  <Button
+                    size="lg"
+                    onClick={() => setIsDialogOpen(true)}
+                    className="min-h-[44px] px-6 md:px-8"
+                  >
+                    <Bell className="w-4 h-4 md:w-5 md:h-5 mr-2" />
+                    Subscribe to Notifications
+                  </Button>
                 </CardContent>
               </Card>
             </div>
@@ -406,6 +438,12 @@ export default function LandingPage() {
           </div>
         </footer>
       </div>
+
+      {/* Notification Subscription Dialog */}
+      <NotificationSubscriptionDialog
+        isOpen={isDialogOpen}
+        onClose={() => setIsDialogOpen(false)}
+      />
     </div>
   )
 }

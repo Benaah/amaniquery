@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import React, { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -16,7 +16,10 @@ import {
   Search,
   BarChart3,
   FileText,
-  Globe
+  Globe,
+  RefreshCw,
+  Square,
+  FileText as LogsIcon
 } from "lucide-react"
 import Link from "next/link"
 
@@ -37,8 +40,10 @@ interface Health {
 
 interface Crawler {
   status: "idle" | "running" | "failed"
-  last_run: string
+  last_run: string | null
   logs: string[]
+  pid?: number
+  start_time?: string
 }
 interface CommandResult { 
   command: string
@@ -115,6 +120,8 @@ export default function AdminDashboard() {
   const [newConfigDescription, setNewConfigDescription] = useState("")
   const [databaseStats, setDatabaseStats] = useState<DatabaseStats | null>(null)
   const [databaseStorageStats, setDatabaseStorageStats] = useState<DatabaseStorageStats | null>(null)
+  const [selectedCrawler, setSelectedCrawler] = useState<string | null>(null)
+  const [isRefreshing, setIsRefreshing] = useState(false)
 
   const fetchStats = async () => {
     try {
@@ -142,6 +149,7 @@ export default function AdminDashboard() {
 
   const fetchCrawlers = async () => {
     try {
+      setIsRefreshing(true)
       const response = await fetch(`${API_BASE_URL}/admin/crawlers`)
       if (response.ok) {
         const data = await response.json()
@@ -153,6 +161,8 @@ export default function AdminDashboard() {
     } catch (error) {
       console.error("Failed to fetch crawlers:", error)
       setCrawlers({})
+    } finally {
+      setIsRefreshing(false)
     }
   }
 
@@ -240,6 +250,13 @@ export default function AdminDashboard() {
     fetchConfigs()
     fetchDatabaseStats()
     fetchDatabaseStorageStats()
+    
+    // Auto-refresh crawler status every 10 seconds
+    const interval = setInterval(() => {
+      fetchCrawlers()
+    }, 10000)
+    
+    return () => clearInterval(interval)
   }, [])
 
   const runCrawler = async (crawlerName: string) => {
@@ -248,12 +265,38 @@ export default function AdminDashboard() {
         method: "POST",
       })
       if (response.ok) {
-        // Refresh crawler status
-        fetchCrawlers()
+        // Refresh crawler status after a short delay
+        setTimeout(() => {
+          fetchCrawlers()
+        }, 1000)
+      } else {
+        const errorData = await response.json().catch(() => ({}))
+        alert(`Failed to start crawler: ${errorData.detail || response.statusText}`)
       }
     } catch (error) {
       console.error("Failed to start crawler:", error)
+      alert(`Failed to start crawler: ${error}`)
     }
+  }
+
+  const stopCrawler = async (crawlerName: string) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/admin/crawlers/${crawlerName}/stop`, {
+        method: "POST",
+      })
+      if (response.ok) {
+        setTimeout(() => {
+          fetchCrawlers()
+        }, 1000)
+      }
+    } catch (error) {
+      console.error("Failed to stop crawler:", error)
+      alert(`Failed to stop crawler: ${error}`)
+    }
+  }
+
+  const viewCrawlerLogs = (crawlerName: string) => {
+    setSelectedCrawler(selectedCrawler === crawlerName ? null : crawlerName)
   }
 
   const setConfig = async () => {
@@ -409,10 +452,22 @@ export default function AdminDashboard() {
         {/* Crawler Management */}
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center text-lg md:text-xl">
-              <BarChart3 className="w-5 h-5 mr-2" />
-              Crawler Management
-            </CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle className="flex items-center text-lg md:text-xl">
+                <BarChart3 className="w-5 h-5 mr-2" />
+                Crawler Management
+              </CardTitle>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={fetchCrawlers}
+                disabled={isRefreshing}
+                className="h-8"
+              >
+                <RefreshCw className={`w-4 h-4 mr-1 ${isRefreshing ? "animate-spin" : ""}`} />
+                {isRefreshing ? "Refreshing..." : "Refresh"}
+              </Button>
+            </div>
           </CardHeader>
           <CardContent>
             <div className="overflow-x-auto">
@@ -422,45 +477,85 @@ export default function AdminDashboard() {
                     <TableHead className="min-w-[120px]">Crawler</TableHead>
                     <TableHead className="min-w-[80px]">Status</TableHead>
                     <TableHead className="min-w-[120px]">Last Run</TableHead>
-                    <TableHead className="min-w-[100px]">Actions</TableHead>
+                    <TableHead className="min-w-[80px]">PID</TableHead>
+                    <TableHead className="min-w-[150px]">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {crawlers && Object.keys(crawlers).length > 0 ? (
                     Object.entries(crawlers).map(([name, crawler]) => (
-                      <TableRow key={name}>
-                        <TableCell className="font-medium capitalize text-sm md:text-base">
-                          {name.replace('_', ' ')}
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant={
-                            crawler.status === "running" ? "default" :
-                            crawler.status === "failed" ? "destructive" : "secondary"
-                          } className="text-xs">
-                            {crawler.status}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-xs md:text-sm">
-                          {new Date(crawler.last_run).toLocaleString()}
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex space-x-1 md:space-x-2">
-                            <Button
-                              size="sm"
-                              onClick={() => runCrawler(name)}
-                              disabled={crawler.status === "running"}
-                              className="h-8 px-2 md:px-3 text-xs md:text-sm min-w-[60px]"
-                            >
-                              <Play className="w-3 h-3 mr-1" />
-                              Run
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
+                      <React.Fragment key={name}>
+                        <TableRow>
+                          <TableCell className="font-medium capitalize text-sm md:text-base">
+                            {name.replace(/_/g, ' ')}
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant={
+                              crawler.status === "running" ? "default" :
+                              crawler.status === "failed" ? "destructive" : "secondary"
+                            } className="text-xs">
+                              {crawler.status}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-xs md:text-sm">
+                            {crawler.last_run ? new Date(crawler.last_run).toLocaleString() : "Never"}
+                          </TableCell>
+                          <TableCell className="text-xs md:text-sm">
+                            {crawler.pid || "-"}
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex space-x-1 md:space-x-2">
+                              <Button
+                                size="sm"
+                                onClick={() => runCrawler(name)}
+                                disabled={crawler.status === "running"}
+                                className="h-8 px-2 md:px-3 text-xs md:text-sm min-w-[60px]"
+                              >
+                                <Play className="w-3 h-3 mr-1" />
+                                Run
+                              </Button>
+                              {crawler.status === "running" && (
+                                <Button
+                                  size="sm"
+                                  variant="destructive"
+                                  onClick={() => stopCrawler(name)}
+                                  className="h-8 px-2 md:px-3 text-xs md:text-sm min-w-[60px]"
+                                >
+                                  <Square className="w-3 h-3 mr-1" />
+                                  Stop
+                                </Button>
+                              )}
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => viewCrawlerLogs(name)}
+                                className="h-8 px-2 md:px-3 text-xs md:text-sm"
+                              >
+                                {selectedCrawler === name ? "Hide" : "Logs"}
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                        {selectedCrawler === name && crawler.logs && crawler.logs.length > 0 && (
+                          <TableRow>
+                            <TableCell colSpan={5} className="bg-muted/50">
+                              <div className="max-h-48 overflow-y-auto p-2">
+                                <div className="text-xs font-mono space-y-1">
+                                  {crawler.logs.slice(-20).map((log, idx) => (
+                                    <div key={idx} className="text-muted-foreground">
+                                      {log}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </React.Fragment>
                     ))
                   ) : (
                     <TableRow>
-                      <TableCell colSpan={4} className="text-center text-muted-foreground py-6 md:py-8 text-sm">
+                      <TableCell colSpan={5} className="text-center text-muted-foreground py-6 md:py-8 text-sm">
                         No crawlers available or loading...
                       </TableCell>
                     </TableRow>

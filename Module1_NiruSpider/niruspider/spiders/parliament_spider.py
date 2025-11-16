@@ -1,15 +1,22 @@
 """
 Parliament Spider - Crawls parliament.go.ke for Hansards and Bills
+Enhanced with robust extraction and error handling
 """
 import scrapy
 from datetime import datetime
 import re
 from ..items import DocumentItem
+from ..extractors import ArticleExtractor
 
 
 class ParliamentSpider(scrapy.Spider):
     name = "parliament"
     allowed_domains = ["parliament.go.ke"]
+    
+    def __init__(self, *args, **kwargs):
+        super(ParliamentSpider, self).__init__(*args, **kwargs)
+        self.article_extractor = ArticleExtractor()
+        self.max_pages = 50  # Limit pages to crawl
     
     start_urls = [
         "https://www.parliament.go.ke/the-national-assembly/house-business/hansard",
@@ -19,6 +26,9 @@ class ParliamentSpider(scrapy.Spider):
     
     custom_settings = {
         "DOWNLOAD_DELAY": 2.5,
+        "RETRY_TIMES": 3,
+        "RETRY_HTTP_CODES": [500, 502, 503, 504, 408, 429],
+        "DOWNLOAD_TIMEOUT": 60,
     }
     
     def parse(self, response):
@@ -78,36 +88,48 @@ class ParliamentSpider(scrapy.Spider):
         )
     
     def parse_document(self, response):
-        """Parse HTML documents"""
-        # Extract title
-        title = (
-            response.css('h1::text').get() or
-            response.css('title::text').get() or
-            "Untitled Document"
-        ).strip()
-        
-        # Extract content
-        content = response.css('article::text, .content::text, main::text').getall()
-        if not content:
-            content = response.css('p::text').getall()
-        
-        full_content = '\n'.join([t.strip() for t in content if t.strip()])
-        
-        # Try to extract date
-        date_text = response.css('.date::text, time::text, .published::text').get()
-        pub_date = None
-        if date_text:
-            date_match = re.search(r'(\d{4}[-/]\d{2}[-/]\d{2})', date_text)
-            pub_date = date_match.group(1) if date_match else None
-        
-        yield DocumentItem(
-            url=response.url,
-            title=title,
-            content=full_content,
-            content_type="html",
-            category="Parliament",
-            source_name="Parliament of Kenya",
-            publication_date=pub_date,
-            raw_html=response.text,
-            status_code=response.status,
-        )
+        """Parse HTML documents using enhanced extractor"""
+        try:
+            # Use enhanced article extractor
+            extracted = self.article_extractor.extract(response.text, url=response.url)
+            
+            # Use extracted content, fallback to basic extraction
+            content = extracted.get("text", "")
+            if not content or len(content) < 50:
+                # Fallback
+                content_parts = response.css('article::text, .content::text, main::text').getall()
+                if not content_parts:
+                    content_parts = response.css('p::text').getall()
+                content = '\n'.join([t.strip() for t in content_parts if t.strip()])
+            
+            # Use extracted title
+            title = extracted.get("title", "") or (
+                response.css('h1::text').get() or
+                response.css('title::text').get() or
+                "Untitled Document"
+            )
+            title = title.strip()
+            
+            # Use extracted date or try to extract from page
+            pub_date = extracted.get("date", "")
+            if not pub_date:
+                date_text = response.css('.date::text, time::text, .published::text').get()
+                if date_text:
+                    date_match = re.search(r'(\d{4}[-/]\d{2}[-/]\d{2})', date_text)
+                    pub_date = date_match.group(1) if date_match else None
+            
+            yield DocumentItem(
+                url=response.url,
+                title=title,
+                content=content,
+                content_type="html",
+                category="Parliament",
+                source_name="Parliament of Kenya",
+                author=extracted.get("author", ""),
+                publication_date=pub_date,
+                summary=extracted.get("description", ""),
+                raw_html=response.text,
+                status_code=response.status,
+            )
+        except Exception as e:
+            self.logger.error(f"Error parsing document {response.url}: {e}")

@@ -39,11 +39,16 @@ DOWNLOAD_TIMEOUT = 30
 
 # Enable pipelines
 ITEM_PIPELINES = {
+    "niruspider.pipelines.DeduplicationPipeline": 50,  # Run first to filter duplicates
     "niruspider.pipelines.DataValidationPipeline": 100,
+    "niruspider.pipelines.QualityScoringPipeline": 110,  # Score and filter by quality
     "niruspider.pipelines.VectorStorePipeline": 150,
     "niruspider.pipelines.PDFDownloadPipeline": 200,
     "niruspider.pipelines.FileStoragePipeline": 300,
 }
+
+# Quality scoring settings
+MIN_QUALITY_SCORE = 0.6  # Minimum quality score to keep article (0-1)
 
 # Output directory
 PROJECT_ROOT = Path(__file__).parent.parent.parent
@@ -69,6 +74,10 @@ DEFAULT_REQUEST_HEADERS = {
 DOWNLOADER_MIDDLEWARES = {
     "niruspider.middlewares.PoliteDelayMiddleware": 543,
 }
+
+# Rate limiting settings
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+DEFAULT_RATE_LIMIT = 2.0  # Default requests per second per domain
 
 # Feed exports
 FEEDS = {

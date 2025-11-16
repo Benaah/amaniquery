@@ -85,9 +85,21 @@ class DatabaseStorage:
         """Get database session"""
         return self.SessionLocal()
 
-    def save_raw_documents(self, documents: List[Dict]) -> int:
+    def save_raw_documents(self, documents: List[Dict], notification_callback=None) -> int:
         """Save raw documents to database"""
         saved_count = 0
+        new_articles = []
+        
+        # Use default callback if available and none provided
+        if notification_callback is None:
+            notification_callback = getattr(self, '_default_notification_callback', None)
+            if notification_callback is None:
+                # Try to get from module-level default
+                try:
+                    import Module3_NiruDB.database_storage as db_module
+                    notification_callback = getattr(db_module, 'default_notification_callback', None)
+                except:
+                    pass
 
         with self.get_db_session() as db:
             try:
@@ -117,9 +129,28 @@ class DatabaseStorage:
 
                     db.add(raw_doc)
                     saved_count += 1
+                    
+                    # Collect article data for notifications
+                    new_articles.append({
+                        "url": doc.get("url", ""),
+                        "title": doc.get("title", "Untitled"),
+                        "category": doc.get("category", "Unknown"),
+                        "source_name": doc.get("source_name", "Unknown"),
+                        "author": doc.get("author"),
+                        "publication_date": doc.get("publication_date"),
+                        "summary": doc.get("metadata", {}).get("summary", "") if isinstance(doc.get("metadata"), dict) else "",
+                    })
 
                 db.commit()
                 logger.info(f"Saved {saved_count} raw documents to database")
+                
+                # Trigger notifications for new articles
+                if notification_callback and new_articles:
+                    for article in new_articles:
+                        try:
+                            notification_callback(article)
+                        except Exception as e:
+                            logger.error(f"Error triggering notification for article {article.get('url')}: {e}")
 
             except Exception as e:
                 db.rollback()

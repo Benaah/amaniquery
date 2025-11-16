@@ -51,6 +51,10 @@ from Module4_NiruAPI.research_module import ResearchModule
 from Module4_NiruAPI.config_manager import ConfigManager
 from Module4_NiruAPI.report_generator import ReportGenerator
 from Module5_NiruShare.api import router as share_router
+from Module4_NiruAPI.routers.news_router import router as news_router
+from Module4_NiruAPI.routers.websocket_router import router as websocket_router, broadcast_new_article
+from Module4_NiruAPI.routers.notification_router import router as notification_router
+from Module4_NiruAPI.services.notification_service import NotificationService
 
 # Load environment
 load_dotenv()
@@ -59,7 +63,7 @@ load_dotenv()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Handle application startup and shutdown"""
-    global vector_store, rag_pipeline, alignment_pipeline, sms_pipeline, sms_service, metadata_manager, chat_manager, crawler_manager, research_module, report_generator, config_manager
+    global vector_store, rag_pipeline, alignment_pipeline, sms_pipeline, sms_service, metadata_manager, chat_manager, crawler_manager, research_module, report_generator, config_manager, notification_service
     
     logger.info("Starting AmaniQuery API")
     
@@ -169,6 +173,50 @@ async def lifespan(app: FastAPI):
         logger.warning(f"Report generator not available: {e}")
         report_generator = None
     
+    # Initialize notification service
+    try:
+        notification_service = NotificationService(config_manager=config_manager)
+        # Set global instance for router
+        from Module4_NiruAPI.routers import notification_router as nr_module
+        nr_module.notification_service = notification_service
+        nr_module.news_service = None  # Will be lazy-loaded
+        
+        # Create notification callback function for database storage
+        def notification_callback(article: Dict):
+            """Callback function to send notifications for new articles"""
+            try:
+                if notification_service:
+                    notification_service.send_article_notification(article)
+            except Exception as e:
+                logger.error(f"Error in notification callback: {e}")
+        
+        # Make callback available globally for database storage
+        import Module3_NiruDB.database_storage as db_storage_module
+        db_storage_module.default_notification_callback = notification_callback
+        
+        logger.info("Notification service initialized")
+        
+        # Start background task for daily digest
+        def daily_digest_worker():
+            """Background worker for daily digest notifications"""
+            import time
+            while True:
+                try:
+                    time.sleep(3600)  # Check every hour
+                    current_hour = datetime.utcnow().hour
+                    if current_hour == 8:  # Send at 8 AM UTC (adjust as needed)
+                        notification_service.send_digest_notifications()
+                except Exception as e:
+                    logger.error(f"Error in daily digest worker: {e}")
+        
+        digest_thread = threading.Thread(target=daily_digest_worker, daemon=True)
+        digest_thread.start()
+        logger.info("Daily digest background worker started")
+        
+    except Exception as e:
+        logger.warning(f"Notification service not available: {e}")
+        notification_service = None
+    
     logger.info("AmaniQuery API ready")
     
     yield
@@ -197,6 +245,9 @@ app.add_middleware(
 )
 
 app.include_router(share_router)
+app.include_router(news_router)
+app.include_router(websocket_router)
+app.include_router(notification_router)
 
 @app.get("/", tags=["General"])
 async def root():
@@ -242,6 +293,49 @@ async def health_check():
         embedding_model=os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2"),
         llm_provider=os.getenv("LLM_PROVIDER", "moonshot"),
     )
+
+
+@app.get("/api/v1/news/health", tags=["news"])
+async def news_crawler_health():
+    """Health check for news crawler system"""
+    try:
+        from Module1_NiruSpider.niruspider.monitoring import CrawlerMonitor
+        monitor = CrawlerMonitor()
+        health = monitor.get_health_status()
+        return health
+    except Exception as e:
+        logger.error(f"Error getting crawler health: {e}")
+        return {
+            "status": "error",
+            "error": str(e),
+            "timestamp": datetime.utcnow().isoformat()
+        }
+
+
+@app.get("/api/v1/news/sources/status", tags=["news"])
+async def news_sources_status(days: int = 7):
+    """Get status of news sources"""
+    try:
+        from Module1_NiruSpider.niruspider.monitoring import CrawlerMonitor
+        monitor = CrawlerMonitor()
+        status = monitor.get_source_status(days=days)
+        return status
+    except Exception as e:
+        logger.error(f"Error getting source status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/v1/news/stats", tags=["news"])
+async def news_crawler_stats():
+    """Get crawler statistics"""
+    try:
+        from Module1_NiruSpider.niruspider.monitoring import CrawlerMonitor
+        monitor = CrawlerMonitor()
+        stats = monitor.get_crawler_stats()
+        return stats
+    except Exception as e:
+        logger.error(f"Error getting crawler stats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/stats", response_model=StatsResponse, tags=["General"])

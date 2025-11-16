@@ -1,15 +1,21 @@
 """
 Global Trends Spider - Fetches global news, geopolitics, international organizations & policy
+Enhanced with robust extraction
 """
 import scrapy
 import feedparser
 from datetime import datetime
 from dateutil import parser as date_parser
 from ..items import RSSItem, DocumentItem
+from ..extractors import ArticleExtractor
 
 
 class GlobalTrendsSpider(scrapy.Spider):
     name = "global_trends"
+    
+    def __init__(self, *args, **kwargs):
+        super(GlobalTrendsSpider, self).__init__(*args, **kwargs)
+        self.article_extractor = ArticleExtractor()
     
     # Global news, geopolitics, and policy RSS feeds
     rss_feeds = [
@@ -191,45 +197,45 @@ class GlobalTrendsSpider(scrapy.Spider):
             )
     
     def parse_article(self, response):
-        """Parse full article from URL"""
+        """Parse full article from URL using enhanced extractor"""
         rss_item = response.meta["rss_item"]
         
-        # Extract main article content
-        content_selectors = [
-            'article .article-body::text',
-            '.article-content::text',
-            '.story-body::text',
-            '[itemprop="articleBody"]::text',
-            'article p::text',
-            '.post-content p::text',
-            '.entry-content p::text',
-        ]
+        # Use enhanced article extractor
+        extracted = self.article_extractor.extract(response.text, url=response.url)
         
-        content = []
-        for selector in content_selectors:
-            content = response.css(selector).getall()
-            if content:
-                break
+        # Use extracted content, fallback to RSS summary if extraction failed
+        content = extracted.get("text", "")
+        if not content or len(content) < 100:
+            content = rss_item.get("summary", "")
+            self.logger.warning(f"Extraction failed for {response.url}, using RSS summary")
         
-        # Fallback
-        if not content:
-            content = response.css('article p::text, main p::text').getall()
+        # Use extracted title if better than RSS title
+        title = extracted.get("title", "") or rss_item["title"]
         
-        full_content = '\n'.join([t.strip() for t in content if t.strip()])
+        # Use extracted author if available
+        author = extracted.get("author", "") or rss_item.get("author", "")
+        
+        # Use extracted date if available
+        publication_date = extracted.get("date", "") or rss_item.get("published", "")
+        
+        # Use extracted description if available
+        summary = extracted.get("description", "") or rss_item.get("summary", "")
         
         # Extract keywords/tags if available
-        keywords = response.css('meta[name="keywords"]::attr(content)').get()
+        keywords = response.css('meta[name="keywords"]::attr(content)').get() or extracted.get("tags", [])
+        if isinstance(keywords, list):
+            keywords = ", ".join(keywords)
         
         yield DocumentItem(
             url=rss_item["url"],
-            title=rss_item["title"],
-            content=full_content,
+            title=title,
+            content=content,
             content_type="html",
             category="Global Trend",
             source_name=rss_item["source_name"],
-            author=rss_item.get("author"),
-            publication_date=rss_item.get("published"),
-            summary=rss_item.get("summary"),
+            author=author,
+            publication_date=publication_date,
+            summary=summary,
             keywords=keywords,
             raw_html=response.text,
             status_code=response.status,

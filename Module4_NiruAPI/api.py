@@ -689,16 +689,25 @@ async def stream_query(request: QueryRequest):
                 # Get LLM provider from hybrid pipeline's base RAG
                 llm_provider = hybrid_rag_pipeline.base_rag.llm_provider
                 
+                # Convert synchronous stream to async iterator
+                import asyncio
+                
                 if llm_provider in ["openai", "moonshot"]:
-                    async for chunk in answer_stream:
+                    # Iterate synchronously but yield asynchronously
+                    for chunk in answer_stream:
                         if chunk.choices and chunk.choices[0].delta.content:
                             content = chunk.choices[0].delta.content
                             yield f"data: {content}\n\n"
+                            # Yield control to event loop periodically
+                            await asyncio.sleep(0)
                 
                 elif llm_provider == "anthropic":
-                    async for chunk in answer_stream:
+                    # Iterate synchronously but yield asynchronously
+                    for chunk in answer_stream:
                         if chunk.type == "content_block_delta" and chunk.delta.text:
                             yield f"data: {chunk.delta.text}\n\n"
+                            # Yield control to event loop periodically
+                            await asyncio.sleep(0)
                 
                 # Send sources at the end
                 sources_data = {

@@ -148,6 +148,83 @@ class RAGPipeline:
                 raise ValueError("MOONSHOT_API_KEY not set in environment")
         
         logger.info(f"RAG Pipeline initialized with {llm_provider}/{model}")
+        
+        # Initialize ensemble clients (for multi-model responses when context is limited)
+        self.ensemble_clients = self._initialize_ensemble_clients()
+
+    def _initialize_ensemble_clients(self) -> Dict[str, Any]:
+        """Initialize all available model clients for ensemble responses"""
+        clients = {}
+        
+        # OpenAI
+        try:
+            api_key = self._get_secret("OPENAI_API_KEY")
+            if api_key:
+                clients["openai"] = {
+                    "client": OpenAI(api_key=api_key),
+                    "model": os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+                }
+                logger.info("Ensemble: OpenAI client initialized")
+        except Exception as e:
+            logger.warning(f"Ensemble: Failed to initialize OpenAI: {e}")
+        
+        # Moonshot
+        try:
+            api_key = self._get_secret("MOONSHOT_API_KEY")
+            if api_key:
+                base_url = os.getenv("MOONSHOT_BASE_URL") or "https://api.moonshot.ai/v1"
+                clients["moonshot"] = {
+                    "client": OpenAI(api_key=api_key, base_url=base_url),
+                    "model": os.getenv("MOONSHOT_MODEL", "moonshot-v1-8k")
+                }
+                logger.info("Ensemble: Moonshot client initialized")
+        except Exception as e:
+            logger.warning(f"Ensemble: Failed to initialize Moonshot: {e}")
+        
+        # Anthropic
+        try:
+            api_key = self._get_secret("ANTHROPIC_API_KEY")
+            if api_key:
+                clients["anthropic"] = {
+                    "client": Anthropic(api_key=api_key),
+                    "model": os.getenv("ANTHROPIC_MODEL", "claude-3-5-sonnet-20241022")
+                }
+                logger.info("Ensemble: Anthropic client initialized")
+        except Exception as e:
+            logger.warning(f"Ensemble: Failed to initialize Anthropic: {e}")
+        
+        # Gemini
+        try:
+            api_key = self._get_secret("GEMINI_API_KEY")
+            if api_key:
+                import google.generativeai as genai
+                genai.configure(api_key=api_key)
+                clients["gemini"] = {
+                    "client": genai.GenerativeModel(os.getenv("GEMINI_MODEL", "gemini-pro")),
+                    "model": os.getenv("GEMINI_MODEL", "gemini-pro")
+                }
+                logger.info("Ensemble: Gemini client initialized")
+        except Exception as e:
+            logger.warning(f"Ensemble: Failed to initialize Gemini: {e}")
+        
+        logger.info(f"Ensemble: {len(clients)} model(s) available for ensemble responses")
+        return clients
+
+    def _is_context_limited(self, retrieved_docs: List[Dict], min_relevance: float = 0.5) -> bool:
+        """Check if retrieved context is limited or insufficient"""
+        if not retrieved_docs:
+            return True
+        
+        # Check if relevance scores are too low
+        if len(retrieved_docs) < 3:
+            return True
+        
+        # Check average relevance (if available)
+        scores = [doc.get("score", 0) for doc in retrieved_docs if "score" in doc]
+        if scores and sum(scores) / len(scores) < min_relevance:
+            return True
+        
+        return False
 
     def _get_secret(self, key: str, default: Optional[str] = None) -> Optional[str]:
         """Fetch secret values from environment variables with ConfigManager fallback."""
@@ -246,14 +323,26 @@ class RAGPipeline:
             filter=filter_dict if filter_dict else None,
         )
         
-        if not retrieved_docs:
-            return {
-                "answer": "I couldn't find any relevant information to answer your question.",
-                "sources": [],
-                "query_time": time.time() - start_time,
-                "retrieved_chunks": 0,
-                "model_used": self.model,
-            }
+        # Check if context is limited - use ensemble if so
+        use_ensemble = self._is_context_limited(retrieved_docs)
+        
+        if not retrieved_docs or use_ensemble:
+            if use_ensemble and len(self.ensemble_clients) > 0:
+                logger.info("Context limited - using multi-model ensemble")
+                return self._query_with_ensemble(
+                    query=query,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    start_time=start_time
+                )
+            else:
+                return {
+                    "answer": "I couldn't find any relevant information to answer your question.",
+                    "sources": [],
+                    "query_time": time.time() - start_time,
+                    "retrieved_chunks": 0,
+                    "model_used": self.model,
+                }
         
         # 2. Prepare context
         context = self._prepare_context(retrieved_docs, max_context_length)
@@ -281,6 +370,260 @@ class RAGPipeline:
         self._set_cache(cache_key, result)
         
         return result
+    
+    def _query_with_ensemble(
+        self,
+        query: str,
+        temperature: float = 0.7,
+        max_tokens: int = 1500,
+        start_time: float = None
+    ) -> Dict:
+        """Query all available models and combine responses"""
+        if start_time is None:
+            start_time = time.time()
+        
+        # Generate responses from all models
+        responses = self._generate_ensemble_responses(query, temperature, max_tokens)
+        
+        if not responses:
+            return {
+                "answer": "I couldn't generate a response. Please try again.",
+                "sources": [],
+                "query_time": time.time() - start_time,
+                "retrieved_chunks": 0,
+                "model_used": "ensemble",
+            }
+        
+        # Combine responses into concise answer
+        combined_answer = self._combine_ensemble_responses(responses, query)
+        
+        return {
+            "answer": combined_answer,
+            "sources": [],
+            "query_time": time.time() - start_time,
+            "retrieved_chunks": 0,
+            "model_used": f"ensemble({len(responses)} models)",
+            "ensemble_responses": len(responses)
+        }
+    
+    def _generate_ensemble_responses(
+        self,
+        query: str,
+        temperature: float = 0.7,
+        max_tokens: int = 1500
+    ) -> Dict[str, str]:
+        """Generate responses from all available models in parallel"""
+        import concurrent.futures
+        
+        system_prompt = """You are AmaniQuery, an AI assistant specialized in Kenyan law, parliamentary proceedings, and current affairs.
+
+Provide a concise, accurate answer to the question. Focus on factual information and be brief."""
+        
+        user_prompt = f"""Question: {query}
+
+Provide a concise answer based on your knowledge of Kenyan law and current affairs."""
+        
+        responses = {}
+        
+        def query_model(provider: str, client_info: Dict):
+            """Query a single model"""
+            try:
+                client = client_info["client"]
+                model = client_info["model"]
+                
+                if provider in ["openai", "moonshot"]:
+                    response = client.chat.completions.create(
+                        model=model,
+                        messages=[
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": user_prompt}
+                        ],
+                        temperature=temperature,
+                        max_tokens=max_tokens
+                    )
+                    return response.choices[0].message.content
+                
+                elif provider == "anthropic":
+                    response = client.messages.create(
+                        model=model,
+                        max_tokens=max_tokens,
+                        temperature=temperature,
+                        system=system_prompt,
+                        messages=[{"role": "user", "content": user_prompt}]
+                    )
+                    return response.content[0].text
+                
+                elif provider == "gemini":
+                    import google.generativeai as genai
+                    full_prompt = f"{system_prompt}\n\n{user_prompt}"
+                    response = client.generate_content(
+                        full_prompt,
+                        generation_config=genai.types.GenerationConfig(
+                            temperature=temperature,
+                            max_output_tokens=max_tokens
+                        )
+                    )
+                    return response.text
+                
+            except Exception as e:
+                logger.warning(f"Ensemble: {provider} failed: {e}")
+                return None
+        
+        # Query all models in parallel
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(self.ensemble_clients)) as executor:
+            futures = {
+                executor.submit(query_model, provider, client_info): provider
+                for provider, client_info in self.ensemble_clients.items()
+            }
+            
+            for future in concurrent.futures.as_completed(futures):
+                provider = futures[future]
+                try:
+                    response = future.result()
+                    if response:
+                        responses[provider] = response
+                except Exception as e:
+                    logger.warning(f"Ensemble: Error getting {provider} response: {e}")
+        
+        logger.info(f"Ensemble: Generated {len(responses)} responses")
+        return responses
+    
+    def _combine_ensemble_responses(self, responses: Dict[str, str], query: str) -> str:
+        """Intelligently combine multiple model responses into a concise answer"""
+        if len(responses) == 1:
+            return list(responses.values())[0]
+        
+        # Use the primary model to synthesize responses
+        if self.llm_provider in ["openai", "moonshot"] and self.llm_provider in responses:
+            synthesizer = self.client
+            model = self.model
+        elif "openai" in responses:
+            synthesizer = self.ensemble_clients["openai"]["client"]
+            model = self.ensemble_clients["openai"]["model"]
+        elif "moonshot" in responses:
+            synthesizer = self.ensemble_clients["moonshot"]["client"]
+            model = self.ensemble_clients["moonshot"]["model"]
+        else:
+            # Fallback: return the longest response
+            return max(responses.values(), key=len)
+        
+        # Prepare synthesis prompt
+        responses_text = "\n\n".join([
+            f"**{provider.upper()}:**\n{response}"
+            for provider, response in responses.items()
+        ])
+        
+        synthesis_prompt = f"""You are synthesizing responses from multiple AI models to answer a question about Kenyan law.
+
+Original Question: {query}
+
+Responses from multiple models:
+{responses_text}
+
+Create a concise, accurate combined response that:
+1. Integrates the best information from all responses
+2. Removes redundancy and contradictions
+3. Maintains factual accuracy
+4. Is well-structured and easy to read
+5. Follows the format: Summary → Key Points → Important Details
+
+Combined Response:"""
+        
+        try:
+            if hasattr(synthesizer, 'chat'):
+                # OpenAI/Moonshot format
+                response = synthesizer.chat.completions.create(
+                    model=model,
+                    messages=[{"role": "user", "content": synthesis_prompt}],
+                    temperature=0.3,  # Lower temperature for synthesis
+                    max_tokens=2000
+                )
+                return response.choices[0].message.content
+            else:
+                # Fallback: return longest response
+                return max(responses.values(), key=len)
+        except Exception as e:
+            logger.warning(f"Ensemble synthesis failed: {e}, returning longest response")
+            return max(responses.values(), key=len)
+    
+    def _create_simple_stream(self, text: str):
+        """Create a simple stream from text"""
+        class SimpleStream:
+            def __init__(self, text):
+                self.words = text.split()
+                self.index = 0
+            
+            def __iter__(self):
+                return self
+            
+            def __next__(self):
+                if self.index >= len(self.words):
+                    raise StopIteration
+                
+                chunk_size = 3
+                end_idx = min(self.index + chunk_size, len(self.words))
+                chunk_text = " ".join(self.words[self.index:end_idx])
+                if end_idx < len(self.words):
+                    chunk_text += " "
+                self.index = end_idx
+                
+                # Return in OpenAI format
+                class Chunk:
+                    def __init__(self, content):
+                        class Delta:
+                            def __init__(self, c):
+                                self.content = c
+                        class Choice:
+                            def __init__(self, c):
+                                self.delta = Delta(c)
+                        self.choices = [Choice(content)]
+                
+                return Chunk(chunk_text)
+        
+        return SimpleStream(text)
+    
+    def _query_stream_with_ensemble(
+        self,
+        query: str,
+        temperature: float = 0.7,
+        max_tokens: int = 1500,
+        start_time: float = None
+    ) -> Dict:
+        """Query all models, combine responses, and stream the result"""
+        if start_time is None:
+            start_time = time.time()
+        
+        # Generate responses from all models
+        responses = self._generate_ensemble_responses(query, temperature, max_tokens)
+        
+        if not responses:
+            return {
+                "answer": "I couldn't generate a response. Please try again.",
+                "sources": [],
+                "query_time": time.time() - start_time,
+                "retrieved_chunks": 0,
+                "model_used": "ensemble",
+                "stream": False,
+            }
+        
+        # Combine responses
+        combined_answer = self._combine_ensemble_responses(responses, query)
+        
+        # Create a streaming response from the combined answer
+        # Chunk the combined answer and stream it
+        answer_stream = self._create_simple_stream(combined_answer)
+        
+        query_time = time.time() - start_time
+        
+        return {
+            "answer_stream": answer_stream,
+            "sources": [],
+            "query_time": query_time,
+            "retrieved_chunks": 0,
+            "model_used": f"ensemble({len(responses)} models)",
+            "stream": True,
+            "ensemble_responses": len(responses)
+        }
     
     def query_stream(
         self,
@@ -323,6 +666,18 @@ class RAGPipeline:
                 n_results=top_k,
                 filter=filter_dict if filter_dict else None,
             )
+            
+            # Check if context is limited - use ensemble if so
+            use_ensemble = self._is_context_limited(retrieved_docs)
+            
+            if use_ensemble and len(self.ensemble_clients) > 0:
+                logger.info("Context limited - using multi-model ensemble with streaming")
+                return self._query_stream_with_ensemble(
+                    query=query,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    start_time=start_time
+                )
             
             # 2. Prepare context (use available docs or empty)
             context = self._prepare_context(retrieved_docs, max_context_length)
@@ -397,22 +752,26 @@ class RAGPipeline:
         # System prompt
         system_prompt = """You are AmaniQuery, an AI assistant specialized in Kenyan law, parliamentary proceedings, and current affairs.
 
-Your role is to provide accurate, well-sourced answers based on the provided context and your knowledge. Always:
-1. Use the provided context when available and relevant to cite sources using [Source #] notation
-2. Combine context information with your general knowledge and understanding of Kenyan affairs
-3. If context is limited, provide comprehensive answers based on your knowledge and reasoning
-4. Be precise and factual in all responses
-5. Provide relevant information even when context is limited
-6. Use clear, professional language
+CRITICAL FORMATTING RULES:
+1. **Keep responses concise** - Maximum 3-4 main sections
+2. **Use clear spacing** - Add blank lines between sections
+3. **Limit section length** - Each section should be 2-3 short paragraphs or bullet points
+4. **Only cite sources when using specific context** - Do NOT add "[Source # is not applicable]" or similar disclaimers
+5. **Use bullet points** - Prefer lists over long paragraphs
+6. **Bold key terms sparingly** - Only for critical legal terms or concepts
 
 RESPONSE STRUCTURE:
-- Start with a brief summary/overview (2-3 sentences)
-- Use clear headings and subheadings for different aspects
-- Break down complex information into bullet points or numbered lists
-- Use bold text for key terms and important concepts
-- Keep paragraphs short (3-4 sentences maximum)
-- End with practical implications or next steps when relevant
-- Ensure the response is scannable and easy to read"""
+1. **Brief Summary** (2-3 sentences, no more)
+2. **Key Points** (3-5 bullet points covering main aspects)
+3. **Important Details** (Only if needed, keep concise)
+4. **Practical Note** (1-2 sentences if relevant)
+
+AVOID:
+- Long introductory paragraphs explaining what you'll do
+- Repetitive source disclaimers
+- Overly detailed explanations that could be summarized
+- Multiple nested headings
+- Walls of text"""
 
         # User prompt
         user_prompt = f"""Context from relevant documents:
@@ -421,7 +780,25 @@ RESPONSE STRUCTURE:
 
 Question: {query}
 
-Please provide a detailed answer based on the context above. If the context contains relevant information, cite sources using [Source #] notation. If the context doesn't provide specific details, use your general knowledge to provide a helpful answer while noting that the information comes from general knowledge rather than the provided documents."""
+Provide a concise, scannable answer following this format:
+
+**Summary** (2-3 sentences maximum)
+
+**Key Points:**
+- Point 1 (one line)
+- Point 2 (one line)
+- Point 3 (one line)
+
+**Important Details:** (Only if needed, 2-3 short paragraphs max)
+
+**Note:** (One sentence if relevant)
+
+IMPORTANT:
+- Only cite sources [Source #] when directly quoting or referencing specific context
+- Do NOT add disclaimers about source applicability
+- Keep each section brief and focused
+- Use blank lines between sections for readability
+- If context is limited, provide a concise answer based on your knowledge without lengthy explanations"""
 
         try:
             if self.llm_provider in ["openai", "moonshot"]:
@@ -519,22 +896,26 @@ Please provide a detailed answer based on the context above. If the context cont
         # System prompt
         system_prompt = """You are AmaniQuery, an AI assistant specialized in Kenyan law, parliamentary proceedings, and current affairs.
 
-Your role is to provide accurate, well-sourced answers based on the provided context and your knowledge. Always:
-1. Use the provided context when available and relevant to cite sources using [Source #] notation
-2. Combine context information with your general knowledge and understanding of Kenyan affairs
-3. If context is limited, provide comprehensive answers based on your knowledge and reasoning
-4. Be precise and factual in all responses
-5. Provide relevant information even when context is limited
-6. Use clear, professional language
+CRITICAL FORMATTING RULES:
+1. **Keep responses concise** - Maximum 3-4 main sections
+2. **Use clear spacing** - Add blank lines between sections
+3. **Limit section length** - Each section should be 2-3 short paragraphs or bullet points
+4. **Only cite sources when using specific context** - Do NOT add "[Source # is not applicable]" or similar disclaimers
+5. **Use bullet points** - Prefer lists over long paragraphs
+6. **Bold key terms sparingly** - Only for critical legal terms or concepts
 
 RESPONSE STRUCTURE:
-- Start with a brief summary/overview (2-3 sentences)
-- Use clear headings and subheadings for different aspects
-- Break down complex information into bullet points or numbered lists
-- Use bold text for key terms and important concepts
-- Keep paragraphs short (3-4 sentences maximum)
-- End with practical implications or next steps when relevant
-- Ensure the response is scannable and easy to read"""
+1. **Brief Summary** (2-3 sentences, no more)
+2. **Key Points** (3-5 bullet points covering main aspects)
+3. **Important Details** (Only if needed, keep concise)
+4. **Practical Note** (1-2 sentences if relevant)
+
+AVOID:
+- Long introductory paragraphs explaining what you'll do
+- Repetitive source disclaimers
+- Overly detailed explanations that could be summarized
+- Multiple nested headings
+- Walls of text"""
 
         # User prompt
         user_prompt = f"""Context from relevant documents:
@@ -543,18 +924,25 @@ RESPONSE STRUCTURE:
 
 Question: {query}
 
-Please provide a detailed, well-structured answer based on the context above. Structure your response for easy readability:
+Provide a concise, scannable answer following this format:
 
-**Response Guidelines:**
-- Start with a concise summary (2-3 sentences)
-- Use descriptive headings for different sections
-- Break down complex information into bullet points or numbered lists
-- Highlight key terms and important concepts in **bold**
-- Keep paragraphs short and focused
-- Include practical implications when relevant
-- Cite sources using [Source #] notation when using specific information
+**Summary** (2-3 sentences maximum)
 
-If the context contains relevant information, cite sources using [Source #] notation. Otherwise, provide comprehensive answers based on your knowledge of Kenyan law and current affairs."""
+**Key Points:**
+- Point 1 (one line)
+- Point 2 (one line)
+- Point 3 (one line)
+
+**Important Details:** (Only if needed, 2-3 short paragraphs max)
+
+**Note:** (One sentence if relevant)
+
+IMPORTANT:
+- Only cite sources [Source #] when directly quoting or referencing specific context
+- Do NOT add disclaimers about source applicability
+- Keep each section brief and focused
+- Use blank lines between sections for readability
+- If context is limited, provide a concise answer based on your knowledge without lengthy explanations"""
 
         try:
             if self.llm_provider in ["openai", "moonshot"]:

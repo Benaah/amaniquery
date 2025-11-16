@@ -68,35 +68,53 @@ class HybridVectorStoreAdapter:
         if use_hybrid and self.hybrid_encoder is not None:
             try:
                 # Use hybrid encoder
-                with torch.no_grad():
-                    embeddings = self.hybrid_encoder.encode(text=text, return_pooled=True)
-                    embeddings_np = embeddings.cpu().numpy()
+                # First, get base embeddings from the vector store's embedding model
+                if hasattr(self.vector_store, 'embedding_model'):
+                    base_embeddings = self.vector_store.embedding_model.encode(text)
+                    base_embeddings_tensor = torch.tensor(base_embeddings, dtype=torch.float32)
+                    
+                    # Reshape if needed: [embed_dim] -> [1, embed_dim] or [1, seq_len, embed_dim]
+                    if base_embeddings_tensor.ndim == 1:
+                        # If it's a pooled embedding, expand to [1, embed_dim]
+                        base_embeddings_tensor = base_embeddings_tensor.unsqueeze(0)
+                    
+                    # Ensure it's [1, seq_len, embed_dim] format
+                    if base_embeddings_tensor.ndim == 2:
+                        # [1, embed_dim] -> [1, 1, embed_dim] for sequence processing
+                        base_embeddings_tensor = base_embeddings_tensor.unsqueeze(1)
+                    
+                    # Pass base embeddings to hybrid encoder
+                    with torch.no_grad():
+                        hybrid_output = self.hybrid_encoder.forward(embeddings=base_embeddings_tensor)
+                        
+                        # Pool if needed (mean pooling)
+                        if hybrid_output.ndim == 3:
+                            embeddings = hybrid_output.mean(dim=1)  # [1, seq_len, dim] -> [1, dim]
+                        else:
+                            embeddings = hybrid_output
+                        
+                        embeddings_np = embeddings.cpu().numpy()
+                else:
+                    # Fallback if no embedding model
+                    raise ValueError("Vector store has no embedding model for base embeddings")
                 
                 # Ensure correct shape and dimension
-                if embeddings_np.ndim == 1:
-                    embeddings_np = embeddings_np.reshape(1, -1)
+                if embeddings_np.ndim > 1:
+                    embeddings_np = embeddings_np.flatten()
                 
                 # Ensure compatibility with vector store dimension
                 if hasattr(self.vector_store, 'embedding_model'):
                     expected_dim = self.vector_store.embedding_model.get_sentence_embedding_dimension()
                     if embeddings_np.shape[-1] != expected_dim:
-                        # Project to expected dimension if needed
-                        if hasattr(self.hybrid_encoder, 'output_projection'):
-                            # Already projected, but check dimension
-                            if embeddings_np.shape[-1] != expected_dim:
-                                logger.warning(
-                                    f"Embedding dimension mismatch: "
-                                    f"got {embeddings_np.shape[-1]}, expected {expected_dim}. "
-                                    f"Using original encoder."
-                                )
-                                return self._encode_fallback(text)
-                        else:
-                            # Simple linear projection (would need proper implementation)
-                            logger.warning("Dimension mismatch, using fallback")
-                            return self._encode_fallback(text)
+                        logger.warning(
+                            f"Embedding dimension mismatch: "
+                            f"got {embeddings_np.shape[-1]}, expected {expected_dim}. "
+                            f"Using original encoder."
+                        )
+                        return self._encode_fallback(text)
                 
                 self.hybrid_encodings += 1
-                return embeddings_np.flatten()  # Return 1D array
+                return embeddings_np  # Return 1D array
             
             except Exception as e:
                 logger.warning(f"Hybrid encoding failed: {e}, using fallback")

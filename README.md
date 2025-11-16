@@ -55,13 +55,15 @@ Link: https://youtube.com/watch?v=abc123&t=942s
 
 ## 🏛️ Architecture
 
-AmaniQuery is built as a 5-module pipeline:
+AmaniQuery is built as a 7-module pipeline:
 
 1. **NiruSpider** - Web crawler for data ingestion
 2. **NiruParser** - ETL pipeline with embedding generation
 3. **NiruDB** - Vector database with metadata storage
-4. **NiruAPI** - RAG-powered query interface (Moonshot AI)
+4. **NiruAPI** - RAG-powered query interface with multi-model support
 5. **NiruShare** - Social media sharing service
+6. **NiruVoice** - Voice agent for real-time conversations
+7. **NiruHybrid** - Enhanced RAG with hybrid encoder and adaptive retrieval
 
 ## 📂 Project Structure
 
@@ -82,10 +84,13 @@ AmaniQuery/
 │   └── embedders/
 ├── Module3_NiruDB/              # Vector database
 │   ├── vector_store.py
-│   └── metadata_manager.py
+│   ├── metadata_manager.py
+│   └── chat_manager.py
 ├── Module4_NiruAPI/             # RAG API
 │   ├── api.py
 │   ├── rag_pipeline.py
+│   ├── alignment_pipeline.py
+│   ├── sms_pipeline.py
 │   └── models/
 ├── Module5_NiruShare/           # Social media sharing
 │   ├── formatters/
@@ -94,12 +99,31 @@ AmaniQuery/
 │   │   └── facebook_formatter.py
 │   ├── service.py
 │   └── api.py
+├── Module6_NiruVoice/           # Voice agent
+│   ├── voice_agent.py
+│   └── rag_integration.py
+├── Module7_NiruHybrid/          # Enhanced RAG with hybrid encoder
+│   ├── hybrid_encoder.py
+│   ├── integration/
+│   │   ├── rag_integration.py
+│   │   └── vector_store_adapter.py
+│   ├── retention/
+│   │   ├── adaptive_retriever.py
+│   │   ├── memory_manager.py
+│   │   └── continual_learner.py
+│   └── streaming/
+│       └── stream_processor.py
+├── frontend/                    # Next.js frontend
+│   └── src/
+│       └── components/
+│           └── chat.tsx
 ├── data/                        # Data storage
 │   ├── raw/
 │   ├── processed/
 │   └── embeddings/
 ├── config/
 │   └── sources.yaml
+├── start_api.py                 # Unified startup script
 ├── requirements.txt
 ├── .env.example
 └── README.md
@@ -139,18 +163,46 @@ python -m Module2_NiruParser.process_pipeline
 
 # Module 3: Initialize database (automatic)
 
-# Module 4 & 5: Start API server (includes sharing endpoints)
+# Start API server (includes all modules)
+python start_api.py
+
+# Or start API only
 python -m Module4_NiruAPI.api
 ```
+
+**Note**: The `start_api.py` script initializes:
+- FastAPI server
+- Hybrid RAG pipeline (Module 7)
+- Voice agent (Module 6, if configured)
+- All API endpoints
 
 ### 4. Query and Share
 
 ```python
 import requests
 
-# Query AmaniQuery
+# Standard query
 response = requests.post("http://localhost:8000/query", json={
     "query": "What does the Constitution say about freedom of expression?"
+})
+result = response.json()
+
+# Streaming query (real-time token-by-token)
+response = requests.post("http://localhost:8000/query/stream", json={
+    "query": "What does the Constitution say about freedom of expression?",
+    "top_k": 5,
+    "include_sources": True
+}, stream=True)
+
+for line in response.iter_lines():
+    if line:
+        print(line.decode('utf-8'))
+
+# Hybrid RAG query (enhanced retrieval)
+response = requests.post("http://localhost:8000/query/hybrid", json={
+    "query": "What does the Constitution say about freedom of expression?",
+    "top_k": 5,
+    "use_hybrid": True
 })
 result = response.json()
 
@@ -196,24 +248,52 @@ print(share.json()["content"])
 
 ## 🚀 Features
 
+### Core Features
 - ✅ Automated web crawling from Kenyan sources
 - ✅ Intelligent text processing & chunking
 - ✅ Vector embeddings for semantic search
-- ✅ RAG-powered Q&A with Moonshot AI
+- ✅ RAG-powered Q&A with multi-model support (OpenAI, Moonshot, Anthropic, Gemini)
+- ✅ **Real-time streaming responses** - Token-by-token generation for faster perceived speed
+- ✅ **Multi-model ensemble** - When context is limited, queries all available models and combines responses for accuracy
+- ✅ **Hybrid RAG Pipeline** - Enhanced retrieval with hybrid encoder and adaptive retrieval
+- ✅ Source citation & verification
+- ✅ REST API with interactive documentation
+
+### Unique Differentiators
 - ✅ **Public Sentiment Gauge** - Track news sentiment by topic
 - ✅ **InfoSMS Gateway** - SMS queries via Africa's Talking (kabambe accessibility)
 - ✅ **Parliament Video Indexer** - Searchable YouTube transcripts with timestamps
 - ✅ **Constitutional Alignment Analysis** - Dual-retrieval Bill-Constitution comparison
-- ✅ Source citation & verification
-- ✅ Social media sharing (Twitter/X, LinkedIn, Facebook)
-- ✅ REST API with interactive documentation
+- ✅ **Social media sharing** - Intelligent formatting for Twitter/X, LinkedIn, Facebook
+- ✅ **Chat interface** - Modern, responsive UI with copy/edit/resend for failed queries
+- ✅ **Voice agent** - Real-time voice conversations via LiveKit
 
 ## 🧠 RAG Pipeline
 
+### Standard RAG
 1. **Chunking**: 500-1000 characters with 100-char overlap
 2. **Embedding Model**: all-MiniLM-L6-v2
-3. **Vector DB**: ChromaDB / FAISS
-4. **LLM**: Moonshot AI (default), OpenAI, Anthropic, or Local models
+3. **Vector DB**: ChromaDB / FAISS / Upstash / Qdrant
+4. **LLM**: Moonshot AI (default), OpenAI, Anthropic, Gemini
+
+### Enhanced Features
+
+#### Multi-Model Ensemble
+When context is limited or unavailable in vector storage, AmaniQuery automatically:
+- Queries all available models (OpenAI, Moonshot, Anthropic, Gemini) in parallel
+- Combines responses intelligently to remove redundancy
+- Streams the synthesized response for better accuracy
+
+#### Hybrid RAG (Module 7)
+- **Hybrid Encoder**: Combines convolutional and transformer architectures for enhanced embeddings
+- **Adaptive Retrieval**: Multi-stage retrieval with context-aware thresholds
+- **Streaming Support**: Optimized for real-time token-by-token responses
+- **Improved Response Format**: Concise, scannable responses with clear structure
+
+#### Response Formatting
+- **Concise structure**: Summary → Key Points → Important Details
+- **Better readability**: Proper spacing, bullet points, limited section length
+- **No redundant disclaimers**: Only cites sources when directly used
 
 ## 📊 Feature Details
 
@@ -330,8 +410,23 @@ See [Constitutional Alignment Guide](docs/CONSTITUTIONAL_ALIGNMENT.md) for detai
 
 ### Core Query Endpoints
 - `POST /query` - General RAG query with filters
+- `POST /query/stream` - Streaming RAG query (token-by-token)
 - `GET /health` - API health check
 - `GET /stats` - Database statistics
+
+### Hybrid RAG Endpoints
+- `POST /query/hybrid` - Enhanced RAG with hybrid encoder
+- `POST /stream/query` - Real-time streaming with hybrid RAG
+- `GET /hybrid/stats` - Hybrid pipeline statistics
+- `POST /retention/update` - Trigger retention update
+
+### Chat Endpoints
+- `GET /chat/sessions` - List chat sessions
+- `POST /chat/sessions` - Create new session
+- `GET /chat/sessions/{id}/messages` - Get session messages
+- `POST /chat/sessions/{id}/messages` - Add message (with streaming)
+- `POST /chat/feedback` - Submit feedback (like/dislike)
+- `POST /chat/share` - Generate shareable chat link
 
 ### Unique Feature Endpoints
 - `GET /sentiment` - Public sentiment analysis by topic
@@ -423,6 +518,10 @@ See `scripts/scheduler_setup.md` for details.
 - 📱 Social media content creation
 - 🎓 Educational resource for Kenyan civics
 - 💼 Legislative due diligence
+- 💬 **Real-time chat interface** - Interactive Q&A with streaming responses
+- 🎤 **Voice queries** - Ask questions via voice (LiveKit integration)
+- 🔄 **Multi-model accuracy** - Enhanced responses when context is limited
+- 📊 **Hybrid retrieval** - Improved accuracy with adaptive retrieval
 
 ## �📝 License
 

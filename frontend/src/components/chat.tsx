@@ -1086,13 +1086,13 @@ ${additionalConsiderations}
   }
 
   return (
-    <div className="relative flex min-h-screen bg-gradient-to-b from-background via-background/95 to-background text-foreground">
+    <div className="relative flex h-screen bg-gradient-to-b from-background via-background/95 to-background text-foreground overflow-hidden">
       <div className="pointer-events-none absolute inset-0 opacity-60">
         <div className="absolute -top-32 left-1/2 h-96 w-96 -translate-x-1/2 rounded-full bg-primary/20 blur-[120px]" />
         <div className="absolute bottom-0 right-0 h-80 w-80 rounded-full bg-blue-500/10 blur-[120px]" />
       </div>
 
-      <div className="hidden md:flex w-72 border-r border-white/5 bg-black/20 backdrop-blur-xl overflow-y-auto flex-col transition-all duration-300 ease-in-out">
+      <div className="hidden md:flex w-72 border-r border-white/5 bg-black/20 backdrop-blur-xl overflow-y-auto flex-col transition-all duration-300 ease-in-out h-full">
         <div className="p-4 border-b border-white/5">
           <div className="flex items-center justify-between">
             <div>
@@ -1195,32 +1195,32 @@ ${additionalConsiderations}
         </div>
       )}
 
-      <div className="flex-1 flex flex-col relative z-10">
-        <div className="border-b border-white/5 bg-background/60 backdrop-blur-xl">
-          <div className="flex flex-col gap-4 p-4">
+      <div className="flex-1 flex flex-col relative z-10 h-full overflow-hidden">
+        <div className="border-b border-white/5 bg-background/60 backdrop-blur-xl flex-shrink-0">
+          <div className="flex flex-col gap-2 p-2 md:p-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Button variant="ghost" size="sm" className="md:hidden rounded-full" onClick={() => setShowHistory(!showHistory)}>
-                  <History className="w-4 h-4" />
+                <Button variant="ghost" size="sm" className="md:hidden rounded-full h-8 w-8" onClick={() => setShowHistory(!showHistory)}>
+                  <History className="w-3.5 h-3.5" />
                 </Button>
                 <div>
-                  <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">AmaniQuery</p>
-                  <h1 className="text-xl md:text-2xl font-semibold">Conversational Legal Intelligence</h1>
+                  <p className="text-[10px] md:text-xs uppercase tracking-[0.2em] text-muted-foreground">AmaniQuery</p>
+                  <h1 className="text-base md:text-lg font-semibold">Conversational Legal Intelligence</h1>
                 </div>
                 {isResearchMode && (
-                  <Badge variant="default" className="bg-blue-600/90">
-                    <Search className="w-3 h-3 mr-1" />
-                    Research Mode
+                  <Badge variant="default" className="bg-blue-600/90 text-xs py-0.5 px-2">
+                    <Search className="w-2.5 h-2.5 mr-1" />
+                    Research
                   </Badge>
                 )}
                 {useHybrid && !isResearchMode && (
-                  <Badge variant="default" className="bg-purple-600/90">
-                    <Sparkles className="w-3 h-3 mr-1" />
-                    Hybrid Mode
+                  <Badge variant="default" className="bg-purple-600/90 text-xs py-0.5 px-2">
+                    <Sparkles className="w-2.5 h-2.5 mr-1" />
+                    Hybrid
                   </Badge>
                 )}
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5">
                 <Button
                   variant={useHybrid && !isResearchMode ? "default" : "outline"}
                   size="sm"
@@ -1229,11 +1229,10 @@ ${additionalConsiderations}
                     setIsResearchMode(false)
                   }}
                   disabled={isResearchMode}
-                  className={`h-9 rounded-full px-3 ${useHybrid && !isResearchMode ? "bg-purple-600 hover:bg-purple-700" : ""}`}
+                  className={`h-7 rounded-full px-2 text-xs ${useHybrid && !isResearchMode ? "bg-purple-600 hover:bg-purple-700" : ""}`}
                 >
-                  <Sparkles className="w-4 h-4 mr-2" />
-                  <span className="hidden sm:inline">Hybrid</span>
-                  <span className="sm:hidden">Hybrid</span>
+                  <Sparkles className="w-3 h-3 md:mr-1.5" />
+                  <span className="hidden md:inline">Hybrid</span>
                 </Button>
                 <Button
                   variant={isResearchMode ? "default" : "outline"}
@@ -1242,55 +1241,52 @@ ${additionalConsiderations}
                     setIsResearchMode(!isResearchMode)
                     setUseHybrid(false)
                   }}
-                  className={`h-9 rounded-full px-3 ${isResearchMode ? "bg-blue-600 hover:bg-blue-700" : ""}`}
+                  className={`h-7 rounded-full px-2 text-xs ${isResearchMode ? "bg-blue-600 hover:bg-blue-700" : ""}`}
                 >
-                  <Search className="w-4 h-4 mr-2" />
-                  <span className="hidden sm:inline">Research Mode</span>
-                  <span className="sm:hidden">Research</span>
+                  <Search className="w-3 h-3 md:mr-1.5" />
+                  <span className="hidden md:inline">Research</span>
                 </Button>
                 {currentSessionId && (
-                  <Button variant="outline" size="sm" className="h-9 rounded-full px-3" onClick={() => shareChat()}>
-                    <Share2 className="w-4 h-4 mr-2" />
-                    <span className="hidden sm:inline">Share Chat</span>
-                    <span className="sm:hidden">Share</span>
+                  <Button variant="outline" size="sm" className="h-7 rounded-full px-2 text-xs" onClick={() => shareChat()}>
+                    <Share2 className="w-3 h-3 md:mr-1.5" />
+                    <span className="hidden md:inline">Share</span>
                   </Button>
                 )}
                 <Link href="/">
-                  <Button variant="outline" size="sm" className="h-9 rounded-full px-3">
-                    <Settings className="w-4 h-4 mr-2" />
-                    <span className="hidden sm:inline">Home</span>
-                    <span className="sm:hidden">Home</span>
+                  <Button variant="outline" size="sm" className="h-7 rounded-full px-2 text-xs">
+                    <Settings className="w-3 h-3 md:mr-1.5" />
+                    <span className="hidden md:inline">Home</span>
                   </Button>
                 </Link>
               </div>
             </div>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
-              <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-primary/10 to-primary/5 px-3 py-2">
-                <p className="text-muted-foreground uppercase tracking-wider text-[10px]">Streaming</p>
-                <p className="font-semibold">Token-by-token</p>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-1.5 text-[10px] md:text-xs">
+              <div className="rounded-xl border border-white/10 bg-gradient-to-br from-primary/10 to-primary/5 px-2 py-1.5">
+                <p className="text-muted-foreground uppercase tracking-wider text-[9px]">Streaming</p>
+                <p className="font-semibold text-xs">Token-by-token</p>
               </div>
-              <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2">
-                <p className="text-muted-foreground uppercase tracking-wider text-[10px]">Sources</p>
-                <p className="font-semibold">Verifiable citations</p>
+              <div className="rounded-xl border border-white/10 bg-white/5 px-2 py-1.5">
+                <p className="text-muted-foreground uppercase tracking-wider text-[9px]">Sources</p>
+                <p className="font-semibold text-xs">Verifiable citations</p>
               </div>
-              <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2">
-                <p className="text-muted-foreground uppercase tracking-wider text-[10px]">Mode</p>
-                <p className="font-semibold">
+              <div className="rounded-xl border border-white/10 bg-white/5 px-2 py-1.5">
+                <p className="text-muted-foreground uppercase tracking-wider text-[9px]">Mode</p>
+                <p className="font-semibold text-xs">
                   {isResearchMode ? "Deep research" : useHybrid ? "Hybrid RAG" : "Chat"}
                 </p>
               </div>
-              <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2">
-                <p className="text-muted-foreground uppercase tracking-wider text-[10px]">Share</p>
-                <p className="font-semibold">NiruShare ready</p>
+              <div className="rounded-xl border border-white/10 bg-white/5 px-2 py-1.5">
+                <p className="text-muted-foreground uppercase tracking-wider text-[9px]">Share</p>
+                <p className="font-semibold text-xs">NiruShare ready</p>
               </div>
             </div>
           </div>
         </div>
 
-        <div className="flex-1 overflow-hidden">
+        <div className="flex-1 overflow-hidden flex flex-col min-h-0">
           <div
             ref={messagesContainerRef}
-            className="h-full overflow-y-auto px-3 md:px-8 py-6 space-y-4 scrollbar-thin scrollbar-thumb-white/10"
+            className="flex-1 overflow-y-auto px-3 md:px-8 py-6 space-y-4 scrollbar-thin scrollbar-thumb-white/10 min-h-0"
           >
             {messages.length === 0 && (
               <div className="text-center py-10 md:py-20">
@@ -1613,7 +1609,7 @@ ${additionalConsiderations}
         </div>
 
         {messages.length > 0 && messages[messages.length - 1].sources && messages[messages.length - 1].sources!.length > 0 && (
-          <div className="border-t border-white/5 bg-black/30 backdrop-blur">
+          <div className="border-t border-white/5 bg-black/30 backdrop-blur flex-shrink-0">
             <Button variant="ghost" className="w-full justify-between p-3 md:p-4 hover:bg-white/5 rounded-none" onClick={() => setShowSources(!showSources)}>
               <span className="font-semibold text-sm md:text-base">Sources ({messages[messages.length - 1].sources!.length})</span>
               {showSources ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
@@ -1645,25 +1641,30 @@ ${additionalConsiderations}
           </div>
         )}
 
-        <div className="border-t border-white/5 bg-background/80 p-3 md:p-6">
-          <form onSubmit={handleSubmit} className="space-y-3">
-            <div className="flex items-center justify-between text-xs text-muted-foreground">
-              <div className="flex items-center gap-2">
-                <Sparkles className="w-3.5 h-3.5 text-primary" />
-                {isResearchMode
-                  ? "Deep research mode prioritizes structure & citations."
-                  : "Chat mode delivers fast summaries with citations."}
+        <div className="border-t border-white/5 bg-background/80 p-2 md:p-3 flex-shrink-0">
+          <form onSubmit={handleSubmit} className="space-y-1.5">
+            <div className="flex items-center justify-between text-[10px] md:text-xs text-muted-foreground px-1">
+              <div className="flex items-center gap-1.5">
+                <Sparkles className="w-3 h-3 text-primary" />
+                <span className="hidden sm:inline">
+                  {isResearchMode
+                    ? "Deep research mode prioritizes structure & citations."
+                    : "Chat mode delivers fast summaries with citations."}
+                </span>
+                <span className="sm:hidden">
+                  {isResearchMode ? "Research mode" : "Chat mode"}
+                </span>
               </div>
-              <span>{isLoading ? "Streaming..." : "Ready"}</span>
+              <span className="text-[10px]">{isLoading ? "Streaming..." : "Ready"}</span>
             </div>
-            <div className="rounded-[28px] border border-white/10 bg-white/5 px-4 py-3 shadow-lg backdrop-blur-lg">
-              <div className="flex items-end gap-3">
-                <div className="flex items-center gap-2">
-                  <Button variant="ghost" size="icon" type="button" className="h-10 w-10 rounded-2xl text-muted-foreground">
-                    <Paperclip className="w-4 h-4" />
+            <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 shadow-lg backdrop-blur-lg">
+              <div className="flex items-end gap-2">
+                <div className="flex items-center gap-1">
+                  <Button variant="ghost" size="icon" type="button" className="h-8 w-8 rounded-xl text-muted-foreground">
+                    <Paperclip className="w-3.5 h-3.5" />
                   </Button>
-                  <Button variant="ghost" size="icon" type="button" className="h-10 w-10 rounded-2xl text-muted-foreground">
-                    <Mic className="w-4 h-4" />
+                  <Button variant="ghost" size="icon" type="button" className="h-8 w-8 rounded-xl text-muted-foreground">
+                    <Mic className="w-3.5 h-3.5" />
                   </Button>
                 </div>
                 <Input
@@ -1674,11 +1675,11 @@ ${additionalConsiderations}
                       ? "Ask detailed legal research questions about Kenyan laws..."
                       : "Ask about Kenyan law, parliament, or news..."
                   }
-                  className="flex-1 border-0 bg-transparent text-sm md:text-base focus-visible:ring-0"
+                  className="flex-1 border-0 bg-transparent text-sm md:text-base focus-visible:ring-0 py-2"
                   disabled={isLoading}
                 />
-                <Button type="submit" disabled={isLoading || !input.trim()} className="h-12 w-12 rounded-2xl">
-                  {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                <Button type="submit" disabled={isLoading || !input.trim()} className="h-9 w-9 rounded-xl">
+                  {isLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
                 </Button>
               </div>
             </div>

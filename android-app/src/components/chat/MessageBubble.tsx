@@ -29,7 +29,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
         ]}>
         {message.attachments && message.attachments.length > 0 && (
           <View style={styles.attachmentsContainer}>
-            {message.attachments.map((attachment) => (
+            {message.attachments.map(attachment => (
               <View key={attachment.id} style={styles.attachmentItem}>
                 <Icon
                   name={
@@ -91,7 +91,8 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
             onPress={() => onFeedback(message.id, 'like')}
             style={[
               styles.feedbackButton,
-              message.feedback_type === 'like' && styles.feedbackButtonActive,
+              message.feedback_type === 'like' &&
+                styles.feedbackButtonActive,
             ]}>
             <Text style={styles.feedbackText}>👍</Text>
           </TouchableOpacity>
@@ -99,7 +100,8 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
             onPress={() => onFeedback(message.id, 'dislike')}
             style={[
               styles.feedbackButton,
-              message.feedback_type === 'dislike' && styles.feedbackButtonActive,
+              message.feedback_type === 'dislike' &&
+                styles.feedbackButtonActive,
             ]}>
             <Text style={styles.feedbackText}>👎</Text>
           </TouchableOpacity>
@@ -202,4 +204,3 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
 });
-

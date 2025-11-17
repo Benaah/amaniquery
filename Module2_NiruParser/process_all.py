@@ -35,7 +35,7 @@ def main():
     
     if not raw_data_path.exists():
         logger.error(f"Raw data path does not exist: {raw_data_path}")
-        print(f"❌ Error: Raw data directory not found")
+        print(f"✗ Error: Raw data directory not found")
         print(f"   Please run Module 1 (NiruSpider) first")
         return
     
@@ -73,7 +73,7 @@ def main():
                 print(f"   💾 Saved {saved_raw} raw documents to database")
             except Exception as e:
                 logger.error(f"Failed to save raw documents to database: {e}")
-                print(f"   ❌ Failed to save raw documents to database")
+                print(f"   ✗ Failed to save raw documents to database")
         
         # Process documents
         all_chunks = []
@@ -106,7 +106,7 @@ def main():
                         
                 except Exception as e:
                     logger.error(f"Failed to save processed chunks to database: {e}")
-                    print(f"   ❌ Failed to save processed chunks to database")
+                    print(f"   ✗ Failed to save processed chunks to database")
             
             total_chunks += len(all_chunks)
             print(f"   ✅ Created {len(all_chunks)} chunks")

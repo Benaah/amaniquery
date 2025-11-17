@@ -1,4 +1,4 @@
-import React, {useState} from 'react';
+import React from 'react';
 import {
   View,
   Text,
@@ -29,11 +29,7 @@ export const FilePicker: React.FC<FilePickerProps> = ({
   const pickDocument = async () => {
     try {
       const results = await DocumentPicker.pick({
-        type: [
-          types.pdf,
-          types.images,
-          types.plainText,
-        ],
+        type: [types.pdf, types.images, types.plainText],
         allowMultiSelection: true,
       });
 
@@ -43,10 +39,7 @@ export const FilePicker: React.FC<FilePickerProps> = ({
       for (const file of results) {
         // Check file count
         if (files.length + newFiles.length >= maxFiles) {
-          Alert.alert(
-            'File Limit',
-            `Maximum ${maxFiles} files allowed`,
-          );
+          Alert.alert('File Limit', `Maximum ${maxFiles} files allowed`);
           break;
         }
 
@@ -101,7 +94,7 @@ export const FilePicker: React.FC<FilePickerProps> = ({
     }
   };
 
-  const formatFileSize = (bytes?: number) => {
+  const formatFileSize = (bytes?: number | null) => {
     if (!bytes) return 'Unknown size';
     if (bytes < 1024) return bytes + ' B';
     if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
@@ -207,4 +200,3 @@ const styles = StyleSheet.create({
     padding: 4,
   },
 });
-

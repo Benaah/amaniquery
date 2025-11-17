@@ -346,6 +346,237 @@ class VectorStore:
             return UpstashCollectionWrapper(self.client, collection_name)
         else:
             return None
+    
+    def _add_upstash(self, chunks: List[Dict], client=None):
+        """Add to Upstash Vector"""
+        if client is None:
+            client = self.client
+            
+        vectors = []
+        for chunk in chunks:
+            metadata = {
+                "title": str(chunk.get("title", "")),
+                "category": str(chunk.get("category", "")),
+                "source_url": str(chunk.get("source_url", "")),
+                "source_name": str(chunk.get("source_name", "")),
+                "chunk_index": str(chunk.get("chunk_index", 0)),
+                "total_chunks": str(chunk.get("total_chunks", 1)),
+                "text": str(chunk["text"])
+            }
+            vectors.append({
+                "id": str(chunk["chunk_id"]),
+                "vector": chunk["embedding"],
+                "metadata": metadata
+            })
+        
+        client.upsert(vectors=vectors)
+        logger.info(f"Added {len(chunks)} chunks to Upstash")
+    
+    def _add_qdrant(self, chunks: List[Dict], batch_size: int, client=None):
+        """Add to QDrant"""
+        if client is None:
+            client = self.client
+            
+        points = []
+        for i, chunk in enumerate(chunks):
+            payload = {
+                "title": str(chunk.get("title", "")),
+                "category": str(chunk.get("category", "")),
+                "source_url": str(chunk.get("source_url", "")),
+                "source_name": str(chunk.get("source_name", "")),
+                "chunk_index": str(chunk.get("chunk_index", 0)),
+                "total_chunks": str(chunk.get("total_chunks", 1)),
+                "text": str(chunk["text"]),
+                "chunk_id": str(chunk["chunk_id"])
+            }
+            point_id = hash(chunk["chunk_id"]) % (2**63 - 1)
+            points.append(models.PointStruct(
+                id=point_id,
+                vector=chunk["embedding"],
+                payload=payload
+            ))
+        
+        client.upsert(collection_name=self.collection_name, points=points)
+        logger.info(f"Added {len(chunks)} chunks to QDrant")
+    
+    def _add_chromadb(self, chunks: List[Dict], batch_size: int):
+        """Add to ChromaDB"""
+        for i in range(0, len(chunks), batch_size):
+            batch = chunks[i:i + batch_size]
+            ids = [str(chunk["chunk_id"]) for chunk in batch]
+            embeddings = [chunk["embedding"] for chunk in batch]
+            documents = [str(chunk["text"]) for chunk in batch]
+            metadatas = []
+            for chunk in batch:
+                metadata = {
+                    "title": str(chunk.get("title", "")),
+                    "category": str(chunk.get("category", "")),
+                    "source_url": str(chunk.get("source_url", "")),
+                    "source_name": str(chunk.get("source_name", "")),
+                    "chunk_index": str(chunk.get("chunk_index", 0)),
+                    "total_chunks": str(chunk.get("total_chunks", 1)),
+                }
+                if chunk.get("author"):
+                    metadata["author"] = str(chunk["author"])
+                if chunk.get("publication_date"):
+                    metadata["publication_date"] = str(chunk["publication_date"])
+                if chunk.get("keywords"):
+                    metadata["keywords"] = str(chunk["keywords"])
+                metadatas.append(metadata)
+            try:
+                self.collection.add(ids=ids, embeddings=embeddings, documents=documents, metadatas=metadatas)
+                logger.info(f"Added batch {i // batch_size + 1} ({len(batch)} chunks)")
+            except Exception as e:
+                logger.error(f"Error adding batch: {e}")
+        logger.info(f"Total documents in collection: {self.collection.count()}")
+    
+    def index_document(self, doc_id: str, document: Dict):
+        """Index document in Elasticsearch"""
+        if self.es_client:
+            try:
+                self.es_client.index(index=self.collection_name, id=doc_id, document=document)
+                logger.info(f"Indexed document: {doc_id}")
+            except Exception as e:
+                logger.error(f"Failed to index document {doc_id}: {e}")
+    
+    def search_documents(self, query: str, n_results: int = 5) -> List[Dict]:
+        """Search documents in Elasticsearch"""
+        if not self.es_client:
+            return []
+        try:
+            response = self.es_client.search(index=self.collection_name, query={"match": {"content": query}}, size=n_results)
+            results = []
+            for hit in response["hits"]["hits"]:
+                results.append({"id": hit["_id"], "text": hit["_source"].get("content", ""), "metadata": hit["_source"], "score": hit["_score"]})
+            logger.info(f"Elasticsearch search returned {len(results)} results")
+            return results
+        except Exception as e:
+            logger.error(f"Elasticsearch search failed: {e}")
+            return []
+    
+    def query(self, query_text: str, n_results: int = 5, filter: Optional[Dict] = None) -> List[Dict]:
+        """Query vector store for similar documents"""
+        try:
+            try:
+                query_embedding = self.embedding_model.encode(query_text).tolist()
+            except Exception as encode_error:
+                if 'meta' in str(encode_error).lower() or 'device' in str(encode_error).lower():
+                    logger.warning(f"Encoding error (device issue): {encode_error}, retrying with CPU")
+                    import torch
+                    if hasattr(self._embedding_model, 'to'):
+                        self._embedding_model = self._embedding_model.to('cpu')
+                    query_embedding = self.embedding_model.encode(query_text).tolist()
+                else:
+                    raise
+            if self.backend == "upstash":
+                return self._query_upstash(query_embedding, n_results, filter)
+            elif self.backend == "qdrant":
+                return self._query_qdrant(query_embedding, n_results, filter)
+            elif self.backend == "chromadb":
+                return self._query_chromadb(query_embedding, n_results, filter)
+            else:
+                logger.error(f"Unsupported backend for query: {self.backend}")
+                return []
+        except Exception as e:
+            logger.error(f"Error querying vector store: {e}")
+            return []
+    
+    def _query_upstash(self, query_embedding: List[float], n_results: int, filter: Optional[Dict]) -> List[Dict]:
+        """Query Upstash Vector"""
+        filter_dict = {}
+        if filter:
+            for k, v in filter.items():
+                filter_dict[f"metadata.{k}"] = str(v)
+        results = self.client.query(vector=query_embedding, top_k=n_results, filter=filter_dict, include_metadata=True, include_data=True)
+        formatted_results = []
+        for hit in results:
+            metadata = {k: str(v) if not isinstance(v, str) else v for k, v in hit.metadata.items()}
+            formatted_results.append({"id": hit.id, "text": metadata.get("text", ""), "metadata": metadata, "distance": hit.score})
+        logger.info(f"Upstash query returned {len(formatted_results)} results")
+        return formatted_results
+    
+    def _query_qdrant(self, query_embedding: List[float], n_results: int, filter: Optional[Dict]) -> List[Dict]:
+        """Query QDrant"""
+        scroll_filter = None
+        if filter:
+            conditions = []
+            for k, v in filter.items():
+                conditions.append(models.FieldCondition(key=k, match=models.MatchValue(value=str(v))))
+            scroll_filter = models.Filter(must=conditions)
+        query_result = self.client.query_points(collection_name=self.collection_name, query=query_embedding, limit=n_results, query_filter=scroll_filter, with_payload=True)
+        formatted_results = []
+        if hasattr(query_result, 'points'):
+            points = query_result.points
+        elif hasattr(query_result, '__iter__'):
+            points = query_result
+        else:
+            points = []
+        for hit in points:
+            payload = hit.payload if hasattr(hit, 'payload') else {}
+            metadata = {k: str(v) if not isinstance(v, str) else v for k, v in payload.items()}
+            point_id = hit.id if hasattr(hit, 'id') else None
+            score = hit.score if hasattr(hit, 'score') else 0.0
+            formatted_results.append({"id": metadata.get("chunk_id", str(point_id) if point_id else ""), "text": metadata.get("text", ""), "metadata": metadata, "distance": score})
+        logger.info(f"QDrant query returned {len(formatted_results)} results")
+        return formatted_results
+    
+    def _query_chromadb(self, query_embedding: List[float], n_results: int, filter: Optional[Dict]) -> List[Dict]:
+        """Query ChromaDB"""
+        where = None
+        if filter:
+            where = {k: str(v) for k, v in filter.items()}
+        results = self.collection.query(query_embeddings=[query_embedding], n_results=n_results, where=where)
+        formatted_results = []
+        for i in range(len(results["ids"][0])):
+            metadata = {k: str(v) if not isinstance(v, str) else v for k, v in results["metadatas"][0][i].items()}
+            formatted_results.append({"id": results["ids"][0][i], "text": results["documents"][0][i], "metadata": metadata, "distance": results["distances"][0][i] if "distances" in results else None})
+        logger.info(f"ChromaDB query returned {len(formatted_results)} results")
+        return formatted_results
+    
+    def delete_collection(self):
+        """Delete the entire collection"""
+        self.client.delete_collection(self.collection_name)
+        logger.info(f"Deleted collection: {self.collection_name}")
+    
+    def get_stats(self) -> Dict:
+        """Get collection statistics"""
+        stats = {"backend": self.backend, "collection_name": self.collection_name, "cloud_backends": list(self.backends.keys()), "elasticsearch_enabled": self.es_client is not None, "total_chunks": 0, "elasticsearch_docs": 0}
+        if self.backend == "chromadb":
+            try:
+                stats["total_chunks"] = self.collection.count()
+                stats["persist_directory"] = self.persist_directory
+                sample = self.collection.get(limit=1000)
+                categories = {}
+                if sample["metadatas"]:
+                    for meta in sample["metadatas"]:
+                        cat = meta.get("category", "Unknown")
+                        categories[cat] = categories.get(cat, 0) + 1
+                stats["sample_categories"] = categories
+            except Exception as e:
+                logger.error(f"Error getting ChromaDB stats: {e}")
+                stats["total_chunks"] = 0
+        elif self.backend == "upstash":
+            if "upstash" in self.backends:
+                stats["total_chunks"] = 0
+            else:
+                stats["total_chunks"] = 0
+        elif self.backend == "qdrant":
+            try:
+                if "qdrant" in self.backends:
+                    stats["total_chunks"] = self.backends["qdrant"].count(self.collection_name).count
+                else:
+                    stats["total_chunks"] = self.client.count(self.collection_name).count
+            except Exception as e:
+                logger.error(f"Error getting QDrant stats: {e}")
+                stats["total_chunks"] = 0
+        if self.es_client:
+            try:
+                es_stats = self.es_client.count(index=self.collection_name)
+                stats["elasticsearch_docs"] = es_stats["count"]
+            except Exception as e:
+                logger.error(f"Error getting Elasticsearch stats: {e}")
+                stats["elasticsearch_docs"] = 0
+        return stats
 
 
 class QDrantCollectionWrapper:
@@ -399,348 +630,3 @@ class UpstashCollectionWrapper:
         """Query Upstash index"""
         # This is a simplified version - full implementation would need embedding
         return {"documents": [[]], "metadatas": [[]], "distances": [[]]}
-
-
-    def _add_upstash(self, chunks: List[Dict], client=None):
-        """Add to Upstash Vector"""
-        if client is None:
-            client = self.client
-            
-        vectors = []
-        for chunk in chunks:
-            metadata = {
-                "title": str(chunk.get("title", "")),
-                "category": str(chunk.get("category", "")),
-                "source_url": str(chunk.get("source_url", "")),
-                "source_name": str(chunk.get("source_name", "")),
-                "chunk_index": str(chunk.get("chunk_index", 0)),
-                "total_chunks": str(chunk.get("total_chunks", 1)),
-                "text": str(chunk["text"])
-            }
-            vectors.append({
-                "id": str(chunk["chunk_id"]),
-                "vector": chunk["embedding"],
-                "metadata": metadata
-            })
-        
-        client.upsert(vectors=vectors)
-        logger.info(f"Added {len(chunks)} chunks to Upstash")
-    
-    def _add_qdrant(self, chunks: List[Dict], batch_size: int, client=None):
-        """Add to QDrant"""
-        if client is None:
-            client = self.client
-            
-        points = []
-        for i, chunk in enumerate(chunks):
-            payload = {
-                "title": str(chunk.get("title", "")),
-                "category": str(chunk.get("category", "")),
-                "source_url": str(chunk.get("source_url", "")),
-                "source_name": str(chunk.get("source_name", "")),
-                "chunk_index": str(chunk.get("chunk_index", 0)),
-                "total_chunks": str(chunk.get("total_chunks", 1)),
-                "text": str(chunk["text"]),
-                "chunk_id": str(chunk["chunk_id"])  # Store original chunk_id in payload
-            }
-            # Use hash of chunk_id as integer ID for QDrant
-            point_id = hash(chunk["chunk_id"]) % (2**63 - 1)  # Ensure positive integer
-            points.append(models.PointStruct(
-                id=point_id,
-                vector=chunk["embedding"],
-                payload=payload
-            ))
-        
-        client.upsert(collection_name=self.collection_name, points=points)
-        logger.info(f"Added {len(chunks)} chunks to QDrant")
-    
-    def _add_chromadb(self, chunks: List[Dict], batch_size: int):
-        """Add to ChromaDB (existing logic)"""
-        # Process in batches
-        for i in range(0, len(chunks), batch_size):
-            batch = chunks[i:i + batch_size]
-            
-            # Prepare data
-            ids = [str(chunk["chunk_id"]) for chunk in batch]
-            embeddings = [chunk["embedding"] for chunk in batch]
-            documents = [str(chunk["text"]) for chunk in batch]
-            
-            # Prepare metadata
-            metadatas = []
-            for chunk in batch:
-                metadata = {
-                    "title": str(chunk.get("title", "")),
-                    "category": str(chunk.get("category", "")),
-                    "source_url": str(chunk.get("source_url", "")),
-                    "source_name": str(chunk.get("source_name", "")),
-                    "chunk_index": str(chunk.get("chunk_index", 0)),
-                    "total_chunks": str(chunk.get("total_chunks", 1)),
-                }
-                
-                # Add optional fields if available
-                if chunk.get("author"):
-                    metadata["author"] = str(chunk["author"])
-                if chunk.get("publication_date"):
-                    metadata["publication_date"] = str(chunk["publication_date"])
-                if chunk.get("keywords"):
-                    metadata["keywords"] = str(chunk["keywords"])
-                
-                metadatas.append(metadata)
-            
-            # Add to collection
-            try:
-                self.collection.add(
-                    ids=ids,
-                    embeddings=embeddings,
-                    documents=documents,
-                    metadatas=metadatas,
-                )
-                logger.info(f"Added batch {i // batch_size + 1} ({len(batch)} chunks)")
-            except Exception as e:
-                logger.error(f"Error adding batch: {e}")
-        
-        logger.info(f"Total documents in collection: {self.collection.count()}")
-    
-    def index_document(self, doc_id: str, document: Dict):
-        """Index document in Elasticsearch"""
-        if self.es_client:
-            try:
-                self.es_client.index(index=self.collection_name, id=doc_id, document=document)
-                logger.info(f"Indexed document: {doc_id}")
-            except Exception as e:
-                logger.error(f"Failed to index document {doc_id}: {e}")
-    
-    def search_documents(self, query: str, n_results: int = 5) -> List[Dict]:
-        """Search documents in Elasticsearch"""
-        if not self.es_client:
-            return []
-        
-        try:
-            response = self.es_client.search(
-                index=self.collection_name,
-                query={"match": {"content": query}},
-                size=n_results
-            )
-            results = []
-            for hit in response["hits"]["hits"]:
-                results.append({
-                    "id": hit["_id"],
-                    "text": hit["_source"].get("content", ""),
-                    "metadata": hit["_source"],
-                    "score": hit["_score"]
-                })
-            logger.info(f"Elasticsearch search returned {len(results)} results")
-            return results
-        except Exception as e:
-            logger.error(f"Elasticsearch search failed: {e}")
-            return []
-    
-    def query(
-        self,
-        query_text: str,
-        n_results: int = 5,
-        filter: Optional[Dict] = None,
-    ) -> List[Dict]:
-        """
-        Query vector store for similar documents
-        
-        Args:
-            query_text: Query string
-            n_results: Number of results to return
-            filter: Metadata filter
-        
-        Returns:
-            List of similar documents with metadata
-        """
-        try:
-            # Generate query embedding with error handling for device issues
-            try:
-                query_embedding = self.embedding_model.encode(query_text).tolist()
-            except Exception as encode_error:
-                if 'meta' in str(encode_error).lower() or 'device' in str(encode_error).lower():
-                    logger.warning(f"Encoding error (device issue): {encode_error}, retrying with CPU")
-                    # Ensure model is on CPU
-                    import torch
-                    if hasattr(self._embedding_model, 'to'):
-                        self._embedding_model = self._embedding_model.to('cpu')
-                    # Retry encoding
-                    query_embedding = self.embedding_model.encode(query_text).tolist()
-                else:
-                    raise
-            
-            if self.backend == "upstash":
-                return self._query_upstash(query_embedding, n_results, filter)
-            elif self.backend == "qdrant":
-                return self._query_qdrant(query_embedding, n_results, filter)
-            elif self.backend == "chromadb":
-                return self._query_chromadb(query_embedding, n_results, filter)
-            else:
-                logger.error(f"Unsupported backend for query: {self.backend}")
-                return []
-            
-        except Exception as e:
-            logger.error(f"Error querying vector store: {e}")
-            return []
-    
-    def _query_upstash(self, query_embedding: List[float], n_results: int, filter: Optional[Dict]) -> List[Dict]:
-        """Query Upstash Vector"""
-        # Upstash query with metadata filter
-        filter_dict = {}
-        if filter:
-            for k, v in filter.items():
-                filter_dict[f"metadata.{k}"] = str(v)
-        
-        results = self.client.query(
-            vector=query_embedding,
-            top_k=n_results,
-            filter=filter_dict,
-            include_metadata=True,
-            include_data=True
-        )
-        
-        formatted_results = []
-        for hit in results:
-            metadata = {k: str(v) if not isinstance(v, str) else v for k, v in hit.metadata.items()}
-            formatted_results.append({
-                "id": hit.id,
-                "text": metadata.get("text", ""),
-                "metadata": metadata,
-                "distance": hit.score,
-            })
-        
-        logger.info(f"Upstash query returned {len(formatted_results)} results")
-        return formatted_results
-    
-    def _query_qdrant(self, query_embedding: List[float], n_results: int, filter: Optional[Dict]) -> List[Dict]:
-        """Query QDrant"""
-        scroll_filter = None
-        if filter:
-            conditions = []
-            for k, v in filter.items():
-                conditions.append(models.FieldCondition(key=k, match=models.MatchValue(value=str(v))))
-            scroll_filter = models.Filter(must=conditions)
-        
-        # Use query_points instead of deprecated search method
-        query_result = self.client.query_points(
-            collection_name=self.collection_name,
-            query=query_embedding,
-            limit=n_results,
-            query_filter=scroll_filter,
-            with_payload=True
-        )
-        
-        formatted_results = []
-        # query_points returns a QueryResponse object with points attribute
-        # Handle both old search() return format and new query_points() format
-        if hasattr(query_result, 'points'):
-            points = query_result.points
-        elif hasattr(query_result, '__iter__'):
-            points = query_result
-        else:
-            points = []
-        
-        for hit in points:
-            payload = hit.payload if hasattr(hit, 'payload') else {}
-            metadata = {k: str(v) if not isinstance(v, str) else v for k, v in payload.items()}
-            point_id = hit.id if hasattr(hit, 'id') else None
-            score = hit.score if hasattr(hit, 'score') else 0.0
-            formatted_results.append({
-                "id": metadata.get("chunk_id", str(point_id) if point_id else ""),
-                "text": metadata.get("text", ""),
-                "metadata": metadata,
-                "distance": score,
-            })
-        
-        logger.info(f"QDrant query returned {len(formatted_results)} results")
-        return formatted_results
-    
-    def _query_chromadb(self, query_embedding: List[float], n_results: int, filter: Optional[Dict]) -> List[Dict]:
-        """Query ChromaDB (existing logic)"""
-        # Query collection
-        where = None
-        if filter:
-            where = {k: str(v) for k, v in filter.items()}
-        
-        results = self.collection.query(
-            query_embeddings=[query_embedding],
-            n_results=n_results,
-            where=where,
-        )
-        
-        # Format results
-        formatted_results = []
-        for i in range(len(results["ids"][0])):
-            metadata = {k: str(v) if not isinstance(v, str) else v for k, v in results["metadatas"][0][i].items()}
-            formatted_results.append({
-                "id": results["ids"][0][i],
-                "text": results["documents"][0][i],
-                "metadata": metadata,
-                "distance": results["distances"][0][i] if "distances" in results else None,
-            })
-        
-        logger.info(f"ChromaDB query returned {len(formatted_results)} results")
-        return formatted_results
-    
-    def delete_collection(self):
-        """Delete the entire collection"""
-        self.client.delete_collection(self.collection_name)
-        logger.info(f"Deleted collection: {self.collection_name}")
-    
-    def get_stats(self) -> Dict:
-        """Get collection statistics"""
-        stats = {
-            "backend": self.backend,
-            "collection_name": self.collection_name,
-            "cloud_backends": list(self.backends.keys()),
-            "elasticsearch_enabled": self.es_client is not None,
-            "total_chunks": 0,
-            "elasticsearch_docs": 0
-        }
-        
-        # Get stats from primary backend
-        if self.backend == "chromadb":
-            try:
-                stats["total_chunks"] = self.collection.count()
-                stats["persist_directory"] = self.persist_directory
-                
-                # Get sample to analyze categories
-                sample = self.collection.get(limit=1000)
-                categories = {}
-                
-                if sample["metadatas"]:
-                    for meta in sample["metadatas"]:
-                        cat = meta.get("category", "Unknown")
-                        categories[cat] = categories.get(cat, 0) + 1
-                
-                stats["sample_categories"] = categories
-            except Exception as e:
-                logger.error(f"Error getting ChromaDB stats: {e}")
-                stats["total_chunks"] = 0
-                
-        elif self.backend == "upstash":
-            # Upstash doesn't have count, use cloud backend count if available
-            if "upstash" in self.backends:
-                stats["total_chunks"] = 0  # We don't have a way to count
-            else:
-                stats["total_chunks"] = 0
-                
-        elif self.backend == "qdrant":
-            try:
-                if "qdrant" in self.backends:
-                    stats["total_chunks"] = self.backends["qdrant"].count(self.collection_name).count
-                else:
-                    stats["total_chunks"] = self.client.count(self.collection_name).count
-            except Exception as e:
-                logger.error(f"Error getting QDrant stats: {e}")
-                stats["total_chunks"] = 0
-        
-        # Get Elasticsearch stats
-        if self.es_client:
-            try:
-                es_stats = self.es_client.count(index=self.collection_name)
-                stats["elasticsearch_docs"] = es_stats["count"]
-            except Exception as e:
-                logger.error(f"Error getting Elasticsearch stats: {e}")
-                stats["elasticsearch_docs"] = 0
-        
-        return stats

@@ -19,14 +19,10 @@ except ImportError:
 
 class TwitterScraperTool:
     """
-    Production-ready Twitter scraping tool using twikit
-    Features:
-    - Optional authentication with fallback
-    - Rate limiting and retry logic
-    - Robust error handling
-    - Data validation and sanitization
-    - Caching for repeated queries
-    - Comprehensive logging
+    Twitter scraping tool using twikit
+    
+    Supports optional authentication, rate limiting, retry logic,
+    data validation, and comprehensive error handling.
     """
     
     def __init__(
@@ -40,7 +36,7 @@ class TwitterScraperTool:
         timeout: int = 30
     ):
         """
-        Initialize Twitter scraper with production-ready configuration
+        Initialize Twitter scraper
         
         Args:
             username: Twitter username for authentication (optional)
@@ -275,7 +271,7 @@ class TwitterScraperTool:
         result_type: str = "recent"
     ) -> Dict[str, Any]:
         """
-        Search Twitter for tweets (production-ready)
+        Search Twitter for tweets
         
         Args:
             query: Search query

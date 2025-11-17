@@ -22,16 +22,10 @@ from Module3_NiruDB.vector_store import VectorStore
 
 class HybridRetrieval:
     """
-    Production-ready enhanced hybrid retrieval for hybrid module
+    Enhanced hybrid retrieval for hybrid module
     
-    Features:
-    - BM25 + embeddings hybrid search
-    - Advanced reranking with multiple strategies
-    - Summary chunking for long documents
-    - Multi-agent composition integration
-    - Structured outputs with validation
-    - Comprehensive error handling and retry logic
-    - Performance monitoring and statistics
+    Combines BM25 + embeddings hybrid search, advanced reranking,
+    summary chunking, multi-agent composition, and structured outputs.
     """
     
     def __init__(
@@ -110,7 +104,7 @@ class HybridRetrieval:
         reranking_strategy: str = "combined"
     ) -> List[Dict[str, Any]]:
         """
-        Production-ready document retrieval with hybrid search and enhancements
+        Document retrieval with hybrid search and enhancements
         
         Args:
             query: Search query
@@ -382,7 +376,7 @@ class HybridRetrieval:
         filter_mode: str = "strict"
     ) -> List[Dict[str, Any]]:
         """
-        Retrieve with metadata filters (production-ready)
+        Retrieve with metadata filters
         
         Args:
             query: Search query

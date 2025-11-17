@@ -23,14 +23,10 @@ from Module3_NiruDB.vector_store import VectorStore
 
 class HybridSearch:
     """
-    Production-ready hybrid search combining BM25 (keyword) and vector (semantic) search
+    Hybrid search combining BM25 (keyword) and vector (semantic) search
     
-    Features:
-    - Robust error handling and retry logic
-    - Score normalization and validation
-    - Caching for performance
-    - Comprehensive logging and monitoring
-    - Graceful degradation when components fail
+    Implements error handling, retry logic, score normalization,
+    and graceful degradation when components fail.
     """
     
     def __init__(
@@ -44,7 +40,7 @@ class HybridSearch:
         timeout: float = 30.0
     ):
         """
-        Initialize hybrid search with production-ready configuration
+        Initialize hybrid search
         
         Args:
             vector_store: Vector store for semantic search
@@ -92,7 +88,7 @@ class HybridSearch:
         metadata: Optional[List[Dict[str, Any]]] = None
     ):
         """
-        Build BM25 index from documents (production-ready)
+        Build BM25 index from documents
         
         Args:
             documents: List of document texts
@@ -312,7 +308,7 @@ class HybridSearch:
         use_cache: Optional[bool] = None
     ) -> List[Dict[str, Any]]:
         """
-        Perform production-ready hybrid search
+        Perform hybrid search
         
         Args:
             query: Search query

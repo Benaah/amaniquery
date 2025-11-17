@@ -7,9 +7,14 @@ This module provides a professional voice agent using LiveKit Agents framework t
 - **Professional Voice Interface**: Clear, authoritative voice responses suitable for legal and policy queries
 - **RAG Integration**: Leverages AmaniQuery's existing RAG pipeline for accurate, sourced responses
 - **Conversation Context**: Maintains conversation history for multi-turn queries
-- **Multiple STT/TTS Providers**: Supports OpenAI Whisper, AssemblyAI (STT) and OpenAI TTS, Silero (TTS)
-- **Session Management**: Tracks voice sessions with automatic timeout and cleanup
+- **Multiple STT/TTS Providers**: Supports OpenAI Whisper, AssemblyAI (STT) and OpenAI TTS, Silero (TTS) with automatic failover
+- **Session Management**: Tracks voice sessions with automatic timeout and cleanup (optional Redis persistence)
 - **Concise Responses**: Optimized for voice (2-3 minute max response length)
+- **Resilience & Error Handling**: Retry logic with exponential backoff, circuit breakers, and graceful error recovery
+- **Provider Failover**: Automatic failover between multiple STT/TTS providers with health monitoring
+- **Performance Optimizations**: Response caching, rate limiting, and connection pooling
+- **Monitoring & Observability**: Metrics collection, health checks, and Prometheus integration
+- **Scalable Architecture**: Designed for horizontal scaling with distributed session storage
 
 ## Architecture
 
@@ -17,11 +22,29 @@ This module provides a professional voice agent using LiveKit Agents framework t
 Module6_NiruVoice/
 ├── __init__.py              # Module exports
 ├── voice_agent.py           # Main LiveKit agent implementation
-├── agent_config.py          # Configuration management
+├── agent_config.py          # Configuration management (with Pydantic validation)
 ├── stt_tts_handlers.py      # Speech-to-text and text-to-speech handlers
 ├── rag_integration.py       # Integration with RAG pipeline
-├── session_manager.py       # Voice session management
-├── requirements.txt         # LiveKit dependencies
+├── session_manager.py       # Voice session management (with Redis support)
+├── resilience/              # Error handling and resilience
+│   ├── retry_handler.py     # Retry logic with exponential backoff
+│   ├── circuit_breaker.py   # Circuit breaker pattern
+│   └── error_recovery.py    # Error recovery strategies
+├── providers/               # Provider management
+│   ├── provider_manager.py  # Multi-provider management
+│   ├── health_monitor.py    # Provider health monitoring
+│   └── fallback_strategy.py # Automatic failover logic
+├── monitoring/              # Observability
+│   ├── metrics.py           # Metrics collection (Prometheus)
+│   ├── health_check.py      # Health check endpoints
+│   └── performance_tracker.py # Performance tracking
+├── performance/             # Performance optimizations
+│   ├── cache.py              # Response caching
+│   └── rate_limiter.py       # Rate limiting
+├── tests/                   # Test suite
+│   ├── test_resilience.py   # Resilience tests
+│   └── mocks/               # Mock providers
+├── requirements.txt         # Dependencies
 └── README.md               # This file
 ```
 
@@ -62,12 +85,37 @@ LIVEKIT_API_KEY=your_api_key
 LIVEKIT_API_SECRET=your_api_secret
 
 # Voice Agent Configuration (Optional - defaults shown)
-VOICE_STT_PROVIDER=openai          # openai or assemblyai
-VOICE_TTS_PROVIDER=openai          # openai or silero
+VOICE_STT_PROVIDER=openai          # openai,assemblyai (comma-separated for multiple)
+VOICE_TTS_PROVIDER=openai          # openai,silero (comma-separated for multiple)
 VOICE_LANGUAGE=en                  # en or sw (Swahili)
 VOICE_MAX_RESPONSE_LENGTH=500      # Maximum words in response
-VOICE_ENABLE_FOLLOW_UPS=true       # Enable conversation context
+VOICE_ENABLE_FOLLOW_UPS=true      # Enable conversation context
 VOICE_CONVERSATION_TIMEOUT=300     # Session timeout in seconds
+
+# Resilience & Error Handling
+VOICE_ENABLE_RETRY=true            # Enable retry logic
+VOICE_MAX_RETRIES=3                # Maximum retry attempts
+VOICE_ENABLE_CIRCUIT_BREAKER=true  # Enable circuit breaker
+VOICE_CIRCUIT_BREAKER_THRESHOLD=5  # Circuit breaker failure threshold
+
+# Provider Fallback
+VOICE_PROVIDER_FALLBACK_ENABLED=true  # Enable automatic failover
+VOICE_FALLBACK_MODE=health_based      # sequential, round_robin, health_based, random
+
+# Performance
+VOICE_ENABLE_CACHING=true          # Enable response caching
+VOICE_CACHE_TTL=3600               # Cache TTL in seconds
+VOICE_ENABLE_RATE_LIMITING=true    # Enable rate limiting
+VOICE_RATE_LIMIT_PER_MINUTE=60     # Requests per minute limit
+
+# Session Persistence (Optional)
+VOICE_REDIS_SESSIONS=false         # Use Redis for session storage
+VOICE_REDIS_URL=redis://localhost:6379  # Redis connection URL
+
+# Monitoring
+VOICE_ENABLE_METRICS=true          # Enable metrics collection
+VOICE_ENABLE_PROMETHEUS=false      # Enable Prometheus metrics export
+VOICE_METRICS_PORT=9090            # Prometheus metrics port
 
 # RAG Pipeline Configuration (Required for RAG to work)
 LLM_PROVIDER=moonshot              # moonshot, openai, anthropic

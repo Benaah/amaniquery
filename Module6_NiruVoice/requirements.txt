@@ -14,6 +14,23 @@ livekit-plugins-noise-cancellation
 # Environment management
 python-dotenv
 
+# Resilience and error handling
+tenacity>=8.2.0  # Retry logic with exponential backoff
+circuitbreaker>=1.4.0  # Circuit breaker pattern
+
+# Configuration validation
+pydantic>=2.0.0  # Configuration validation
+
+# Optional: Session persistence
+redis>=5.0.0  # Redis for session storage (optional)
+
+# Optional: Metrics and monitoring
+prometheus-client>=0.19.0  # Prometheus metrics (optional)
+
+# Additional providers (optional)
+# deepgram-sdk>=3.0.0  # Deepgram STT
+# elevenlabs>=0.2.0  # ElevenLabs TTS
+
 # Note: The following dependencies are already in the main project requirements.txt:
 # - loguru (for logging)
 # - openai (for OpenAI STT/TTS)

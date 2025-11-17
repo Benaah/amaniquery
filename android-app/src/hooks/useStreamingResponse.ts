@@ -45,7 +45,6 @@ export function useStreamingResponse(): UseStreamingResponseReturn {
     isStreaming,
     startStream,
     appendChunk,
-    completeChunk: appendChunk,
     completeStream,
     reset,
   };

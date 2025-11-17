@@ -579,7 +579,7 @@ async def query_stream(request: QueryRequest):
                 
                 # Send sources at the end
                 sources_data = {
-                    "sources": [Source(**src).dict() for src in result["sources"]] if request.include_sources else [],
+                    "sources": [Source(**src).model_dump() for src in result["sources"]] if request.include_sources else [],
                     "query_time": result["query_time"],
                     "retrieved_chunks": result["retrieved_chunks"],
                     "model_used": result["model_used"],
@@ -765,7 +765,7 @@ async def stream_query(request: QueryRequest):
                 
                 # Send sources at the end
                 sources_data = {
-                    "sources": [Source(**src).dict() for src in result["sources"]] if request.include_sources else [],
+                    "sources": [Source(**src).model_dump() for src in result["sources"]] if request.include_sources else [],
                     "query_time": result["query_time"],
                     "retrieved_chunks": result["retrieved_chunks"],
                     "model_used": result["model_used"],

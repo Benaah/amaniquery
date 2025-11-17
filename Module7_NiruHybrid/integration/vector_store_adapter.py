@@ -83,6 +83,13 @@ class HybridVectorStoreAdapter:
                         # [1, embed_dim] -> [1, 1, embed_dim] for sequence processing
                         base_embeddings_tensor = base_embeddings_tensor.unsqueeze(1)
                     
+                    # Check if sequence length is too short for convolutional layers
+                    # Convolutional layers need seq_len > 1, so if we have [1, 1, dim], expand it
+                    if base_embeddings_tensor.shape[1] == 1:
+                        # Repeat the embedding to create a minimal sequence (seq_len=2)
+                        # This avoids the "Expected more than 1 value per channel" error
+                        base_embeddings_tensor = base_embeddings_tensor.repeat(1, 2, 1)
+                    
                     # Pass base embeddings to hybrid encoder
                     with torch.no_grad():
                         hybrid_output = self.hybrid_encoder.forward(embeddings=base_embeddings_tensor)

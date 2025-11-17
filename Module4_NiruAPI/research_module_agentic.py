@@ -83,24 +83,39 @@ class AgenticResearchModule:
             # Use agentic system to research
             result = await self.agentic_system.research(query, context)
             
-            # Format response to match expected structure
+            # Extract detailed information from result
+            final_answer = result.get('final_answer') or result.get('answer', '')
+            sources = result.get('sources', [])
+            tools_used = result.get('tools_used', [])
+            reflection = result.get('reflection', '')
+            plan = result.get('metadata', {}).get('plan', [])
+            actions_taken = result.get('metadata', {}).get('actions_count', 0)
+            
+            # Format response with detailed, readable structure
             analysis_result = {
                 "original_query": query,
                 "analysis": {
-                    "query_interpretation": result.get('answer', '')[:500] or "Analyzing your legal question...",
+                    "query_interpretation": self._format_query_interpretation(query, final_answer, reflection),
                     "applicable_laws": self._extract_laws(result),
-                    "legal_analysis": result.get('answer', ''),
+                    "legal_analysis": self._format_legal_analysis(final_answer, sources),
                     "practical_guidance": {
-                        "steps": self._extract_guidance_steps(result)
+                        "steps": self._extract_guidance_steps(result),
+                        "summary": self._extract_guidance_summary(final_answer)
                     },
-                    "additional_considerations": self._extract_considerations(result)
+                    "additional_considerations": self._extract_considerations(result),
+                    "research_process": {
+                        "steps_completed": len(plan) if isinstance(plan, list) else 0,
+                        "actions_taken": actions_taken,
+                        "tools_used": [tool.get('tool', tool) if isinstance(tool, dict) else tool for tool in tools_used[:10]],
+                        "sources_consulted": len(sources)
+                    }
                 },
                 "model_used": "agentic-ai-system",
                 "research_timestamp": result.get('metadata', {}).get('timestamp', datetime.utcnow().isoformat()),
                 "report_confidence": result.get('confidence', 0.0),
-                "sources": result.get('sources', []),
-                "tools_used": result.get('tools_used', []),
-                "reflection": result.get('reflection')
+                "sources": sources,
+                "tools_used": tools_used,
+                "reflection": reflection
             }
             
             return analysis_result
@@ -182,6 +197,70 @@ class AgenticResearchModule:
             considerations = ["Review all applicable laws", "Consider recent legal developments", "Consult with legal professionals"]
         
         return considerations[:5]  # Limit to 5 considerations
+    
+    def _format_query_interpretation(self, query: str, answer: str, reflection: str) -> str:
+        """Format query interpretation in a readable way"""
+        if not answer:
+            return "Analyzing your legal question to understand the key legal issues and requirements..."
+        
+        # Extract first 2-3 sentences as interpretation
+        sentences = answer.split('.')
+        interpretation = '. '.join(sentences[:3]).strip()
+        if interpretation and not interpretation.endswith('.'):
+            interpretation += '.'
+        
+        if reflection:
+            reflection_snippet = reflection[:200] + '...' if len(reflection) > 200 else reflection
+            interpretation += f"\n\n**Research Note:** {reflection_snippet}"
+        
+        return interpretation or "Understanding the legal context and requirements of your question..."
+    
+    def _format_legal_analysis(self, answer: str, sources: List[Dict[str, Any]]) -> str:
+        """Format legal analysis in a detailed, readable way"""
+        if not answer:
+            return "Conducting detailed legal analysis based on Kenyan laws and regulations..."
+        
+        # Add source citations if available
+        formatted = answer
+        
+        if sources:
+            source_refs = []
+            for i, source in enumerate(sources[:5], 1):
+                title = source.get('title', 'Source')
+                url = source.get('url', '')
+                if url:
+                    source_refs.append(f"[{i}] {title}")
+                else:
+                    source_refs.append(f"[{i}] {title}")
+            
+            if source_refs:
+                formatted += f"\n\n**Sources Consulted:**\n" + "\n".join(f"- {ref}" for ref in source_refs)
+        
+        return formatted
+    
+    def _extract_guidance_summary(self, answer: str) -> str:
+        """Extract a summary of practical guidance from the answer"""
+        if not answer:
+            return "Practical guidance will be provided based on the legal analysis."
+        
+        # Look for guidance-related sections
+        guidance_keywords = ['should', 'must', 'recommend', 'advise', 'guidance', 'steps', 'action']
+        sentences = answer.split('.')
+        
+        guidance_sentences = []
+        for sentence in sentences:
+            if any(keyword in sentence.lower() for keyword in guidance_keywords):
+                guidance_sentences.append(sentence.strip())
+        
+        if guidance_sentences:
+            return '. '.join(guidance_sentences[:3]) + '.'
+        
+        # Fallback: extract first actionable sentence
+        for sentence in sentences:
+            if len(sentence) > 20 and any(word in sentence.lower() for word in ['you', 'your', 'business', 'company', 'legal']):
+                return sentence.strip() + '.'
+        
+        return "Review the legal analysis above for specific guidance on your situation."
     
     def generate_legal_report(
         self,

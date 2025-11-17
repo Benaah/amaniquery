@@ -345,7 +345,17 @@ class AgenticResearchSystem:
                     'reflection': state.get('reflection', '')
                 }
                 
-                final_answer = self.swarm_orchestrator.synthesize_final_answer(query, context)
+                # Handle async method call
+                import asyncio
+                try:
+                    loop = asyncio.get_event_loop()
+                except RuntimeError:
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                
+                final_answer = loop.run_until_complete(
+                    self.swarm_orchestrator.synthesize_final_answer(query, context)
+                )
                 state['final_answer'] = final_answer
             else:
                 # Fallback synthesis

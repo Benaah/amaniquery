@@ -101,10 +101,18 @@ class SwarmOrchestrator:
         try:
             if self.rag_pipeline:
                 # Use RAG pipeline with specific provider
+                import asyncio
+                
+                # Run synchronous query in executor to make it async-compatible
+                loop = asyncio.get_event_loop()
                 original_provider = self.rag_pipeline.llm_provider
                 self.rag_pipeline.llm_provider = provider
                 
-                response = await self.rag_pipeline.query_async(query)
+                # Execute query in thread pool to avoid blocking
+                response = await loop.run_in_executor(
+                    None,
+                    lambda: self.rag_pipeline.query(query=query, top_k=5)
+                )
                 
                 self.rag_pipeline.llm_provider = original_provider
                 

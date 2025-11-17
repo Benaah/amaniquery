@@ -384,12 +384,23 @@ export function Chat() {
           // Format research response with better structure and null safety
           const analysis = data.analysis || {}
           
-          // Extract sections safely
+          // Extract sections safely with improved formatting
           const queryInterpretation = analysis.query_interpretation || 'Analyzing your legal question...'
-          const applicableLaws = analysis.applicable_laws || 'Researching relevant Kenyan laws...'
+          const applicableLaws = Array.isArray(analysis.applicable_laws) 
+            ? analysis.applicable_laws.join('\n- ') 
+            : (analysis.applicable_laws || 'Researching relevant Kenyan laws...')
           const legalAnalysis = analysis.legal_analysis || 'Conducting detailed legal analysis...'
-          const practicalGuidance = analysis.practical_guidance || 'Developing practical guidance...'
-          const additionalConsiderations = analysis.additional_considerations || 'Reviewing additional legal considerations...'
+          const practicalGuidance = analysis.practical_guidance || {}
+          const guidanceSteps = Array.isArray(practicalGuidance.steps) 
+            ? practicalGuidance.steps 
+            : (typeof practicalGuidance === 'string' ? [practicalGuidance] : ['Review the analysis above'])
+          const guidanceSummary = practicalGuidance.summary || ''
+          const additionalConsiderations = Array.isArray(analysis.additional_considerations)
+            ? analysis.additional_considerations
+            : (typeof analysis.additional_considerations === 'string' 
+              ? [analysis.additional_considerations] 
+              : ['Review all applicable laws'])
+          const researchProcess = analysis.research_process || {}
           
           const researchContent = `
 ## 📋 Legal Research Analysis
@@ -399,31 +410,50 @@ export function Chat() {
 ---
 
 ### 🔍 Query Understanding
+
 ${queryInterpretation}
 
 ---
 
 ### 📖 Applicable Laws & Provisions
-${applicableLaws}
+
+${Array.isArray(analysis.applicable_laws) 
+  ? analysis.applicable_laws.map((law: string, idx: number) => `${idx + 1}. ${law}`).join('\n')
+  : `- ${applicableLaws}`}
 
 ---
 
 ### ⚖️ Legal Analysis
+
 ${legalAnalysis}
 
 ---
 
 ### 🛠️ Practical Guidance
-${practicalGuidance}
+
+${guidanceSummary ? `**Summary:** ${guidanceSummary}\n\n` : ''}**Action Steps:**
+
+${guidanceSteps.map((step: string, idx: number) => `${idx + 1}. ${step}`).join('\n')}
 
 ---
 
 ### ⚠️ Important Considerations
-${additionalConsiderations}
+
+${additionalConsiderations.map((consideration: string) => `- ${consideration}`).join('\n')}
 
 ---
 
-### 📝 Disclaimer
+${researchProcess.steps_completed || researchProcess.sources_consulted ? `### 📊 Research Process
+
+- **Steps Completed:** ${researchProcess.steps_completed || 0}
+- **Actions Taken:** ${researchProcess.actions_taken || 0}
+- **Sources Consulted:** ${researchProcess.sources_consulted || 0}
+${researchProcess.tools_used && researchProcess.tools_used.length > 0 
+  ? `- **Tools Used:** ${researchProcess.tools_used.join(', ')}` 
+  : ''}
+
+---\n` : ''}### 📝 Disclaimer
+
 *This analysis is for informational purposes only and does not constitute legal advice. Please consult with a qualified legal professional for advice specific to your situation.*
           `.trim()
           

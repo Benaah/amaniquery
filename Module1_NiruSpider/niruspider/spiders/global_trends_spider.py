@@ -1,9 +1,11 @@
 """
-Global Trends Spider - Fetches global news, geopolitics, international organizations & policy
-Enhanced with robust extraction
+Global Trends Spider - Fetches global news relevant to Kenya
+Fetches international news that is relevant to Kenya (Kenya-specific or Africa policy context)
+Enhanced with robust extraction and Kenya-specific filtering
 """
 import scrapy
 import feedparser
+import re
 from datetime import datetime
 from dateutil import parser as date_parser
 from ..items import RSSItem, DocumentItem
@@ -98,14 +100,42 @@ class GlobalTrendsSpider(scrapy.Spider):
         },
     ]
     
-    # Keywords to filter for relevance
-    filter_keywords = [
-        "africa", "kenya", "policy", "governance", "regulation", 
-        "ai", "technology", "artificial intelligence", "data", "privacy",
-        "government", "development", "climate", "trade", "diplomacy",
-        "international law", "human rights", "health policy", "economic policy",
-        "united nations", "world bank", "imf", "who", "african union",
-        "geopolitics", "foreign policy", "international relations",
+    # Kenya-specific keywords (must include Kenya prominently)
+    kenya_keywords = [
+        "kenya", "kenyan", "nairobi", "mombasa", "kisumu", "nakuru",
+        "kenya's", "kenyan government", "kenyan parliament", "kenyan law",
+        "kenyan economy", "kenyan policy", "kenyan constitution",
+        "kenya and", "kenya's", "in kenya", "to kenya", "from kenya",
+        "kenya-", "kenya–", "kenya—",  # Various dash types
+    ]
+    
+    # Africa-related keywords that must be combined with Kenya context
+    africa_keywords = [
+        "east africa", "east african", "eac", "east african community",
+        "african union", "au", "africa and kenya", "kenya and africa",
+    ]
+    
+    # Policy/governance keywords (must be combined with Kenya)
+    policy_keywords = [
+        "policy", "governance", "regulation", "government", "parliament",
+        "legislation", "bill", "act", "law", "constitution",
+    ]
+    
+    # Exclude patterns - articles that mention these are likely not about Kenya
+    exclude_patterns = [
+        r'\b(?:china|chinese|beijing)\b',
+        r'\b(?:russia|russian|moscow|putin)\b',
+        r'\b(?:ukraine|ukrainian|kyiv)\b',
+        r'\b(?:israel|israeli|palestine|palestinian|gaza)\b',
+        r'\b(?:iran|iranian|tehran)\b',
+        r'\b(?:north korea|south korea|seoul|pyongyang)\b',
+        r'\b(?:japan|japanese|tokyo)\b',
+        r'\b(?:india|indian|delhi|mumbai)\b',
+        r'\b(?:brazil|brazilian|brasilia)\b',
+        r'\b(?:mexico|mexican|mexico city)\b',
+        r'\b(?:canada|canadian|ottawa|toronto)\b',
+        r'\b(?:australia|australian|sydney|melbourne)\b',
+        r'\b(?:europe|european|eu|brussels|paris|berlin|london)\b',
     ]
     
     custom_settings = {
@@ -144,12 +174,25 @@ class GlobalTrendsSpider(scrapy.Spider):
             # Filter by keywords
             title = entry.title.lower()
             summary = getattr(entry, 'summary', '').lower()
+            combined_text = f"{title} {summary}"
             
-            # Check if article is relevant
-            is_relevant = any(
-                keyword in title or keyword in summary
-                for keyword in self.filter_keywords
-            )
+            # First check: exclude articles about non-Kenya regions
+            if any(re.search(pattern, combined_text, re.IGNORECASE) for pattern in self.exclude_patterns):
+                # Check if Kenya is also mentioned (might be relevant)
+                if not any(keyword in combined_text for keyword in self.kenya_keywords):
+                    continue  # Skip - not about Kenya
+            
+            # Second check: must include Kenya-specific keywords
+            has_kenya_keyword = any(keyword in combined_text for keyword in self.kenya_keywords)
+            
+            # Third check: if no direct Kenya keyword, check for Africa + policy context
+            has_africa_context = any(keyword in combined_text for keyword in self.africa_keywords)
+            has_policy_context = any(keyword in combined_text for keyword in self.policy_keywords)
+            
+            # Article is relevant if:
+            # 1. Has Kenya keyword, OR
+            # 2. Has Africa context (EAC, AU) AND policy context
+            is_relevant = has_kenya_keyword or (has_africa_context and has_policy_context)
             
             if not is_relevant:
                 continue  # Skip irrelevant articles
@@ -208,6 +251,28 @@ class GlobalTrendsSpider(scrapy.Spider):
         if not content or len(content) < 100:
             content = rss_item.get("summary", "")
             self.logger.warning(f"Extraction failed for {response.url}, using RSS summary")
+        
+        # Final Kenya relevance check on full content
+        content_lower = content.lower()
+        
+        # Must have Kenya keyword in full content (not just title/summary)
+        has_kenya_in_content = any(keyword in content_lower for keyword in self.kenya_keywords)
+        
+        # Exclude if content mentions excluded regions without Kenya
+        has_excluded_region = any(re.search(pattern, content_lower, re.IGNORECASE) for pattern in self.exclude_patterns)
+        
+        if has_excluded_region and not has_kenya_in_content:
+            self.logger.info(f"Skipping article - mentions excluded region without Kenya context: {rss_item.get('title', '')[:50]}")
+            return  # Skip this article
+        
+        if not has_kenya_in_content:
+            # Check for Africa + policy context in content
+            has_africa_context = any(keyword in content_lower for keyword in self.africa_keywords)
+            has_policy_context = any(keyword in content_lower for keyword in self.policy_keywords)
+            
+            if not (has_africa_context and has_policy_context):
+                self.logger.info(f"Skipping article - no Kenya relevance in content: {rss_item.get('title', '')[:50]}")
+                return  # Skip this article
         
         # Use extracted title if better than RSS title
         title = extracted.get("title", "") or rss_item["title"]

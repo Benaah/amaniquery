@@ -583,22 +583,35 @@ class VectorStore:
                 conditions.append(models.FieldCondition(key=k, match=models.MatchValue(value=str(v))))
             scroll_filter = models.Filter(must=conditions)
         
-        results = self.client.search(
+        # Use query_points instead of deprecated search method
+        query_result = self.client.query_points(
             collection_name=self.collection_name,
-            query_vector=query_embedding,
+            query=query_embedding,
             limit=n_results,
             query_filter=scroll_filter,
             with_payload=True
         )
         
         formatted_results = []
-        for hit in results:
-            metadata = {k: str(v) if not isinstance(v, str) else v for k, v in hit.payload.items()}
+        # query_points returns a QueryResponse object with points attribute
+        # Handle both old search() return format and new query_points() format
+        if hasattr(query_result, 'points'):
+            points = query_result.points
+        elif hasattr(query_result, '__iter__'):
+            points = query_result
+        else:
+            points = []
+        
+        for hit in points:
+            payload = hit.payload if hasattr(hit, 'payload') else {}
+            metadata = {k: str(v) if not isinstance(v, str) else v for k, v in payload.items()}
+            point_id = hit.id if hasattr(hit, 'id') else None
+            score = hit.score if hasattr(hit, 'score') else 0.0
             formatted_results.append({
-                "id": metadata.get("chunk_id", str(hit.id)),  # Use original chunk_id from payload
+                "id": metadata.get("chunk_id", str(point_id) if point_id else ""),
                 "text": metadata.get("text", ""),
                 "metadata": metadata,
-                "distance": hit.score,
+                "distance": score,
             })
         
         logger.info(f"QDrant query returned {len(formatted_results)} results")

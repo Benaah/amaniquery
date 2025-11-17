@@ -198,6 +198,13 @@ class ChatDatabaseManager:
         """Add feedback for a message"""
         try:
             with get_db_session(self.engine) as db:
+                # Validate that the message exists
+                message = db.query(ChatMessage).filter(ChatMessage.id == message_id).first()
+                if not message:
+                    error_msg = f"Message {message_id} not found in database"
+                    logger.error(error_msg)
+                    raise ValueError(error_msg)
+                
                 # Check if feedback already exists for this message
                 existing_feedback = db.query(UserFeedback).filter(
                     UserFeedback.message_id == message_id,
@@ -225,6 +232,9 @@ class ChatDatabaseManager:
                 
                 logger.info(f"Added {feedback_type} feedback for message {message_id}")
                 return feedback.id
+        except ValueError:
+            # Re-raise validation errors
+            raise
         except Exception as e:
             logger.error(f"Database error in add_feedback: {e}")
             raise

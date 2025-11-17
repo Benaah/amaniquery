@@ -430,6 +430,27 @@ class VectorStore:
                 logger.error(f"Error adding batch: {e}")
         logger.info(f"Total documents in collection: {self.collection.count()}")
     
+    def add_documents(self, chunks: List[Dict], batch_size: int = 100):
+        """Add documents to vector store (public method)
+        
+        Args:
+            chunks: List of chunk dictionaries with 'text', 'embedding', and metadata
+            batch_size: Batch size for processing (default: 100)
+        """
+        if not chunks:
+            logger.warning("No chunks provided to add_documents")
+            return
+        
+        if self.backend == "upstash":
+            self._add_upstash(chunks)
+        elif self.backend == "qdrant":
+            self._add_qdrant(chunks, batch_size)
+        elif self.backend == "chromadb":
+            self._add_chromadb(chunks, batch_size)
+        else:
+            logger.error(f"Unsupported backend for add_documents: {self.backend}")
+            raise ValueError(f"Unsupported backend: {self.backend}")
+    
     def index_document(self, doc_id: str, document: Dict):
         """Index document in Elasticsearch"""
         if self.es_client:

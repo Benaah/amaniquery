@@ -144,6 +144,17 @@ async def lifespan(app: FastAPI):
         logger.error(f"Failed to initialize SMS pipeline: {e}")
         sms_pipeline = None
     
+    # Initialize SMS Service (Africa's Talking)
+    try:
+        sms_service = AfricasTalkingSMSService()
+        if sms_service.available:
+            logger.info("SMS service initialized and available")
+        else:
+            logger.warning("SMS service initialized but not available (check credentials)")
+    except Exception as e:
+        logger.error(f"Failed to initialize SMS service: {e}")
+        sms_service = None
+    
     # Initialize Hybrid RAG Pipeline (optional - for enhanced retrieval)
     try:
         if vector_store and rag_pipeline:
@@ -478,6 +489,45 @@ async def get_stats():
         )
 
 
+def save_query_to_chat(session_id: str, query: str, result: Dict, role: str = "user"):
+    """Helper function to save query and response to chat database"""
+    if chat_manager is None or not session_id:
+        return
+    
+    try:
+        # Validate session exists
+        session = chat_manager.get_session(session_id)
+        if not session:
+            logger.warning(f"Session {session_id} not found, skipping message save")
+            return
+        
+        # Save user message
+        user_msg_id = chat_manager.add_message(
+            session_id=session_id,
+            content=query,
+            role="user"
+        )
+        
+        # Save assistant response
+        assistant_msg_id = chat_manager.add_message(
+            session_id=session_id,
+            content=result.get("answer", ""),
+            role="assistant",
+            token_count=result.get("retrieved_chunks", 0),
+            model_used=result.get("model_used", "unknown"),
+            sources=result.get("sources", [])
+        )
+        
+        # Generate session title if needed
+        if not session.title:
+            title = chat_manager.generate_session_title(session_id)
+            chat_manager.update_session_title(session_id, title)
+        
+        logger.debug(f"Saved query to chat session {session_id}")
+    except Exception as e:
+        logger.warning(f"Failed to save query to chat: {e}")
+
+
 @app.post("/query", response_model=QueryResponse, tags=["Query"])
 async def query(request: QueryRequest):
     """
@@ -500,7 +550,12 @@ async def query(request: QueryRequest):
             source=request.source,
             temperature=request.temperature,
             max_tokens=request.max_tokens,
+            session_id=request.session_id
         )
+        
+        # Save to chat if session_id provided
+        if request.session_id:
+            save_query_to_chat(request.session_id, request.query, result)
         
         # Format sources
         sources = [Source(**src) for src in result["sources"]]
@@ -549,6 +604,10 @@ async def query_stream(request: QueryRequest):
         
         if not result.get("stream", False):
             # Fallback to regular response
+            # Save to chat if session_id provided
+            if request.session_id:
+                save_query_to_chat(request.session_id, request.query, result)
+            
             sources = [Source(**src) for src in result["sources"]]
             return QueryResponse(
                 answer=result["answer"],
@@ -562,6 +621,7 @@ async def query_stream(request: QueryRequest):
         from fastapi.responses import StreamingResponse
         
         async def generate():
+            full_answer = ""
             try:
                 answer_stream = result["answer_stream"]
                 
@@ -570,13 +630,16 @@ async def query_stream(request: QueryRequest):
                     async for chunk in answer_stream:
                         if chunk.choices and chunk.choices[0].delta.content:
                             content = chunk.choices[0].delta.content
+                            full_answer += content
                             yield f"data: {content}\n\n"
                 
                 elif rag_pipeline.llm_provider == "anthropic":
                     # Anthropic streaming
                     async for chunk in answer_stream:
                         if chunk.type == "content_block_delta" and chunk.delta.text:
-                            yield f"data: {chunk.delta.text}\n\n"
+                            text = chunk.delta.text
+                            full_answer += text
+                            yield f"data: {text}\n\n"
                 
                 # Send sources at the end
                 sources_data = {
@@ -586,6 +649,11 @@ async def query_stream(request: QueryRequest):
                     "model_used": result["model_used"],
                 }
                 yield f"data: [DONE]{json.dumps(sources_data)}\n\n"
+                
+                # Save to chat if session_id provided
+                if request.session_id and full_answer:
+                    result["answer"] = full_answer
+                    save_query_to_chat(request.session_id, request.query, result)
                 
             except Exception as e:
                 logger.error(f"Error in streaming: {e}")
@@ -605,7 +673,20 @@ async def query_stream(request: QueryRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# Hybrid RAG Pipeline Endpoints
+# Global variables (initialized in lifespan)
+vector_store = None
+rag_pipeline = None
+alignment_pipeline = None
+sms_pipeline = None
+sms_service = None
+metadata_manager = None
+chat_manager = None
+crawler_manager = None
+research_module = None
+agentic_research_module = None
+report_generator = None
+config_manager = None
+notification_service = None
 hybrid_rag_pipeline = None
 autocomplete_tool = None
 
@@ -631,6 +712,10 @@ async def query_hybrid(request: QueryRequest):
             use_hybrid=True,
             use_adaptive=True
         )
+        
+        # Save to chat if session_id provided
+        if request.session_id:
+            save_query_to_chat(request.session_id, request.query, result)
         
         sources = [Source(**src) for src in result["sources"]]
         return QueryResponse(
@@ -725,6 +810,10 @@ async def stream_query(request: QueryRequest):
         
         if not result.get("stream", False):
             # Fallback to regular response
+            # Save to chat if session_id provided
+            if request.session_id:
+                save_query_to_chat(request.session_id, request.query, result)
+            
             sources = [Source(**src) for src in result["sources"]]
             return QueryResponse(
                 answer=result.get("answer", ""),
@@ -738,6 +827,7 @@ async def stream_query(request: QueryRequest):
         from fastapi.responses import StreamingResponse
         
         async def generate():
+            full_answer = ""
             try:
                 answer_stream = result["answer_stream"]
                 
@@ -752,6 +842,7 @@ async def stream_query(request: QueryRequest):
                     for chunk in answer_stream:
                         if chunk.choices and chunk.choices[0].delta.content:
                             content = chunk.choices[0].delta.content
+                            full_answer += content
                             yield f"data: {content}\n\n"
                             # Yield control to event loop periodically
                             await asyncio.sleep(0)
@@ -760,7 +851,9 @@ async def stream_query(request: QueryRequest):
                     # Iterate synchronously but yield asynchronously
                     for chunk in answer_stream:
                         if chunk.type == "content_block_delta" and chunk.delta.text:
-                            yield f"data: {chunk.delta.text}\n\n"
+                            text = chunk.delta.text
+                            full_answer += text
+                            yield f"data: {text}\n\n"
                             # Yield control to event loop periodically
                             await asyncio.sleep(0)
                 
@@ -773,6 +866,11 @@ async def stream_query(request: QueryRequest):
                     "hybrid_used": result.get("hybrid_used", False)
                 }
                 yield f"data: [DONE]{json.dumps(sources_data)}\n\n"
+                
+                # Save to chat if session_id provided
+                if request.session_id and full_answer:
+                    result["answer"] = full_answer
+                    save_query_to_chat(request.session_id, request.query, result)
                 
             except Exception as e:
                 logger.error(f"Error in streaming: {e}")
@@ -1136,8 +1234,7 @@ async def add_chat_message(session_id: str, message: ChatMessageCreate):
                     top_k=3,  # Reduced for faster chat responses
                     max_tokens=1000,  # Shorter responses for chat
                     max_context_length=2000,  # Smaller context for chat
-                    temperature=0.7,
-                    session_id=session_id  # Include session for document context
+                    temperature=0.7
                 )
                 
                 # Process attachments if provided
@@ -1461,13 +1558,7 @@ async def add_feedback(feedback: FeedbackCreate):
         raise HTTPException(status_code=503, detail="Chat service not initialized")
     
     try:
-        # Check if the message exists (optional, for logging)
-        with chat_manager.get_db_session() as db:
-            message = db.query(ChatMessage).filter(ChatMessage.id == feedback.message_id).first()
-            if not message:
-                logger.warning(f"Message {feedback.message_id} not found in database, but feedback submitted anyway")
-            # Proceed with adding feedback regardless
-        
+        # Validate message exists (add_feedback will also check, but we can provide better error here)
         feedback_id = chat_manager.add_feedback(
             message_id=feedback.message_id,
             feedback_type=feedback.feedback_type,
@@ -1482,6 +1573,10 @@ async def add_feedback(feedback: FeedbackCreate):
             comment=feedback.comment,
             created_at=datetime.utcnow()
         )
+    except ValueError as e:
+        # Message not found
+        logger.warning(f"Feedback rejected: {e}")
+        raise HTTPException(status_code=404, detail=str(e))
     except HTTPException:
         raise
     except Exception as e:
@@ -2026,11 +2121,27 @@ async def send_sms_manual(phone_number: str, message: str):
                 "cost": result.get("cost")
             }
         else:
-            raise HTTPException(status_code=500, detail=result.get("error"))
+            error_msg = result.get("error", "Unknown error")
+            logger.error(f"Failed to send SMS: {error_msg}")
+            # Check if it's an SSL/network error
+            if "SSL" in str(error_msg) or "Connection" in str(error_msg):
+                raise HTTPException(
+                    status_code=503,
+                    detail=f"Network error connecting to SMS service: {error_msg}. This may be due to proxy/firewall settings."
+                )
+            raise HTTPException(status_code=500, detail=f"Failed to send SMS: {error_msg}")
             
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error sending manual SMS: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        error_str = str(e)
+        if "SSL" in error_str or "Connection" in error_str:
+            raise HTTPException(
+                status_code=503,
+                detail=f"Network error: {error_str}. Check proxy/firewall settings."
+            )
+        raise HTTPException(status_code=500, detail=f"Internal error: {error_str}")
 
 
 @app.get("/sms-query", tags=["SMS Gateway"])
@@ -2077,7 +2188,8 @@ async def sms_query_preview(query: str, language: str = "en"):
 @app.post("/research/analyze-legal-query", tags=["Research"])
 async def analyze_legal_query(
     query: str = Form(...),
-    context: Optional[str] = Form(None)
+    context: Optional[str] = Form(None),
+    session_id: Optional[str] = Form(None)
 ):
     """
     Analyze a legal query about Kenya's laws using Gemini AI
@@ -2088,6 +2200,7 @@ async def analyze_legal_query(
     **Parameters:**
     - query: The legal question or query to analyze
     - context: Optional additional context about the query (JSON string)
+    - session_id: Optional chat session ID to save messages
 
     **Returns:**
     - Comprehensive legal analysis covering applicable laws, legal reasoning, and practical guidance
@@ -2115,6 +2228,17 @@ async def analyze_legal_query(
 
         if "error" in result:
             raise HTTPException(status_code=500, detail=result["error"])
+
+        # Save to chat if session_id provided
+        if session_id:
+            # Format result for chat saving
+            chat_result = {
+                "answer": result.get("analysis", result.get("summary", str(result))),
+                "sources": result.get("sources", []),
+                "retrieved_chunks": result.get("chunks_used", 0),
+                "model_used": result.get("model_used", "gemini")
+            }
+            save_query_to_chat(session_id, query, chat_result)
 
         return result
 
@@ -2169,7 +2293,8 @@ async def generate_legal_report(
 @app.post("/research/legal-research", tags=["Research"])
 async def conduct_legal_research(
     legal_topics: str = Form(...),
-    research_questions: str = Form(...)
+    research_questions: str = Form(...),
+    session_id: Optional[str] = Form(None)
 ):
     """
     Conduct legal research on specific topics related to Kenya's laws
@@ -2177,6 +2302,7 @@ async def conduct_legal_research(
     **Parameters:**
     - legal_topics: JSON string array of legal topics to research
     - research_questions: JSON string array of specific research questions
+    - session_id: Optional chat session ID to save messages
 
     **Returns:**
     - Legal research findings with analysis of Kenyan laws and practical guidance
@@ -2199,6 +2325,18 @@ async def conduct_legal_research(
 
         if "error" in result:
             raise HTTPException(status_code=500, detail=result["error"])
+
+        # Save to chat if session_id provided
+        if session_id:
+            # Format query and result for chat saving
+            query_text = f"Research on topics: {', '.join(topics)}. Questions: {', '.join(questions)}"
+            chat_result = {
+                "answer": result.get("summary", result.get("findings", str(result))),
+                "sources": result.get("sources", []),
+                "retrieved_chunks": result.get("chunks_used", 0),
+                "model_used": result.get("model_used", "gemini")
+            }
+            save_query_to_chat(session_id, query_text, chat_result)
 
         return result
 

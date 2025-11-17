@@ -14,6 +14,7 @@ class QueryRequest(BaseModel):
     include_sources: bool = Field(True, description="Include source citations")
     temperature: float = Field(0.7, description="LLM temperature", ge=0.0, le=2.0)
     max_tokens: int = Field(1500, description="Maximum tokens in response", ge=100, le=4000)
+    session_id: Optional[str] = Field(None, description="Optional chat session ID to save messages")
 
 
 class Source(BaseModel):

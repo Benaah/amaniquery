@@ -6,6 +6,7 @@ import {
   ScrollView,
   TouchableOpacity,
 } from 'react-native';
+import Icon from 'react-native-vector-icons/Ionicons';
 import {useNavigation} from '@react-navigation/native';
 
 export const HomeScreen: React.FC = () => {
@@ -16,7 +17,7 @@ export const HomeScreen: React.FC = () => {
       id: 'chat',
       title: 'Chat',
       description: 'Query the legal knowledge base with AI-powered responses',
-      icon: '💬',
+      icon: 'chatbubbles',
       route: 'Chat',
       color: '#007AFF',
     },
@@ -24,7 +25,7 @@ export const HomeScreen: React.FC = () => {
       id: 'voice',
       title: 'Voice Agent',
       description: 'Real-time voice conversations with the AI assistant',
-      icon: '🎤',
+      icon: 'mic',
       route: 'Voice',
       color: '#28A745',
     },
@@ -32,7 +33,7 @@ export const HomeScreen: React.FC = () => {
       id: 'notifications',
       title: 'Notifications',
       description: 'Subscribe to news updates via SMS or WhatsApp',
-      icon: '🔔',
+      icon: 'notifications',
       route: 'Notifications',
       color: '#FFC107',
     },
@@ -59,7 +60,12 @@ export const HomeScreen: React.FC = () => {
             style={[styles.featureCard, {borderLeftColor: feature.color}]}
             onPress={() => navigation.navigate(feature.route)}>
             <View style={styles.featureHeader}>
-              <Text style={styles.featureIcon}>{feature.icon}</Text>
+              <Icon
+                name={feature.icon}
+                size={24}
+                color={feature.color}
+                style={styles.featureIcon}
+              />
               <Text style={styles.featureTitle}>{feature.title}</Text>
             </View>
             <Text style={styles.featureDescription}>{feature.description}</Text>
@@ -126,7 +132,6 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   featureIcon: {
-    fontSize: 24,
     marginRight: 12,
   },
   featureTitle: {

@@ -8,7 +8,7 @@ interface MarkdownRendererProps {
 
 export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
   content,
-}) => {
+}: MarkdownRendererProps) => {
   return (
     <Markdown style={markdownStyles} mergeStyle={false}>
       {content}

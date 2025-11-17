@@ -1,5 +1,5 @@
 import React from 'react';
-import {Text} from 'react-native';
+import Icon from 'react-native-vector-icons/Ionicons';
 import {NavigationContainer} from '@react-navigation/native';
 import {createBottomTabNavigator} from '@react-navigation/bottom-tabs';
 import {createStackNavigator} from '@react-navigation/stack';
@@ -29,7 +29,9 @@ const MainTabs = () => {
         component={HomeScreen}
         options={{
           tabBarLabel: 'Home',
-          tabBarIcon: ({color}) => <Text style={{color, fontSize: 20}}>🏠</Text>,
+          tabBarIcon: ({color, size}) => (
+            <Icon name="home" size={size || 24} color={color} />
+          ),
         }}
       />
       <Tab.Screen
@@ -37,7 +39,9 @@ const MainTabs = () => {
         component={ChatScreen}
         options={{
           tabBarLabel: 'Chat',
-          tabBarIcon: ({color}) => <Text style={{color, fontSize: 20}}>💬</Text>,
+          tabBarIcon: ({color, size}) => (
+            <Icon name="chatbubbles" size={size || 24} color={color} />
+          ),
         }}
       />
       <Tab.Screen
@@ -45,7 +49,9 @@ const MainTabs = () => {
         component={VoiceScreen}
         options={{
           tabBarLabel: 'Voice',
-          tabBarIcon: ({color}) => <Text style={{color, fontSize: 20}}>🎤</Text>,
+          tabBarIcon: ({color, size}) => (
+            <Icon name="mic" size={size || 24} color={color} />
+          ),
         }}
       />
       <Tab.Screen
@@ -53,7 +59,9 @@ const MainTabs = () => {
         component={NotificationsScreen}
         options={{
           tabBarLabel: 'Notifications',
-          tabBarIcon: ({color}) => <Text style={{color, fontSize: 20}}>🔔</Text>,
+          tabBarIcon: ({color, size}) => (
+            <Icon name="notifications" size={size || 24} color={color} />
+          ),
         }}
       />
     </Tab.Navigator>

@@ -1,5 +1,6 @@
 import React from 'react';
 import {View, TouchableOpacity, Text, StyleSheet} from 'react-native';
+import Icon from 'react-native-vector-icons/Ionicons';
 
 interface VoiceControlsProps {
   isConnected: boolean;
@@ -20,13 +21,25 @@ export const VoiceControls: React.FC<VoiceControlsProps> = ({
         style={[styles.button, isMuted ? styles.mutedButton : styles.unmutedButton]}
         onPress={onToggleMute}
         disabled={!isConnected}>
-        <Text style={styles.buttonText}>{isMuted ? '🔇 Unmute' : '🎤 Mute'}</Text>
+        <Icon
+          name={isMuted ? 'mic-off' : 'mic'}
+          size={20}
+          color="#FFFFFF"
+          style={styles.buttonIcon}
+        />
+        <Text style={styles.buttonText}>{isMuted ? 'Unmute' : 'Mute'}</Text>
       </TouchableOpacity>
 
       <TouchableOpacity
         style={[styles.button, styles.disconnectButton]}
         onPress={onDisconnect}
         disabled={!isConnected}>
+        <Icon
+          name="close-circle"
+          size={20}
+          color="#FFFFFF"
+          style={styles.buttonIcon}
+        />
         <Text style={styles.buttonText}>Disconnect</Text>
       </TouchableOpacity>
     </View>
@@ -48,6 +61,11 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     minWidth: 120,
     alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+  },
+  buttonIcon: {
+    marginRight: 8,
   },
   unmutedButton: {
     backgroundColor: '#28A745',

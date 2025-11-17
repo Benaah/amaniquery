@@ -4,8 +4,7 @@ Database Models for Notification Subscriptions
 from datetime import datetime, time
 from typing import Optional, List
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, Boolean, JSON, Time, Index
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import sessionmaker, declarative_base
 from pydantic import BaseModel
 
 Base = declarative_base()

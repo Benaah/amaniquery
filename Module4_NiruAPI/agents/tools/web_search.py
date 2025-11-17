@@ -5,10 +5,15 @@ from typing import Dict, Any, List, Optional
 from loguru import logger
 
 try:
-    from duckduckgo_search import DDGS
+    # Try new package name first (ddgs)
+    from ddgs import DDGS
 except ImportError:
-    DDGS = None
-    logger.warning("duckduckgo-search not installed. Install with: pip install duckduckgo-search")
+    try:
+        # Fallback to old package name for backwards compatibility
+        from duckduckgo_search import DDGS
+    except ImportError:
+        DDGS = None
+        logger.warning("ddgs package not installed. Install with: pip install ddgs")
 
 
 class WebSearchTool:

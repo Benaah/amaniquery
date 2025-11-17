@@ -4,8 +4,7 @@ Database Models for Chat Sessions, Messages, and Feedback
 from datetime import datetime
 from typing import Optional, List
 from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, Boolean, Float, ForeignKey, JSON
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import relationship, sessionmaker
+from sqlalchemy.orm import relationship, sessionmaker, declarative_base
 from pydantic import BaseModel
 
 Base = declarative_base()

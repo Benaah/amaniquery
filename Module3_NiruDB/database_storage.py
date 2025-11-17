@@ -8,8 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from loguru import logger
 from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, JSON, Boolean, LargeBinary
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy.orm import sessionmaker, Session, declarative_base
 
 Base = declarative_base()
 

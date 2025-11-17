@@ -45,6 +45,7 @@ def start_voice_agent():
     import asyncio
     import time
     
+    loop = None
     try:
         logger.info("🎤 Initializing Voice Agent...")
         from livekit.agents import cli, WorkerOptions
@@ -72,6 +73,22 @@ def start_voice_agent():
         logger.error(f"❌ Failed to start voice agent: {e}")
         import traceback
         logger.error(traceback.format_exc())
+    finally:
+        # Properly close the event loop to prevent ResourceWarning
+        if loop is not None and not loop.is_closed():
+            try:
+                # Cancel all pending tasks
+                pending = asyncio.all_tasks(loop)
+                for task in pending:
+                    task.cancel()
+                # Run until all tasks are cancelled
+                if pending:
+                    loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+            except Exception:
+                pass
+            finally:
+                loop.close()
+                logger.debug("Voice agent event loop closed")
 
 
 def start_api():

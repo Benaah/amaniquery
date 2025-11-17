@@ -2,9 +2,23 @@
 Text Chunker using LangChain's RecursiveCharacterTextSplitter
 """
 from typing import List, Dict
-from langchain.text_splitter import RecursiveCharacterTextSplitter
 from loguru import logger
 import hashlib
+
+# Try different import paths for langchain text splitter (version compatibility)
+try:
+    from langchain_text_splitters import RecursiveCharacterTextSplitter
+except ImportError:
+    try:
+        from langchain.text_splitter import RecursiveCharacterTextSplitter
+    except ImportError:
+        try:
+            from langchain_community.text_splitter import RecursiveCharacterTextSplitter
+        except ImportError:
+            raise ImportError(
+                "RecursiveCharacterTextSplitter not found. "
+                "Install with: pip install langchain-text-splitters or langchain"
+            )
 
 
 class TextChunker:

@@ -27,14 +27,14 @@ def register_livekit_plugins():
         logger.info("🔌 Registering LiveKit plugins...")
         # Import plugins on main thread to register them
         from livekit.plugins import openai, silero
-        logger.info("✅ LiveKit plugins registered (openai, silero)")
+        logger.info("✔ LiveKit plugins registered (openai, silero)")
         return True
     except ImportError as e:
         logger.warning(f"⚠️  Could not register some LiveKit plugins: {e}")
         logger.warning("   Some features may not be available")
         return False
     except Exception as e:
-        logger.error(f"❌ Failed to register LiveKit plugins: {e}")
+        logger.error(f"✗ Failed to register LiveKit plugins: {e}")
         import traceback
         logger.debug(traceback.format_exc())
         return False
@@ -51,7 +51,7 @@ def start_voice_agent():
         from livekit.agents import cli, WorkerOptions
         from Module6_NiruVoice.voice_agent import entrypoint
         
-        logger.info("✅ Voice agent imports successful")
+        logger.info("✔ Voice agent imports successful")
         
         # Create a new event loop for this thread (isolated from main thread)
         loop = asyncio.new_event_loop()
@@ -63,14 +63,14 @@ def start_voice_agent():
         # Run the agent in the isolated event loop
         cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint))
     except ImportError as e:
-        logger.error(f"❌ Voice agent dependencies not available: {e}")
+        logger.error(f"✗ Voice agent dependencies not available: {e}")
         logger.error("   Install with: pip install -r Module6_NiruVoice/requirements.txt")
         import traceback
         logger.error(traceback.format_exc())
     except KeyboardInterrupt:
         logger.info("Voice agent interrupted")
     except Exception as e:
-        logger.error(f"❌ Failed to start voice agent: {e}")
+        logger.error(f"✗ Failed to start voice agent: {e}")
         import traceback
         logger.error(traceback.format_exc())
     finally:
@@ -96,7 +96,7 @@ def start_api():
     try:
         import uvicorn
     except ImportError:
-        logger.error("❌ uvicorn not found. Please install it with: pip install uvicorn")
+        logger.error("✗ uvicorn not found. Please install it with: pip install uvicorn")
         return False
 
     # Get configuration
@@ -129,7 +129,7 @@ def start_api():
         logger.info("\n👋 API server stopped")
         return True
     except Exception as e:
-        logger.error(f"❌ Failed to start API server: {e}")
+        logger.error(f"✗ Failed to start API server: {e}")
         return False
 
 
@@ -148,9 +148,9 @@ def main():
     # Log voice agent configuration status
     print("\n🎤 Voice Agent Configuration:")
     print(f"   Enabled: {enable_voice}")
-    print(f"   LIVEKIT_URL: {'✅ Set' if livekit_url else '❌ Not set'}")
-    print(f"   LIVEKIT_API_KEY: {'✅ Set' if livekit_api_key else '❌ Not set'}")
-    print(f"   LIVEKIT_API_SECRET: {'✅ Set' if livekit_api_secret else '❌ Not set'}")
+    print(f"   LIVEKIT_URL: {'✔ Set' if livekit_url else '✗ Not set'}")
+    print(f"   LIVEKIT_API_KEY: {'✔ Set' if livekit_api_key else '✗ Not set'}")
+    print(f"   LIVEKIT_API_SECRET: {'✔ Set' if livekit_api_secret else '✗ Not set'}")
     
     if enable_voice and livekit_url and livekit_api_key and livekit_api_secret:
         # Register plugins on main thread BEFORE starting agent thread
@@ -166,15 +166,15 @@ def main():
             name="VoiceAgent"
         )
         voice_thread.start()
-        logger.info("✅ Voice agent thread started")
+        logger.info("✔ Voice agent thread started")
         
         # Give the thread a moment to initialize and check if it's still alive
         import time
         time.sleep(1.0)
         if voice_thread.is_alive():
-            logger.info("✅ Voice agent thread is running")
+            logger.info("✔ Voice agent thread is running")
         else:
-            logger.error("❌ Voice agent thread died immediately - check logs above for errors")
+            logger.error("✗ Voice agent thread died immediately - check logs above for errors")
     else:
         if enable_voice:
             logger.warning("⚠️  Voice agent disabled: Missing required LiveKit credentials")
@@ -198,7 +198,7 @@ def main():
         logger.info("\n👋 Shutting down services...")
         return 0
     except Exception as e:
-        logger.error(f"❌ Failed to start services: {e}")
+        logger.error(f"✗ Failed to start services: {e}")
         return 1
 
 

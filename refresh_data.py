@@ -59,10 +59,10 @@ def run_command(module_path, description, python_exe):
             cwd=project_root,
             check=True
         )
-        print(f"✅ {description} completed successfully")
+        print(f"✔ {description} completed successfully")
         return True
     except subprocess.CalledProcessError as e:
-        print(f"❌ {description} failed with exit code {e.returncode}")
+        print(f"✗ {description} failed with exit code {e.returncode}")
         logger.error(f"Error running {module_path}: {e}")
         return False
     except KeyboardInterrupt:
@@ -81,7 +81,7 @@ def main():
     
     print(f"\n🐍 Python interpreter: {python_exe}")
     if venv_name != "system":
-        print(f"✅ Using virtual environment: {venv_name}")
+        print(f"✔Using virtual environment: {venv_name}")
     else:
         print("⚠️  No virtual environment detected - using system Python")
         print("   Consider activating venv first:")
@@ -101,23 +101,23 @@ def main():
     
     # Step 1: Crawl data
     if not run_command("Module1_NiruSpider.crawl_all", "Step 1: Crawling Data", python_exe):
-        print("\n❌ Crawling failed. Stopping pipeline.")
+        print("\n✗ Crawling failed. Stopping pipeline.")
         return 1
     
     # Step 2: Process data
     if not run_command("Module2_NiruParser.process_all", "Step 2: Processing Data", python_exe):
-        print("\n❌ Processing failed. Stopping pipeline.")
+        print("\n✗ Processing failed. Stopping pipeline.")
         return 1
     
     # Step 3: Populate vector databases
     if not run_command("Module3_NiruDB.populate_db", "Step 3: Populating Vector Databases", python_exe):
-        print("\n❌ Database population failed.")
+        print("\n✗ Database population failed.")
         return 1
     
     print("\n" + "=" * 60)
     print("🎉 Data Refresh Complete!")
     print("=" * 60)
-    print("\n✅ All steps completed successfully")
+    print("\n✔ All steps completed successfully")
     print("📊 Your databases are now populated with fresh data")
     print("\nYou can now start the API server:")
     print("   python start_api.py")

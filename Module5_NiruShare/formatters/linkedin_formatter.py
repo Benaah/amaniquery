@@ -91,10 +91,10 @@ class LinkedInFormatter(BaseFormatter):
         }
     
     def _create_opening(self, query: Optional[str]) -> str:
-        """Create professional opening"""
+        """Create professional opening (more natural)"""
         if query:
-            return f"💡 Question: {query}\n\n📊 Analysis:"
-        return "📊 Key Insights from AmaniQuery:"
+            return f"Question: {query}\n\nHere's what I found:"
+        return "Key insights:"
     
     def _format_content(self, answer: str) -> str:
         """Format main content with proper structure"""
@@ -116,7 +116,7 @@ class LinkedInFormatter(BaseFormatter):
         if not key_points:
             return ""
         
-        insights = "🔑 Key Takeaways:\n"
+        insights = "Key takeaways:\n"
         for i, point in enumerate(key_points, 1):
             # Truncate each point
             point = self._truncate_smart(point, 150, suffix="...")
@@ -129,7 +129,7 @@ class LinkedInFormatter(BaseFormatter):
         if not sources:
             return ""
         
-        sources_parts = ["📚 References:"]
+        sources_parts = ["References:"]
         
         for i, source in enumerate(sources[:5], 1):
             if not isinstance(source, dict):
@@ -140,17 +140,17 @@ class LinkedInFormatter(BaseFormatter):
             source_name = str(source.get('source_name', '')).strip()
             category = str(source.get('category', '')).strip()
             
-            # LinkedIn format with category
+            # LinkedIn format with category (more natural)
             if category:
-                sources_parts.append(f"{i}. {title} [{category}]")
+                sources_parts.append(f"{i}. {title} ({category})")
             else:
                 sources_parts.append(f"{i}. {title}")
             
             if source_name:
-                sources_parts.append(f"   Source: {source_name}")
+                sources_parts.append(f"   {source_name}")
             if url:
-                sources_parts.append(f"   Link: {url}")
+                sources_parts.append(f"   {url}")
         
-        sources_parts.append("\n🤖 Powered by AmaniQuery - RAG for Kenyan Intelligence")
+        sources_parts.append("\nPowered by AmaniQuery")
         
         return "\n".join(sources_parts).strip()

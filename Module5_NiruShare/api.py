@@ -23,6 +23,9 @@ from Module5_NiruShare.models import (
     AuthRequest,
     AuthResponse,
     AuthCallbackRequest,
+    ImageGenerationRequest,
+    ImageGenerationFromPostRequest,
+    ImageGenerationResponse,
 )
 
 # Create router
@@ -59,6 +62,7 @@ async def format_for_platform(request: FormatRequest):
             platform=request.platform,
             query=request.query,
             include_hashtags=request.include_hashtags,
+            style=request.style,
         )
         
         return FormatResponse(
@@ -151,13 +155,10 @@ async def preview_all_platforms(request: PreviewRequest):
             answer=request.answer,
             sources=request.sources or [],
             query=request.query,
+            style=request.style,
         )
         
-        return PreviewResponse(
-            twitter=previews.get("twitter", {}),
-            linkedin=previews.get("linkedin", {}),
-            facebook=previews.get("facebook", {}),
-        )
+        return PreviewResponse(platforms=previews)
         
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -168,31 +169,8 @@ async def preview_all_platforms(request: PreviewRequest):
 @router.get("/platforms")
 async def get_supported_platforms():
     """Get list of supported platforms"""
-    return {
-        "platforms": [
-            {
-                "name": "twitter",
-                "display_name": "X (Twitter)",
-                "char_limit": 280,
-                "supports_threads": True,
-                "posting_supported": False,  # Not yet implemented
-            },
-            {
-                "name": "linkedin",
-                "display_name": "LinkedIn",
-                "char_limit": 3000,
-                "supports_threads": False,
-                "posting_supported": True,
-            },
-            {
-                "name": "facebook",
-                "display_name": "Facebook",
-                "char_limit": None,
-                "supports_threads": False,
-                "posting_supported": True,
-            },
-        ]
-    }
+    platforms = share_service.get_supported_platforms()
+    return {"platforms": platforms}
 
 
 @router.post("/stats")
@@ -282,6 +260,68 @@ async def authenticate_platform(request: AuthRequest):
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error initiating auth: {str(e)}")
+
+
+@router.post("/generate-image", response_model=ImageGenerationResponse)
+async def generate_image(request: ImageGenerationRequest):
+    """
+    Generate an image from text content
+    
+    **Example:**
+    ```json
+    {
+      "text": "The Kenyan Constitution protects freedom of expression...",
+      "title": "Constitutional Rights",
+      "color_scheme": "professional",
+      "format": "PNG"
+    }
+    ```
+    """
+    try:
+        result = share_service.generate_image(
+            text=request.text,
+            title=request.title,
+            color_scheme=request.color_scheme,
+            width=request.width,
+            height=request.height,
+            format=request.format,
+        )
+        return ImageGenerationResponse(**result)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generating image: {str(e)}")
+
+
+@router.post("/generate-image-from-post", response_model=ImageGenerationResponse)
+async def generate_image_from_post(request: ImageGenerationFromPostRequest):
+    """
+    Generate an image from formatted post content
+    
+    **Example:**
+    ```json
+    {
+      "post_content": "Check out this insight from AmaniQuery! #Kenya",
+      "query": "What does the Constitution say?",
+      "color_scheme": "default",
+      "format": "PNG"
+    }
+    ```
+    """
+    try:
+        result = share_service.generate_image_from_post(
+            post_content=request.post_content,
+            query=request.query,
+            color_scheme=request.color_scheme,
+            width=request.width,
+            height=request.height,
+            format=request.format,
+        )
+        return ImageGenerationResponse(**result)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generating image: {str(e)}")
 
 
 @router.post("/auth/callback", response_model=AuthResponse)

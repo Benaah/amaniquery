@@ -65,24 +65,24 @@ class TwitterFormatter(BaseFormatter):
         query: Optional[str] = None
     ) -> str:
         """Format as single tweet"""
-        # Reserve space for hashtags and source link
+        # Reserve space for source link (more natural)
         source_link = ""
         if sources and isinstance(sources[0], dict):
             url = sources[0].get('url', '')
             if url:
-                # Use full URL or truncate properly - Twitter will auto-shorten
-                source_link = f"\n\n🔗 {url}"
+                # More natural link format
+                source_link = f"\n\n{url}"
         
         # Calculate available space more accurately
         base_space = self.SINGLE_TWEET_LIMIT
         base_space -= len(hashtag_text)
         base_space -= len(source_link)
         
-        # Add query if provided
+        # Add query if provided 
         prefix = ""
         if query:
             query_text = str(query).strip()
-            prefix = f"Q: {query_text}\n\nA: "
+            prefix = f"{query_text}\n\n"
             base_space -= len(prefix)
         
         # Ensure we have positive space
@@ -113,12 +113,12 @@ class TwitterFormatter(BaseFormatter):
         """Format as Twitter thread"""
         tweets = []
         
-        # First tweet: Query + intro
+        # First tweet: Query + intro (more natural)
         if query:
             query_text = str(query).strip()
-            intro = f"❓ {query_text}\n\n🧵 Thread 👇"
+            intro = f"{query_text}\n\nA thread:"
         else:
-            intro = "🧵 Here's what I found:\n\n👇"
+            intro = "Here's what I found:\n\n"
         
         # Ensure intro fits
         if len(intro) > self.SINGLE_TWEET_LIMIT:
@@ -164,9 +164,9 @@ class TwitterFormatter(BaseFormatter):
             
             tweets.append(tweet)
         
-        # Last tweet: Sources and hashtags
+        # Last tweet: Sources and hashtags (more natural)
         sources_parts = []
-        sources_parts.append("📚 Sources:")
+        sources_parts.append("Sources:")
         
         for i, source in enumerate(sources[:2], 1):
             if not isinstance(source, dict):
@@ -180,8 +180,8 @@ class TwitterFormatter(BaseFormatter):
                 title = title[:37] + "..."
             
             if url:
-                # Twitter will auto-shorten URLs, so we can include full URL
-                sources_parts.append(f"{i}. {title}\n   {url}")
+                # More natural format
+                sources_parts.append(f"{i}. {title} - {url}")
             else:
                 sources_parts.append(f"{i}. {title}")
         

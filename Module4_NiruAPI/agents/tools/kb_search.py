@@ -50,14 +50,16 @@ class KnowledgeBaseSearchTool:
         
         try:
             # Search knowledge base
-            search_results = self.vector_store.search(query, top_k=top_k)
+            search_results = self.vector_store.query(query_text=query, n_results=top_k)
             
             formatted_results = []
             for item in search_results:
+                # Handle different response formats
+                content = item.get('content') or item.get('text') or item.get('document', '')
                 formatted_results.append({
-                    'content': item.get('content', '')[:500],
+                    'content': (content[:500] if isinstance(content, str) else str(content)[:500]),
                     'metadata': item.get('metadata', {}),
-                    'score': item.get('score', 0.0)
+                    'score': item.get('score', item.get('distance', 0.0))
                 })
             
             result['search_results'] = formatted_results

@@ -24,7 +24,15 @@ Create a `.env.local` file in the root directory with:
 
 ```env
 NEXT_PUBLIC_API_URL=http://localhost:8000
+NEXT_PUBLIC_ENABLE_AUTOCOMPLETE=true
 ```
+
+### Available Environment Variables
+
+- `NEXT_PUBLIC_API_URL`: Backend API URL (default: `http://localhost:8000`)
+- `NEXT_PUBLIC_ENABLE_AUTOCOMPLETE`: Enable/disable autocomplete feature (default: `true`)
+  - Set to `"false"` to disable autocomplete suggestions
+  - Set to `"true"` or omit to enable autocomplete
 
 For production, set the `NEXT_PUBLIC_API_URL` environment variable to point to your deployed backend API.
 

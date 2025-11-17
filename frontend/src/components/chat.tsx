@@ -169,6 +169,7 @@ export function Chat() {
   const inputRef = useRef<HTMLInputElement | null>(null)
 
   const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+  const ENABLE_AUTOCOMPLETE = process.env.NEXT_PUBLIC_ENABLE_AUTOCOMPLETE !== "false" // Default to true if not set
 
   const scrollMessagesToBottom = useCallback(
     (behavior: ScrollBehavior = "smooth") => {
@@ -220,9 +221,9 @@ export function Chat() {
     loadChatHistory()
   }, [loadChatHistory])
 
-  // Autocomplete functionality
+  // Autocomplete functionality (only if enabled)
   const fetchAutocomplete = useCallback(async (query: string) => {
-    if (!query.trim() || query.length < 2) {
+    if (!ENABLE_AUTOCOMPLETE || !query.trim() || query.length < 2) {
       setAutocompleteSuggestions([])
       setShowAutocomplete(false)
       return
@@ -243,10 +244,16 @@ export function Chat() {
       setAutocompleteSuggestions([])
       setShowAutocomplete(false)
     }
-  }, [API_BASE_URL])
+  }, [API_BASE_URL, ENABLE_AUTOCOMPLETE])
 
-  // Debounced autocomplete
+  // Debounced autocomplete (only if enabled)
   useEffect(() => {
+    if (!ENABLE_AUTOCOMPLETE) {
+      setAutocompleteSuggestions([])
+      setShowAutocomplete(false)
+      return
+    }
+
     if (autocompleteTimeoutRef.current) {
       clearTimeout(autocompleteTimeoutRef.current)
     }
@@ -265,7 +272,7 @@ export function Chat() {
         clearTimeout(autocompleteTimeoutRef.current)
       }
     }
-  }, [input, fetchAutocomplete])
+  }, [input, fetchAutocomplete, ENABLE_AUTOCOMPLETE])
 
   const createNewSession = async (firstMessage?: string) => {
     // Generate title from first message if provided
@@ -1739,10 +1746,12 @@ ${additionalConsiderations}
                     value={input}
                     onChange={(e) => {
                       setInput(e.target.value)
-                      setShowAutocomplete(true)
+                      if (ENABLE_AUTOCOMPLETE) {
+                        setShowAutocomplete(true)
+                      }
                     }}
                     onFocus={() => {
-                      if (autocompleteSuggestions.length > 0) {
+                      if (ENABLE_AUTOCOMPLETE && autocompleteSuggestions.length > 0) {
                         setShowAutocomplete(true)
                       }
                     }}
@@ -1758,18 +1767,20 @@ ${additionalConsiderations}
                     className="w-full border-0 bg-transparent text-sm md:text-base focus-visible:ring-0 py-2"
                     disabled={isLoading}
                   />
-                  {showAutocomplete && autocompleteSuggestions.length > 0 && (
-                    <div className="absolute top-full left-0 right-0 mt-1 rounded-xl border border-white/10 bg-white/95 backdrop-blur-lg shadow-lg z-50 max-h-60 overflow-y-auto">
+                  {ENABLE_AUTOCOMPLETE && showAutocomplete && autocompleteSuggestions.length > 0 && (
+                    <div className="absolute bottom-full left-0 right-0 mb-1 rounded-xl border border-white/10 bg-white/95 dark:bg-gray-900/95 backdrop-blur-lg shadow-xl z-[100] max-h-60 overflow-y-auto">
                       {autocompleteSuggestions.map((suggestion, idx) => (
                         <button
                           key={idx}
                           type="button"
-                          onClick={() => {
+                          onMouseDown={(e) => {
+                            // Prevent input blur when clicking
+                            e.preventDefault()
                             setInput(suggestion)
                             setShowAutocomplete(false)
                             inputRef.current?.focus()
                           }}
-                          className="w-full px-4 py-2 text-left text-sm hover:bg-primary/10 transition-colors first:rounded-t-xl last:rounded-b-xl"
+                          className="w-full px-4 py-2 text-left text-sm hover:bg-primary/10 dark:hover:bg-primary/20 transition-colors first:rounded-t-xl last:rounded-b-xl text-foreground"
                         >
                           <div className="flex items-center gap-2">
                             <Search className="w-3.5 h-3.5 text-muted-foreground" />

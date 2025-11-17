@@ -59,10 +59,10 @@ class FacebookFormatter(BaseFormatter):
         }
     
     def _create_opening(self, query: Optional[str]) -> str:
-        """Create engaging opening"""
+        """Create engaging opening (more natural)"""
         if query:
-            return f"🤔 Someone asked: \"{query}\"\n\nHere's what we found 👇"
-        return "📢 Did you know? Here's an interesting insight 👇"
+            return f"Someone asked: \"{query}\"\n\nHere's what I found:"
+        return "Here's something interesting:"
     
     def _format_content(self, answer: str) -> str:
         """Format content for Facebook engagement"""
@@ -78,7 +78,7 @@ class FacebookFormatter(BaseFormatter):
                 # Fallback: truncate answer
                 return self._truncate_smart(answer, 800, suffix="...")
             
-            formatted_parts = ["📌 Key Points:"]
+            formatted_parts = ["Key points:"]
             for i, point in enumerate(key_points, 1):
                 # Ensure each point isn't too long
                 point_text = self._truncate_smart(point, 200, suffix="...")
@@ -89,22 +89,22 @@ class FacebookFormatter(BaseFormatter):
             return answer
     
     def _create_cta(self) -> str:
-        """Create call to action"""
+        """Create call to action (more natural)"""
         ctas = [
-            "💬 What do you think? Share your thoughts in the comments!",
-            "👍 Found this helpful? Like and share with your network!",
-            "🔔 Want more insights? Follow for daily updates!",
+            "What do you think? Share your thoughts below.",
+            "Found this helpful? Share it with others!",
+            "Want more insights? Follow for updates.",
         ]
         
         # Return first CTA for consistency
         return ctas[0]
     
     def _format_facebook_sources(self, sources: List[Dict]) -> str:
-        """Format sources for Facebook"""
+        """Format sources for Facebook (more natural)"""
         if not sources:
-            return "📱 Powered by AmaniQuery"
+            return "Powered by AmaniQuery"
         
-        sources_parts = ["📚 Learn more:"]
+        sources_parts = ["Learn more:"]
         
         for i, source in enumerate(sources[:3], 1):
             if not isinstance(source, dict):
@@ -113,10 +113,11 @@ class FacebookFormatter(BaseFormatter):
             title = str(source.get('title', 'Untitled')).strip() or 'Untitled'
             url = str(source.get('url', '')).strip()
             
-            sources_parts.append(f"• {title}")
             if url:
-                sources_parts.append(f"  {url}")
+                sources_parts.append(f"• {title} - {url}")
+            else:
+                sources_parts.append(f"• {title}")
         
-        sources_parts.append("\n📱 Powered by AmaniQuery - Your Kenyan Intelligence Hub")
+        sources_parts.append("\nPowered by AmaniQuery")
         
         return "\n".join(sources_parts).strip()

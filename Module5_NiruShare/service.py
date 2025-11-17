@@ -1,29 +1,74 @@
 """
 Social Media Sharing Service
 """
-from typing import Dict, List, Optional
-from urllib.parse import quote
-import json
+from typing import Dict, List, Optional, Union
 import os
-import requests
 from datetime import datetime
+from functools import lru_cache
+import logging
 
-from .formatters import (
-    TwitterFormatter,
-    LinkedInFormatter,
-    FacebookFormatter,
+from .platforms import (
+    PlatformRegistry,
+    TwitterPlatform,
+    LinkedInPlatform,
+    FacebookPlatform,
+    InstagramPlatform,
+    RedditPlatform,
+    TelegramPlatform,
+    WhatsAppPlatform,
+    MastodonPlatform,
 )
+from .image_generator import ImageGenerator
+from .formatters.natural_formatter import NaturalFormatter
+from .utils.cache import SimpleCache
+
+logger = logging.getLogger(__name__)
 
 
 class ShareService:
-    """Service for social media sharing"""
+    """Service for social media sharing with platform registry and image generation"""
     
-    def __init__(self):
-        self.formatters = {
-            "twitter": TwitterFormatter(),
-            "linkedin": LinkedInFormatter(),
-            "facebook": FacebookFormatter(),
-        }
+    def __init__(self, enable_cache: bool = True, cache_ttl: int = 3600):
+        """
+        Initialize service with platform registry
+        
+        Args:
+            enable_cache: Enable caching for formatted posts
+            cache_ttl: Cache time-to-live in seconds
+        """
+        self.registry = PlatformRegistry()
+        self._register_default_platforms()
+        
+        # Initialize cache
+        self.cache = SimpleCache(default_ttl=cache_ttl) if enable_cache else None
+        
+        # Initialize image generator
+        try:
+            self.image_generator = ImageGenerator()
+        except ImportError:
+            logger.warning("Pillow not available, image generation disabled")
+            self.image_generator = None
+    
+    def _register_default_platforms(self):
+        """Register all default platforms"""
+        platforms = [
+            TwitterPlatform(),
+            LinkedInPlatform(),
+            FacebookPlatform(),
+            InstagramPlatform(),
+            RedditPlatform(),
+            TelegramPlatform(),
+            WhatsAppPlatform(),
+            MastodonPlatform(),
+        ]
+        
+        for platform in platforms:
+            try:
+                self.registry.register(platform)
+                logger.info(f"Registered platform: {platform.get_metadata().name}")
+            except Exception as e:
+                # Log error but continue
+                logger.warning(f"Failed to register platform {platform.__class__.__name__}: {e}")
     
     def format_for_platform(
         self,
@@ -32,6 +77,7 @@ class ShareService:
         platform: str,
         query: Optional[str] = None,
         include_hashtags: bool = True,
+        style: Optional[str] = None,
     ) -> Dict:
         """
         Format response for specific platform
@@ -39,9 +85,10 @@ class ShareService:
         Args:
             answer: The RAG answer
             sources: List of source dictionaries
-            platform: Platform name (twitter, linkedin, facebook)
+            platform: Platform name
             query: Original query
             include_hashtags: Whether to include hashtags
+            style: Formatting style (professional, casual, engaging)
         
         Returns:
             Formatted post with metadata
@@ -56,23 +103,53 @@ class ShareService:
         
         platform = platform.lower().strip()
         
-        if platform not in self.formatters:
-            raise ValueError(f"Unsupported platform: {platform}. Supported: {list(self.formatters.keys())}")
+        # Check cache first
+        if self.cache:
+            cache_key = self.cache._make_key(
+                "format_post", platform, answer, sources, query, include_hashtags, style
+            )
+            cached = self.cache.get(cache_key)
+            if cached is not None:
+                logger.debug(f"Cache hit for platform: {platform}")
+                return cached
+        
+        # Get platform from registry
+        platform_handler = self.registry.get(platform)
+        if not platform_handler:
+            available = ", ".join(self.registry.list_platforms())
+            raise ValueError(f"Unsupported platform: {platform}. Available: {available}")
         
         # Normalize query
         if query is not None:
             query = str(query).strip() if query else None
         
-        formatter = self.formatters[platform]
         try:
-            return formatter.format_post(answer, sources, query, include_hashtags)
+            result = platform_handler.format_post(
+                answer=answer,
+                sources=sources,
+                query=query,
+                include_hashtags=include_hashtags,
+                style=style,
+            )
+            
+            # Cache result
+            if self.cache:
+                cache_key = self.cache._make_key(
+                    "format_post", platform, answer, sources, query, include_hashtags, style
+                )
+                self.cache.set(cache_key, result)
+            
+            return result
+        except ValueError as e:
+            raise
         except Exception as e:
+            logger.error(f"Error formatting post for {platform}: {e}", exc_info=True)
             raise ValueError(f"Error formatting post for {platform}: {str(e)}") from e
     
     def generate_share_link(
         self,
         platform: str,
-        formatted_content: str,
+        formatted_content: Union[str, List[str]],
         url: Optional[str] = None,
     ) -> str:
         """
@@ -94,54 +171,26 @@ class ShareService:
         
         platform = platform.lower().strip()
         
-        if platform == "twitter":
-            return self._generate_twitter_link(formatted_content, url)
-        elif platform == "linkedin":
-            return self._generate_linkedin_link(formatted_content, url)
-        elif platform == "facebook":
-            return self._generate_facebook_link(formatted_content, url)
-        else:
-            raise ValueError(f"Unsupported platform: {platform}")
-    
-    def _generate_twitter_link(self, text: str, url: Optional[str] = None) -> str:
-        """Generate Twitter share link"""
-        # Handle thread case
-        if isinstance(text, list):
-            text = text[0]  # Use first tweet
+        # Get platform from registry
+        platform_handler = self.registry.get(platform)
+        if not platform_handler:
+            available = ", ".join(self.registry.list_platforms())
+            raise ValueError(f"Unsupported platform: {platform}. Available: {available}")
         
-        encoded_text = quote(text)
-        
-        if url:
-            encoded_url = quote(url)
-            return f"https://twitter.com/intent/tweet?text={encoded_text}&url={encoded_url}"
-        else:
-            return f"https://twitter.com/intent/tweet?text={encoded_text}"
-    
-    def _generate_linkedin_link(self, text: str, url: Optional[str] = None) -> str:
-        """Generate LinkedIn share link"""
-        # LinkedIn doesn't support pre-filled text via URL
-        # Return share dialog URL
-        if url:
-            encoded_url = quote(url)
-            return f"https://www.linkedin.com/sharing/share-offsite/?url={encoded_url}"
-        else:
-            # Return general sharing URL
-            return "https://www.linkedin.com/feed/"
-    
-    def _generate_facebook_link(self, text: str, url: Optional[str] = None) -> str:
-        """Generate Facebook share link"""
-        if url:
-            encoded_url = quote(url)
-            return f"https://www.facebook.com/sharer/sharer.php?u={encoded_url}"
-        else:
-            # Return general sharing URL
-            return "https://www.facebook.com/sharer/sharer.php"
+        try:
+            return platform_handler.generate_share_link(
+                content=formatted_content,
+                url=url,
+            )
+        except Exception as e:
+            raise ValueError(f"Error generating share link for {platform}: {str(e)}") from e
     
     def preview_all_platforms(
         self,
         answer: str,
         sources: List[Dict],
         query: Optional[str] = None,
+        style: Optional[str] = None,
     ) -> Dict[str, Dict]:
         """
         Preview formatted posts for all platforms
@@ -157,15 +206,19 @@ class ShareService:
         
         previews = {}
         
-        for platform in self.formatters.keys():
+        for platform_name in self.registry.list_platforms():
             try:
-                previews[platform] = self.format_for_platform(
-                    answer, sources, platform, query
+                previews[platform_name] = self.format_for_platform(
+                    answer=answer,
+                    sources=sources,
+                    platform=platform_name,
+                    query=query,
+                    style=style,
                 )
             except Exception as e:
-                previews[platform] = {
+                previews[platform_name] = {
                     "error": str(e),
-                    "platform": platform,
+                    "platform": platform_name,
                     "status": "error"
                 }
         
@@ -178,7 +231,7 @@ class ShareService:
         
         if isinstance(content, list):
             # Thread
-            total_chars = sum(len(tweet) for tweet in content if tweet)
+            total_chars = sum(len(str(tweet)) for tweet in content if tweet)
             return {
                 "platform": platform,
                 "type": "thread",
@@ -188,7 +241,7 @@ class ShareService:
             }
         else:
             # Single post
-            content_str = content or ""
+            content_str = str(content) if content else ""
             return {
                 "platform": platform,
                 "type": "single",
@@ -200,7 +253,7 @@ class ShareService:
     def post_to_platform(
         self,
         platform: str,
-        content: str,
+        content: Union[str, List[str]],
         access_token: str,
         message_id: Optional[str] = None,
     ) -> Dict:
@@ -208,7 +261,7 @@ class ShareService:
         Post content to a social media platform
         
         Args:
-            platform: Platform name (twitter, linkedin, facebook)
+            platform: Platform name
             content: Content to post
             access_token: OAuth access token
             message_id: Optional chat message ID for tracking
@@ -216,233 +269,167 @@ class ShareService:
         Returns:
             Post result with ID and metadata
         """
-        platform = platform.lower()
+        platform = platform.lower().strip()
         
-        if platform == "twitter":
-            return self._post_to_twitter(content, access_token, message_id)
-        elif platform == "linkedin":
-            return self._post_to_linkedin(content, access_token, message_id)
-        elif platform == "facebook":
-            return self._post_to_facebook(content, access_token, message_id)
-        else:
-            raise ValueError(f"Unsupported platform: {platform}")
-    
-    def _post_to_twitter(self, content: str, access_token: str, message_id: Optional[str] = None) -> Dict:
-        """Post to Twitter/X using API v2"""
+        # Get platform from registry
+        platform_handler = self.registry.get(platform)
+        if not platform_handler:
+            available = ", ".join(self.registry.list_platforms())
+            raise ValueError(f"Unsupported platform: {platform}. Available: {available}")
+        
         try:
-            # Twitter API v2 endpoint
-            url = "https://api.twitter.com/2/tweets"
-            headers = {
-                "Authorization": f"Bearer {access_token}",
-                "Content-Type": "application/json",
-            }
-            data = {"text": content}
-            
-            response = requests.post(url, headers=headers, json=data)
-            response.raise_for_status()
-            
-            result = response.json()
-            tweet_id = result["data"]["id"]
-            
+            return platform_handler.post_to_platform(
+                content=content,
+                access_token=access_token,
+                message_id=message_id,
+            )
+        except NotImplementedError as e:
             return {
-                "platform": "twitter",
-                "post_id": tweet_id,
-                "status": "success",
-                "message": "Tweet posted successfully",
-                "url": f"https://twitter.com/i/web/status/{tweet_id}",
-                "metadata": {
-                    "message_id": message_id,
-                    "posted_at": datetime.utcnow().isoformat(),
-                }
-            }
-        except requests.exceptions.RequestException as e:
-            return {
-                "platform": "twitter",
+                "platform": platform,
                 "status": "error",
-                "message": f"Failed to post to Twitter: {str(e)}",
+                "message": str(e),
+                "metadata": {"message_id": message_id}
+            }
+        except Exception as e:
+            return {
+                "platform": platform,
+                "status": "error",
+                "message": f"Failed to post: {str(e)}",
                 "metadata": {"message_id": message_id}
             }
     
-    def _post_to_linkedin(self, content: str, access_token: str, message_id: Optional[str] = None) -> Dict:
-        """Post to LinkedIn"""
+    def get_auth_url(self, platform: str, redirect_uri: Optional[str] = None) -> Dict:
+        """
+        Get OAuth authorization URL for a platform
+        
+        Args:
+            platform: Platform name
+            redirect_uri: Optional redirect URI
+        
+        Returns:
+            Dictionary with auth_url and metadata
+        """
+        platform = platform.lower().strip()
+        
+        # Get platform from registry
+        platform_handler = self.registry.get(platform)
+        if not platform_handler:
+            available = ", ".join(self.registry.list_platforms())
+            raise ValueError(f"Unsupported platform: {platform}. Available: {available}")
+        
+        return platform_handler.get_auth_url(redirect_uri=redirect_uri)
+    
+    def generate_image(
+        self,
+        text: str,
+        title: Optional[str] = None,
+        color_scheme: str = "default",
+        width: Optional[int] = None,
+        height: Optional[int] = None,
+        format: str = "PNG",
+    ) -> Dict:
+        """
+        Generate image from text content
+        
+        Args:
+            text: Main text content
+            title: Optional title text
+            color_scheme: Color scheme name
+            width: Image width in pixels
+            height: Image height in pixels
+            format: Image format (PNG, JPEG)
+        
+        Returns:
+            Dictionary with image data (base64 or bytes)
+        """
+        if not self.image_generator:
+            raise ValueError(
+                "Image generation not available. Install Pillow: pip install Pillow"
+            )
+        
         try:
-            # First get user info to get person URN
-            headers = {"Authorization": f"Bearer {access_token}"}
-            user_response = requests.get("https://api.linkedin.com/v2/people/~", headers=headers)
-            user_response.raise_for_status()
-            user_data = user_response.json()
-            person_urn = user_data.get("id")
-            
-            if not person_urn:
-                return {
-                    "platform": "linkedin",
-                    "status": "error",
-                    "message": "Could not retrieve LinkedIn user ID",
-                    "metadata": {"message_id": message_id}
-                }
-            
-            # Post to LinkedIn
-            url = "https://api.linkedin.com/v2/ugcPosts"
-            headers = {
-                "Authorization": f"Bearer {access_token}",
-                "Content-Type": "application/json",
-                "X-Restli-Protocol-Version": "2.0.0",
-            }
-            
-            data = {
-                "author": f"urn:li:person:{person_urn}",
-                "lifecycleState": "PUBLISHED",
-                "specificContent": {
-                    "com.linkedin.ugc.ShareContent": {
-                        "shareCommentary": {"text": content},
-                        "shareMediaCategory": "NONE"
-                    }
-                },
-                "visibility": {"com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC"}
-            }
-            
-            response = requests.post(url, headers=headers, json=data)
-            response.raise_for_status()
-            
-            result = response.json()
-            post_id = result.get("id")
+            image_base64 = self.image_generator.generate_image_base64(
+                text=text,
+                title=title,
+                color_scheme=color_scheme,
+                width=width,
+                height=height,
+                format=format,
+            )
             
             return {
-                "platform": "linkedin",
-                "post_id": post_id,
                 "status": "success",
-                "message": "LinkedIn post created successfully",
-                "url": f"https://www.linkedin.com/feed/update/{post_id}/" if post_id else None,
-                "metadata": {
-                    "message_id": message_id,
-                    "posted_at": datetime.utcnow().isoformat(),
-                }
+                "format": format.lower(),
+                "image_base64": image_base64,
+                "width": width or self.image_generator.DEFAULT_WIDTH,
+                "height": height or self.image_generator.DEFAULT_HEIGHT,
             }
-        except requests.exceptions.RequestException as e:
-            return {
-                "platform": "linkedin",
-                "status": "error",
-                "message": f"Failed to post to LinkedIn: {str(e)}",
-                "metadata": {"message_id": message_id}
-            }
+        except Exception as e:
+            raise ValueError(f"Error generating image: {str(e)}") from e
     
-    def _post_to_facebook(self, content: str, access_token: str, message_id: Optional[str] = None) -> Dict:
-        """Post to Facebook"""
+    def generate_image_from_post(
+        self,
+        post_content: str,
+        query: Optional[str] = None,
+        color_scheme: str = "default",
+        format: str = "PNG",
+        **kwargs
+    ) -> Dict:
+        """
+        Generate image from formatted post content
+        
+        Args:
+            post_content: Formatted post content
+            query: Original query (used as title)
+            color_scheme: Color scheme name
+            format: Image format (PNG, JPEG)
+            **kwargs: Additional arguments for image generation
+        
+        Returns:
+            Dictionary with image data
+        """
+        if not self.image_generator:
+            raise ValueError(
+                "Image generation not available. Install Pillow: pip install Pillow"
+            )
+        
         try:
-            # Get user pages (if posting to a page) or use user feed
-            # For simplicity, we'll post to user's feed
-            url = f"https://graph.facebook.com/me/feed"
-            
-            data = {
-                "message": content,
-                "access_token": access_token,
-            }
-            
-            response = requests.post(url, data=data)
-            response.raise_for_status()
-            
-            result = response.json()
-            post_id = result.get("id")
+            image_base64 = self.image_generator.generate_image_base64(
+                text=post_content,
+                title=query,
+                color_scheme=color_scheme,
+                format=format,
+                **kwargs
+            )
             
             return {
-                "platform": "facebook",
-                "post_id": post_id,
                 "status": "success",
-                "message": "Facebook post created successfully",
-                "url": f"https://www.facebook.com/{post_id}" if post_id else None,
-                "metadata": {
-                    "message_id": message_id,
-                    "posted_at": datetime.utcnow().isoformat(),
-                }
+                "format": format.lower(),
+                "image_base64": image_base64,
+                "width": kwargs.get("width") or self.image_generator.DEFAULT_WIDTH,
+                "height": kwargs.get("height") or self.image_generator.DEFAULT_HEIGHT,
             }
-        except requests.exceptions.RequestException as e:
-            return {
-                "platform": "facebook",
-                "status": "error",
-                "message": f"Failed to post to Facebook: {str(e)}",
-                "metadata": {"message_id": message_id}
-            }
+        except Exception as e:
+            raise ValueError(f"Error generating image from post: {str(e)}") from e
     
-    def get_auth_url(self, platform: str) -> Dict:
-        """Get OAuth authorization URL for a platform"""
-        platform = platform.lower()
+    def get_supported_platforms(self) -> List[Dict]:
+        """
+        Get list of all supported platforms with metadata
         
-        if platform == "twitter":
-            return self._get_twitter_auth_url()
-        elif platform == "linkedin":
-            return self._get_linkedin_auth_url()
-        elif platform == "facebook":
-            return self._get_facebook_auth_url()
-        else:
-            raise ValueError(f"Unsupported platform: {platform}")
-    
-    def _get_twitter_auth_url(self) -> Dict:
-        """Get Twitter OAuth URL"""
-        client_id = os.getenv("TWITTER_CLIENT_ID")
-        if not client_id:
-            return {
-                "platform": "twitter",
-                "status": "error",
-                "message": "Twitter API credentials not configured"
-            }
-        
-        # Twitter OAuth 2.0 PKCE flow would be implemented here
-        # For now, return placeholder
-        return {
-            "platform": "twitter",
-            "status": "needs_auth",
-            "message": "Twitter authentication not yet implemented",
-            "auth_url": None
-        }
-    
-    def _get_linkedin_auth_url(self) -> Dict:
-        """Get LinkedIn OAuth URL"""
-        client_id = os.getenv("LINKEDIN_CLIENT_ID")
-        redirect_uri = os.getenv("LINKEDIN_REDIRECT_URI", "http://localhost:8000/share/auth/callback")
-        
-        if not client_id:
-            return {
-                "platform": "linkedin",
-                "status": "error",
-                "message": "LinkedIn API credentials not configured"
-            }
-        
-        scope = "w_member_social,r_liteprofile"
-        auth_url = (
-            f"https://www.linkedin.com/oauth/v2/authorization?"
-            f"response_type=code&client_id={client_id}&redirect_uri={quote(redirect_uri)}"
-            f"&scope={quote(scope)}&state=linkedin"
-        )
-        
-        return {
-            "platform": "linkedin",
-            "status": "needs_auth",
-            "auth_url": auth_url,
-            "message": "Click to authenticate with LinkedIn"
-        }
-    
-    def _get_facebook_auth_url(self) -> Dict:
-        """Get Facebook OAuth URL"""
-        app_id = os.getenv("FACEBOOK_APP_ID")
-        redirect_uri = os.getenv("FACEBOOK_REDIRECT_URI", "http://localhost:8000/share/auth/callback")
-        
-        if not app_id:
-            return {
-                "platform": "facebook",
-                "status": "error",
-                "message": "Facebook API credentials not configured"
-            }
-        
-        scope = "pages_manage_posts,publish_to_groups"
-        auth_url = (
-            f"https://www.facebook.com/v18.0/dialog/oauth?"
-            f"client_id={app_id}&redirect_uri={quote(redirect_uri)}"
-            f"&scope={quote(scope)}&response_type=code&state=facebook"
-        )
-        
-        return {
-            "platform": "facebook",
-            "status": "needs_auth",
-            "auth_url": auth_url,
-            "message": "Click to authenticate with Facebook"
-        }
+        Returns:
+            List of platform metadata dictionaries
+        """
+        platforms = []
+        for metadata in self.registry.list_metadata():
+            platforms.append({
+                "name": metadata.name,
+                "display_name": metadata.display_name,
+                "char_limit": metadata.char_limit,
+                "supports_threads": metadata.supports_threads,
+                "supports_images": metadata.supports_images,
+                "supports_video": metadata.supports_video,
+                "posting_supported": metadata.posting_supported,
+                "requires_auth": metadata.requires_auth,
+                "features": metadata.features,
+            })
+        return platforms

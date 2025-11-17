@@ -9,9 +9,10 @@ class FormatRequest(BaseModel):
     """Request to format a response for sharing"""
     answer: str = Field(..., description="The RAG answer to format")
     sources: List[Dict] = Field(default_factory=list, description="Source citations")
-    platform: str = Field(..., description="Target platform (twitter, linkedin, facebook)")
+    platform: str = Field(..., description="Target platform")
     query: Optional[str] = Field(None, description="Original query")
     include_hashtags: bool = Field(True, description="Include hashtags")
+    style: Optional[str] = Field(None, description="Formatting style (professional, casual, engaging)")
 
 
 class FormatResponse(BaseModel):
@@ -42,13 +43,12 @@ class PreviewRequest(BaseModel):
     answer: str
     sources: List[Dict] = Field(default_factory=list)
     query: Optional[str] = None
+    style: Optional[str] = Field(None, description="Formatting style")
 
 
 class PreviewResponse(BaseModel):
     """Preview response with all platforms"""
-    twitter: Dict
-    linkedin: Dict
-    facebook: Dict
+    platforms: Dict[str, Dict] = Field(..., description="Dictionary of platform names to formatted posts")
 
 
 class PostRequest(BaseModel):
@@ -87,3 +87,32 @@ class AuthCallbackRequest(BaseModel):
     platform: str
     code: str
     state: Optional[str] = None
+
+
+class ImageGenerationRequest(BaseModel):
+    """Request to generate an image from text"""
+    text: str = Field(..., description="Text content for image")
+    title: Optional[str] = Field(None, description="Optional title text")
+    color_scheme: str = Field("default", description="Color scheme (default, dark, professional, vibrant)")
+    width: Optional[int] = Field(None, description="Image width in pixels")
+    height: Optional[int] = Field(None, description="Image height in pixels")
+    format: str = Field("PNG", description="Image format (PNG, JPEG)")
+
+
+class ImageGenerationFromPostRequest(BaseModel):
+    """Request to generate an image from formatted post"""
+    post_content: str = Field(..., description="Formatted post content")
+    query: Optional[str] = Field(None, description="Original query (used as title)")
+    color_scheme: str = Field("default", description="Color scheme")
+    width: Optional[int] = Field(None, description="Image width in pixels")
+    height: Optional[int] = Field(None, description="Image height in pixels")
+    format: str = Field("PNG", description="Image format (PNG, JPEG)")
+
+
+class ImageGenerationResponse(BaseModel):
+    """Response from image generation"""
+    status: str
+    format: str
+    image_base64: str = Field(..., description="Base64 encoded image")
+    width: int
+    height: int

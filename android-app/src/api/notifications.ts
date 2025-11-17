@@ -24,41 +24,63 @@ export interface NotificationSourcesResponse {
 
 export const notificationsAPI = {
   async getSources(): Promise<NotificationSource[]> {
-    const response = await apiClient.get<NotificationSourcesResponse>(
-      '/notifications/sources',
-    );
-    return response.sources;
+    try {
+      const response = await apiClient.get<NotificationSourcesResponse>(
+        '/api/v1/notifications/sources',
+      );
+      return response.sources || [];
+    } catch {
+      // Fallback if endpoint doesn't exist
+      return [];
+    }
   },
 
   async createSubscription(
     data: CreateSubscriptionRequest,
   ): Promise<SubscriptionResponse> {
+    // Map to backend format
+    const payload = {
+      phone_number: data.phone_number,
+      notification_type: data.delivery_method === 'both' ? 'both' : data.delivery_method,
+      schedule_type: 'immediate' as const,
+      categories: data.categories.length > 0 ? data.categories : null,
+      sources: data.sources.length > 0 ? data.sources : null,
+    };
     return apiClient.post<SubscriptionResponse>(
-      '/notifications/subscribe',
-      data,
+      '/api/v1/notifications/subscribe',
+      payload,
     );
   },
 
   async getSubscriptions(): Promise<SubscriptionResponse[]> {
-    return apiClient.get<SubscriptionResponse[]>('/notifications/subscriptions');
+    try {
+      return apiClient.get<SubscriptionResponse[]>('/api/v1/notifications/subscriptions');
+    } catch {
+      return [];
+    }
   },
 
   async getSubscription(id: string): Promise<SubscriptionResponse> {
-    return apiClient.get<SubscriptionResponse>(`/notifications/subscriptions/${id}`);
+    return apiClient.get<SubscriptionResponse>(`/api/v1/notifications/subscriptions/${id}`);
   },
 
   async updateSubscription(
     id: string,
     data: Partial<CreateSubscriptionRequest>,
   ): Promise<SubscriptionResponse> {
+    const payload: any = {};
+    if (data.phone_number) payload.phone_number = data.phone_number;
+    if (data.delivery_method) payload.notification_type = data.delivery_method;
+    if (data.categories) payload.categories = data.categories;
+    if (data.sources) payload.sources = data.sources;
     return apiClient.put<SubscriptionResponse>(
-      `/notifications/subscriptions/${id}`,
-      data,
+      `/api/v1/notifications/subscriptions/${id}`,
+      payload,
     );
   },
 
   async deleteSubscription(id: string): Promise<void> {
-    return apiClient.delete(`/notifications/subscriptions/${id}`);
+    return apiClient.delete(`/api/v1/notifications/subscriptions/${id}`);
   },
 };
 

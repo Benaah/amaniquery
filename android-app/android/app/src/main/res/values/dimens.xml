@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <dimen name="abc_edit_text_inset_horizontal_material">4dp</dimen>
+    <dimen name="abc_edit_text_inset_top_material">8dp</dimen>
+    <dimen name="abc_edit_text_inset_bottom_material">8dp</dimen>
+</resources>
+

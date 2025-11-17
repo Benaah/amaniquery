@@ -46,35 +46,119 @@
 
 ## 🏗️ Technical Architecture
 
-### 5-Module Pipeline Architecture
+### 7-Module Pipeline Architecture
 
 ```
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
 │   NiruSpider    │ -> │   NiruParser    │ -> │     NiruDB      │
 │   Data Crawler  │    │   ETL Pipeline  │    │  Vector Store   │
-│                 │    │   + Embeddings  │    │                 │
+│  (Module 1)     │    │   (Module 2)    │    │   (Module 3)    │
+│                 │    │   + Embeddings  │    │  Multi-Backend  │
 └─────────────────┘    └─────────────────┘    └─────────────────┘
          ↓                        ↓                        ↓
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│    NiruAPI      │    │   NiruShare     │    │   Frontend      │
-│  RAG Engine     │    │ Social Sharing  │    │   React/Next    │
-│  + 15 Endpoints │    │ Twitter/LinkedIn│    │                 │
+│    NiruAPI      │    │   NiruShare     │    │   NiruVoice     │
+│  RAG Engine     │    │ Social Sharing  │    │  Voice Agent    │
+│  (Module 4)     │    │   (Module 5)    │    │   (Module 6)    │
+│  + 40+ Endpoints│    │ 8+ Platforms    │    │  LiveKit STT/TTS│
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+         ↓                        ↓                        ↓
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│ NiruHybrid      │    │   Frontend      │    │  Android App    │
+│ Hybrid RAG      │    │   Next.js 14    │    │  React Native   │
+│  (Module 7)     │    │  Chat Interface │    │  Voice + Chat   │
+│ Conv+Transformer│    │  Real-time UI  │    │  Notifications  │
 └─────────────────┘    └─────────────────┘    └─────────────────┘
 ```
 
+### Module Breakdown
+
+#### Module 1: NiruSpider - Data Ingestion Crawler
+- **4 Specialized Spiders:**
+  - **Kenya Law Spider:** Crawls kenyalaw.org (Constitution, Acts, Bills, Legal Notices)
+  - **Parliament Spider:** Hansards, Bills, Committee Reports, Budget Documents (including Finance Bill)
+  - **News RSS Spider:** 15+ Kenyan media sources (Nation, Standard, Star, Business Daily)
+  - **Global Trends Spider:** 17+ international sources (Reuters, BBC, UN, WHO, World Bank, IMF, African Union, TechCrunch, etc.)
+- **Parliament Video Spider:** YouTube transcript extraction with timestamps
+- **Features:** Asynchronous crawling, polite robots.txt compliance, PDF handling, quality scoring, deduplication, rate limiting, monitoring
+
+#### Module 2: NiruParser - ETL & Embedding Pipeline
+- **Extractors:** HTML (Trafilatura), PDF (pdfplumber), Transcript (YouTube API)
+- **Cleaners:** Text normalization, encoding fixes, whitespace removal
+- **Chunkers:** Recursive chunking (500-1000 chars, 100-char overlap)
+- **Enrichers:** Legal metadata extraction, sentiment analysis, keyword generation
+- **Embedders:** Sentence Transformers (all-MiniLM-L6-v2), batch processing
+
+#### Module 3: NiruDB - Vector Database Storage
+- **Multi-Backend Support:** ChromaDB (default), QDrant, Upstash, FAISS
+- **VectorStore:** Automatic fallback between backends, connection pooling
+- **MetadataManager:** Document metadata, filtering, citation extraction
+- **ChatManager:** PostgreSQL-based chat session management
+- **ConfigManager:** Encrypted configuration storage with robust error handling
+- **NotificationManager:** SMS/WhatsApp notification system (Talksasa integration)
+
+#### Module 4: NiruAPI - RAG-Powered Query Interface
+- **40+ API Endpoints:**
+  - Core: `/query`, `/query/stream`, `/query/hybrid`
+  - Constitutional: `/alignment-check`, `/alignment-quick-check`
+  - Sentiment: `/sentiment`
+  - SMS: `/sms-webhook`, `/sms-send`, `/sms-query`
+  - Chat: `/chat/sessions`, `/chat/sessions/{id}/messages`, `/chat/feedback`
+  - Research: `/research/analyze-legal-query`, `/research/generate-legal-report`, `/research/legal-research`
+  - Reports: `/reports/legal-query`, `/reports/constitutional-law`, `/reports/compliance`, `/reports/technical-audit`
+  - Social: `/share/format`, `/share/preview`, `/share/generate-image`
+  - News: `/news/latest`, `/news/search`, `/news/categories`
+  - Notifications: `/notifications/subscribe`, `/notifications/unsubscribe`
+  - Config: `/config/list`, `/config/set`, `/config/delete`
+  - WebSocket: Real-time streaming support
+- **Multi-LLM Support:** Moonshot AI (default), OpenAI, Anthropic Claude, Google Gemini
+- **Agent System:** Multi-agent orchestration with tools (web search, calculator, email drafter, file writer, autocomplete)
+- **Research Modules:** Legacy research module + Agentic research module with advanced reasoning
+- **Streaming:** Real-time token-by-token response generation
+- **Multi-Model Ensemble:** Automatic fallback when context is limited
+
+#### Module 5: NiruShare - Social Media Sharing Service
+- **8+ Platform Support:** Twitter/X, LinkedIn, Facebook, Instagram, Reddit, Telegram, WhatsApp, Mastodon
+- **Plugin Architecture:** Extensible platform system
+- **Natural Formatting:** LLM-powered conversational posts
+- **Image Generation:** Customizable templates with multiple color schemes
+- **Direct Posting:** OAuth authentication and direct platform posting
+- **Smart Features:** Auto-threading, hashtag generation, source attribution
+
+#### Module 6: NiruVoice - LiveKit Voice Agent
+- **Professional Voice Interface:** Clear, authoritative voice responses
+- **Multi-Provider STT/TTS:** OpenAI Whisper, AssemblyAI (STT); OpenAI TTS, Silero (TTS)
+- **Automatic Failover:** Health monitoring with provider switching
+- **Resilience:** Retry logic, circuit breakers, error recovery
+- **Session Management:** Conversation context, automatic timeout
+- **Performance:** Response caching, rate limiting, connection pooling
+- **Monitoring:** Metrics collection, Prometheus integration
+
+#### Module 7: NiruHybrid - Hybrid Convolutional-Transformer Pipeline
+- **Hybrid Encoder:** Combines 1D convolutions + transformer blocks
+- **Diffusion Models:** Text-to-text and text-to-embedding generation
+- **Dynamic Retention:** Continual learning, memory management, adaptive retrieval
+- **Quantized Attention:** FP16/INT8 mixed precision for efficiency
+- **Real-time Streaming:** Optimized for streaming queries
+- **Enhanced Retrieval:** Context-aware document selection
+
 ### Data Sources & Scale
-- **Kenyan Laws:** 500+ Acts of Parliament, Constitution crawler
-- **Parliament:** Weekly crawl of Hansards, bills, committee reports
+- **Kenyan Laws:** 500+ Acts of Parliament, Constitution crawler, Legal Notices
+- **Parliament:** Weekly crawl of Hansards, Bills, Committee Reports, Budget Documents (Finance Bill 2025-2026)
 - **News:** Daily RSS from 15+ Kenyan media sources
-- **Global Context:** Reuters, BBC, UN sources for international perspective
-- **Parliament Videos:** YouTube channel transcripts with timestamps
+- **Global Context:** 17+ international sources (Reuters, BBC, Al Jazeera, UN, WHO, World Bank, IMF, African Union, TechCrunch, MIT Tech Review, The Economist, Brookings, CFR, etc.)
+- **Parliament Videos:** YouTube channel transcripts with timestamp citations
+- **Documents Processed:** 10,000+ legal documents
+- **Vector Embeddings:** 500,000+ chunks indexed
 
 ### AI Stack
-- **LLM:** Moonshot AI (Chinese provider, cost-effective, high performance)
-- **Embeddings:** sentence-transformers (all-MiniLM-L6-v2)
-- **Vector DB:** ChromaDB with FAISS acceleration
+- **LLMs:** Moonshot AI (primary), OpenAI GPT-4, Anthropic Claude, Google Gemini
+- **Embeddings:** sentence-transformers (all-MiniLM-L6-v2), Hybrid Encoder (Module 7)
+- **Vector DB:** ChromaDB (default), QDrant, Upstash, FAISS with automatic fallback
 - **Research:** Google Gemini AI for advanced legal analysis
-- **Frontend:** Next.js 14 with real-time chat interface
+- **Voice:** LiveKit Agents framework with multi-provider STT/TTS
+- **Frontend:** Next.js 14 with real-time chat interface, streaming support
+- **Mobile:** React Native Android app with voice and chat capabilities
 
 ---
 
@@ -105,10 +189,13 @@
 ## 💡 Innovation & Technical Differentiation
 
 ### 1. **Multi-Modal Information Access**
-- **Web Interface:** Full-featured chat with source citations
-- **SMS Interface:** 160-character intelligent responses
-- **API Access:** RESTful endpoints for integrations
-- **Social Sharing:** Automated content formatting for Twitter/LinkedIn
+- **Web Interface:** Full-featured chat with source citations, streaming responses
+- **Mobile App:** React Native Android app with voice and chat
+- **SMS Interface:** 160-character intelligent responses via Africa's Talking
+- **Voice Interface:** Real-time voice conversations via LiveKit
+- **API Access:** 40+ RESTful endpoints for integrations
+- **WebSocket:** Real-time streaming support
+- **Social Sharing:** Automated content formatting for 8+ platforms
 
 ### 2. **Kenya-Specific AI Training**
 - **Legal Corpus:** Specialized embeddings trained on Kenyan legal texts
@@ -122,20 +209,32 @@
 
 ### 4. **Advanced RAG Techniques**
 - **Constitutional Dual-Retrieval:** Separate vector spaces for bills vs constitution
+- **Hybrid RAG:** Convolutional-transformer architecture for enhanced embeddings
+- **Adaptive Retrieval:** Multi-stage retrieval with context-aware thresholds
 - **Sentiment-Enhanced Search:** News articles ranked by relevance + sentiment
 - **Multi-Source Attribution:** Citations with timestamps, categories, and confidence scores
+- **Streaming Responses:** Real-time token-by-token generation
+- **Multi-Model Ensemble:** Automatic fallback when context is limited
 
 ---
 
 ## 📊 Proof of Concept & Validation
 
 ### Working Prototype
-- ✅ **Data Pipeline:** Successfully crawling and processing Kenyan legal data
-- ✅ **RAG Engine:** Accurate responses with source citations
+- ✅ **Data Pipeline:** Successfully crawling and processing Kenyan legal data from 20+ sources
+- ✅ **RAG Engine:** Accurate responses with source citations, streaming support
 - ✅ **SMS Integration:** Africa's Talking webhook tested and working
+- ✅ **Voice Agent:** LiveKit integration with multi-provider STT/TTS
 - ✅ **Constitutional Analysis:** Successfully comparing bills against constitution
 - ✅ **Sentiment Analysis:** Real-time sentiment tracking across news sources
-- ✅ **Frontend:** Functional chat interface with research mode
+- ✅ **Research Module:** Advanced legal research with agentic reasoning
+- ✅ **Report Generation:** PDF/Word report generation for legal queries
+- ✅ **Social Sharing:** 8+ platform support with natural formatting
+- ✅ **Frontend:** Functional chat interface with research mode, streaming
+- ✅ **Android App:** React Native app with voice and chat capabilities
+- ✅ **Notifications:** SMS/WhatsApp notification system
+- ✅ **Hybrid RAG:** Enhanced retrieval with hybrid encoder
+- ✅ **Config Manager:** Encrypted configuration storage with robust error handling
 
 ### Performance Metrics
 - **Query Accuracy:** 92% factual accuracy on legal questions
@@ -258,14 +357,74 @@
 
 ## 📋 Appendix: Technical Deep-Dive
 
-### API Endpoints Summary
+### API Endpoints Summary (40+ Endpoints)
+
+**Core Query Endpoints:**
 - `POST /query` - General RAG queries
-- `POST /alignment-check` - Constitutional analysis
-- `GET /sentiment` - Public sentiment gauge
-- `POST /sms-webhook` - SMS integration
+- `POST /query/stream` - Streaming RAG queries (token-by-token)
+- `POST /query/hybrid` - Enhanced RAG with hybrid encoder
+- `POST /stream/query` - Real-time streaming with hybrid RAG
+
+**Constitutional Analysis:**
+- `POST /alignment-check` - Full constitutional alignment analysis
+- `POST /alignment-quick-check` - Quick bill vs concept check
+
+**Sentiment & News:**
+- `GET /sentiment` - Public sentiment gauge by topic
+- `GET /news/latest` - Latest news articles
+- `GET /news/search` - Search news articles
+- `GET /news/categories` - News by category
+
+**SMS Integration:**
+- `POST /sms-webhook` - Africa's Talking SMS webhook
+- `POST /sms-send` - Manual SMS sending
+- `GET /sms-query` - Preview SMS response
+
+**Chat Interface:**
+- `GET /chat/sessions` - List chat sessions
+- `POST /chat/sessions` - Create new session
+- `GET /chat/sessions/{id}/messages` - Get session messages
+- `POST /chat/sessions/{id}/messages` - Add message (with streaming)
+- `POST /chat/feedback` - Submit feedback (like/dislike)
+- `POST /chat/share` - Generate shareable chat link
+
+**Research & Reports:**
 - `POST /research/analyze-legal-query` - Advanced legal research
-- `POST /share/format` - Social media sharing
-- `POST /chat/sessions/{id}/messages` - Chat interface
+- `POST /research/generate-legal-report` - Generate legal report
+- `POST /research/legal-research` - Comprehensive legal research
+- `POST /research/generate-pdf-report` - Generate PDF report
+- `POST /research/generate-word-report` - Generate Word report
+- `POST /reports/legal-query` - Legal query report
+- `POST /reports/legal-research` - Legal research report
+- `POST /reports/constitutional-law` - Constitutional law report
+- `POST /reports/compliance` - Compliance report
+- `POST /reports/technical-audit` - Technical audit report
+- `POST /reports/impact-assessment` - Impact assessment report
+
+**Social Media Sharing:**
+- `POST /share/format` - Format for specific platform
+- `POST /share/preview` - Preview all platforms
+- `POST /share/generate-image` - Generate image from text
+- `POST /share/generate-image-from-post` - Generate image from post
+- `POST /share/post` - Post directly to platform
+- `GET /share/platforms` - List supported platforms
+
+**Notifications:**
+- `POST /notifications/subscribe` - Subscribe to notifications
+- `POST /notifications/unsubscribe` - Unsubscribe from notifications
+- `GET /notifications/subscriptions` - Get user subscriptions
+
+**Configuration:**
+- `GET /config/list` - List all configuration keys
+- `POST /config/set` - Set configuration value
+- `DELETE /config/{key}` - Delete configuration
+
+**Utilities:**
+- `GET /health` - API health check
+- `GET /stats` - Database statistics
+- `GET /hybrid/stats` - Hybrid pipeline statistics
+- `GET /research/status` - Research module status
+- `WebSocket /ws` - Real-time WebSocket connection
 
 ### Data Pipeline Stats
 - **Documents Processed:** 10,000+ legal documents
@@ -274,17 +433,57 @@
 - **Accuracy Rate:** 92% on legal questions
 
 ### Technology Stack Details
-- **Backend:** FastAPI (Python), async processing
-- **Database:** ChromaDB + PostgreSQL for chat
-- **AI Models:** Moonshot AI + Google Gemini
-- **Infrastructure:** Docker-ready, cloud-deployable
-- **Frontend:** Next.js 14, responsive design
+
+**Backend:**
+- **Framework:** FastAPI (Python 3.9+), async processing
+- **Database:** PostgreSQL (chat, config, notifications), ChromaDB/QDrant/Upstash (vector store)
+- **Task Queue:** Celery with Redis (scheduled crawling)
+- **WebSocket:** Real-time streaming support
+
+**AI & ML:**
+- **LLMs:** Moonshot AI (primary), OpenAI GPT-4, Anthropic Claude, Google Gemini
+- **Embeddings:** sentence-transformers (all-MiniLM-L6-v2), Hybrid Encoder (convolutional-transformer)
+- **Vector DB:** ChromaDB (default), QDrant, Upstash, FAISS with automatic fallback
+- **Voice:** LiveKit Agents framework, OpenAI Whisper/AssemblyAI (STT), OpenAI TTS/Silero (TTS)
+
+**Data Processing:**
+- **Crawling:** Scrapy framework with 4 specialized spiders
+- **Text Extraction:** Trafilatura (HTML), pdfplumber (PDF), youtube-transcript-api
+- **NLP:** NLTK, spaCy for text processing
+- **Sentiment:** VADER sentiment analyzer
+
+**Frontend & Mobile:**
+- **Web:** Next.js 14, React, TypeScript, Tailwind CSS
+- **Mobile:** React Native, TypeScript, Android support
+- **Real-time:** WebSocket connections, streaming responses
+
+**Infrastructure:**
+- **Containerization:** Docker, Docker Compose
+- **Deployment:** Render, Fly.io, AWS/GCP/Azure ready
+- **Monitoring:** Loguru logging, Prometheus metrics (optional)
+- **Security:** Encrypted config storage, OAuth authentication
+
+**Integrations:**
+- **SMS:** Africa's Talking API
+- **Notifications:** Talksasa API (SMS/WhatsApp)
+- **Social Media:** Twitter/X, LinkedIn, Facebook APIs
+- **Voice:** LiveKit cloud/self-hosted
 
 ### Security & Compliance
-- **Data Privacy:** No personal data stored
-- **API Security:** Key-based authentication
+- **Data Privacy:** No personal data stored, encrypted configuration
+- **API Security:** Key-based authentication, CORS protection
+- **Config Management:** Encrypted storage with robust error handling, memory fallback
 - **Legal Compliance:** Designed for Kenyan data protection laws
 - **Content Moderation:** Built-in safeguards for legal content
+- **Error Handling:** Comprehensive error recovery, graceful degradation
+- **Connection Security:** SSL/TLS support, connection pooling with health checks
+
+### Deployment Options
+- **Docker:** Full containerization with docker-compose
+- **Cloud:** Render, Fly.io, AWS, GCP, Azure ready
+- **Self-Hosted:** Complete deployment guide available
+- **Scaling:** Horizontal scaling support, distributed session storage
+- **Monitoring:** Health checks, metrics collection, Prometheus integration
 
 ---
 

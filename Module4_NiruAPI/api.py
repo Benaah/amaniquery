@@ -47,7 +47,8 @@ from Module4_NiruAPI.models import (
     SentimentRequest,
     SentimentResponse,
 )
-from Module4_NiruAPI.research_module import ResearchModule
+from Module4_NiruAPI.research_module import ResearchModule  # Legacy fallback
+from Module4_NiruAPI.research_module_agentic import AgenticResearchModule
 from Module4_NiruAPI.config_manager import ConfigManager
 from Module4_NiruAPI.report_generator import ReportGenerator
 from Module5_NiruShare.api import router as share_router
@@ -63,7 +64,7 @@ load_dotenv()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Handle application startup and shutdown"""
-    global vector_store, rag_pipeline, alignment_pipeline, sms_pipeline, sms_service, metadata_manager, chat_manager, crawler_manager, research_module, report_generator, config_manager, notification_service, hybrid_rag_pipeline
+    global vector_store, rag_pipeline, alignment_pipeline, sms_pipeline, sms_service, metadata_manager, chat_manager, crawler_manager, research_module, agentic_research_module, report_generator, config_manager, notification_service, hybrid_rag_pipeline
     
     logger.info("Starting AmaniQuery API")
     
@@ -190,13 +191,21 @@ async def lifespan(app: FastAPI):
         logger.error(f"Failed to initialize crawler manager: {e}")
         crawler_manager = None
     
-    # Initialize research module (optional - only if Gemini API key is available)
+    # Initialize research module (try agentic first, fallback to legacy)
+    agentic_research_module = None
+    research_module = None
     try:
-        research_module = ResearchModule()
-        logger.info("Research module initialized")
+        # Try agentic research module first
+        agentic_research_module = AgenticResearchModule(config_manager=config_manager)
+        logger.info("Agentic research module initialized")
     except Exception as e:
-        logger.warning(f"Research module not available: {e}")
-        research_module = None
+        logger.warning(f"Agentic research module not available: {e}, falling back to legacy module")
+        try:
+            research_module = ResearchModule()
+            logger.info("Legacy research module initialized")
+        except Exception as e2:
+            logger.warning(f"Legacy research module also not available: {e2}")
+            research_module = None
     
     # Initialize report generator (optional - only if Gemini API key is available)
     try:
@@ -1904,8 +1913,11 @@ async def analyze_legal_query(
     **Returns:**
     - Comprehensive legal analysis covering applicable laws, legal reasoning, and practical guidance
     """
-    if research_module is None:
-        raise HTTPException(status_code=503, detail="Research module not available. Ensure GEMINI_API_KEY is configured.")
+    # Use agentic module if available, otherwise fall back to legacy
+    module = agentic_research_module if 'agentic_research_module' in globals() and agentic_research_module else research_module
+    
+    if module is None:
+        raise HTTPException(status_code=503, detail="Research module not available. Ensure API keys are configured.")
 
     try:
         # Parse context if provided
@@ -1916,7 +1928,11 @@ async def analyze_legal_query(
             except json.JSONDecodeError:
                 context_data = {"additional_info": context}
 
-        result = research_module.analyze_legal_query(query, context_data)
+        # Use async method for agentic module
+        if hasattr(module, 'analyze_legal_query') and asyncio.iscoroutinefunction(module.analyze_legal_query):
+            result = await module.analyze_legal_query(query, context_data)
+        else:
+            result = module.analyze_legal_query(query, context_data)
 
         if "error" in result:
             raise HTTPException(status_code=500, detail=result["error"])
@@ -1945,14 +1961,17 @@ async def generate_legal_report(
     **Returns:**
     - Structured legal report with analysis, applicable laws, and recommendations
     """
-    if research_module is None:
-        raise HTTPException(status_code=503, detail="Research module not available. Ensure GEMINI_API_KEY is configured.")
+    # Use agentic module if available
+    module = agentic_research_module if 'agentic_research_module' in globals() and agentic_research_module else research_module
+    
+    if module is None:
+        raise HTTPException(status_code=503, detail="Research module not available. Ensure API keys are configured.")
 
     try:
         # Parse the analysis results
         analysis_data = json.loads(analysis_results)
 
-        result = research_module.generate_legal_report(analysis_data, report_focus)
+        result = module.generate_legal_report(analysis_data, report_focus)
 
         if "error" in result:
             raise HTTPException(status_code=500, detail=result["error"])
@@ -1983,8 +2002,11 @@ async def conduct_legal_research(
     **Returns:**
     - Legal research findings with analysis of Kenyan laws and practical guidance
     """
-    if research_module is None:
-        raise HTTPException(status_code=503, detail="Research module not available. Ensure GEMINI_API_KEY is configured.")
+    # Use agentic module if available
+    module = agentic_research_module if 'agentic_research_module' in globals() and agentic_research_module else research_module
+    
+    if module is None:
+        raise HTTPException(status_code=503, detail="Research module not available. Ensure API keys are configured.")
 
     try:
         # Parse the input data
@@ -1994,7 +2016,7 @@ async def conduct_legal_research(
         if not isinstance(topics, list) or not isinstance(questions, list):
             raise HTTPException(status_code=400, detail="legal_topics and research_questions must be JSON arrays")
 
-        result = research_module.conduct_legal_research(topics, questions)
+        result = module.conduct_legal_research(topics, questions)
 
         if "error" in result:
             raise HTTPException(status_code=500, detail=result["error"])
@@ -2334,7 +2356,8 @@ async def generate_impact_assessment_report(
 async def get_research_status():
     """Get the status of research and report generation capabilities"""
     return {
-        "research_module_available": research_module is not None,
+        "research_module_available": (research_module is not None) or (agentic_research_module is not None if 'agentic_research_module' in globals() else False),
+        "agentic_research_available": agentic_research_module is not None if 'agentic_research_module' in globals() else False,
         "report_generator_available": report_generator is not None,
         "gemini_api_configured": bool(os.getenv("GEMINI_API_KEY")),
         "available_endpoints": [

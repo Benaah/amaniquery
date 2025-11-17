@@ -58,12 +58,18 @@ export function useChat() {
   }, [loadSessions]);
 
   const sendMessage = useCallback(
-    async (content: string, useStreaming: boolean = true) => {
-      if (!content.trim()) return;
+    async (
+      content: string,
+      useStreaming: boolean = true,
+      attachmentIds?: string[],
+    ) => {
+      if (!content.trim() && !attachmentIds?.length) return;
 
       let sessionId = currentSessionId;
       if (!sessionId) {
-        sessionId = await createNewSession(content.trim().substring(0, 50));
+        sessionId = await createNewSession(
+          content.trim().substring(0, 50) || 'File upload',
+        );
         if (!sessionId) return;
       }
 
@@ -71,9 +77,17 @@ export function useChat() {
         id: Date.now().toString(),
         session_id: sessionId,
         role: 'user',
-        content: content.trim(),
+        content: content.trim() || `Uploaded ${attachmentIds?.length || 0} file(s)`,
         created_at: new Date().toISOString(),
         saved: false,
+        attachments: attachmentIds?.map(id => ({
+          id,
+          filename: '',
+          file_type: '',
+          file_size: 0,
+          uploaded_at: new Date().toISOString(),
+          processed: true,
+        })),
       };
 
       setMessages(prev => [...prev, userMessage]);
@@ -97,7 +111,7 @@ export function useChat() {
 
           await chatAPI.sendMessage(
             sessionId,
-            content.trim(),
+            content.trim() || `Uploaded ${attachmentIds?.length || 0} file(s)`,
             (chunk) => {
               streamResponse.appendChunk(chunk);
               setMessages(prev =>
@@ -124,10 +138,17 @@ export function useChat() {
                 ),
               );
             },
+            attachmentIds,
           );
         } else {
           // Non-streaming fallback
-          await chatAPI.sendMessage(sessionId, content.trim());
+          await chatAPI.sendMessage(
+            sessionId,
+            content.trim() || `Uploaded ${attachmentIds?.length || 0} file(s)`,
+            undefined,
+            undefined,
+            attachmentIds,
+          );
           await loadMessages(sessionId);
         }
       } catch (err) {

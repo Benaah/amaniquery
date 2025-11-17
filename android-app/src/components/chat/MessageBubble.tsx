@@ -1,5 +1,6 @@
 import React from 'react';
 import {View, Text, StyleSheet, TouchableOpacity} from 'react-native';
+import Icon from 'react-native-vector-icons/Ionicons';
 import {Message} from '../../types';
 import {MarkdownRenderer} from '../common/MarkdownRenderer';
 import {SourceCard} from './SourceCard';
@@ -26,6 +27,49 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
           styles.bubble,
           isUser ? styles.userBubble : styles.assistantBubble,
         ]}>
+        {message.attachments && message.attachments.length > 0 && (
+          <View style={styles.attachmentsContainer}>
+            {message.attachments.map((attachment) => (
+              <View key={attachment.id} style={styles.attachmentItem}>
+                <Icon
+                  name={
+                    attachment.file_type === 'pdf'
+                      ? 'document-text'
+                      : attachment.file_type === 'image'
+                      ? 'image'
+                      : 'document'
+                  }
+                  size={20}
+                  color={isUser ? '#FFFFFF' : '#007AFF'}
+                />
+                <View style={styles.attachmentInfo}>
+                  <Text
+                    style={[
+                      styles.attachmentName,
+                      isUser && styles.attachmentNameUser,
+                    ]}
+                    numberOfLines={1}>
+                    {attachment.filename}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.attachmentSize,
+                      isUser && styles.attachmentSizeUser,
+                    ]}>
+                    {(attachment.file_size / 1024).toFixed(1)} KB •{' '}
+                    {attachment.file_type}
+                  </Text>
+                </View>
+                {attachment.processed && (
+                  <View style={styles.processedBadge}>
+                    <Text style={styles.processedText}>✓</Text>
+                  </View>
+                )}
+              </View>
+            ))}
+          </View>
+        )}
+
         {isUser ? (
           <Text style={styles.userText}>{message.content}</Text>
         ) : (
@@ -112,6 +156,50 @@ const styles = StyleSheet.create({
   },
   feedbackText: {
     fontSize: 16,
+  },
+  attachmentsContainer: {
+    marginBottom: 8,
+    gap: 8,
+  },
+  attachmentItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 8,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  attachmentInfo: {
+    flex: 1,
+    marginLeft: 8,
+  },
+  attachmentName: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#000',
+  },
+  attachmentNameUser: {
+    color: '#FFFFFF',
+  },
+  attachmentSize: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 2,
+  },
+  attachmentSizeUser: {
+    color: 'rgba(255, 255, 255, 0.8)',
+  },
+  processedBadge: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#28A745',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  processedText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: 'bold',
   },
 });
 

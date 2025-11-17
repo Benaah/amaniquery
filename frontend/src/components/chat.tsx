@@ -44,6 +44,7 @@ import {
   Edit,
   RotateCw
 } from "lucide-react"
+import { FileUpload } from "./chat/FileUpload"
 
 interface Message {
   id: string
@@ -59,6 +60,14 @@ interface Message {
     source_name: string
     category: string
     excerpt: string
+  }>
+  attachments?: Array<{
+    id: string
+    filename: string
+    file_type: string
+    file_size: number
+    uploaded_at: string
+    processed: boolean
   }>
   feedback_type?: "like" | "dislike"
   saved?: boolean
@@ -163,6 +172,8 @@ export function Chat() {
   >({})
   const [autocompleteSuggestions, setAutocompleteSuggestions] = useState<string[]>([])
   const [showAutocomplete, setShowAutocomplete] = useState(false)
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([])
+  const [uploadingFiles, setUploadingFiles] = useState(false)
   const autocompleteTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const messagesContainerRef = useRef<HTMLDivElement | null>(null)
   const messagesEndRef = useRef<HTMLDivElement | null>(null)
@@ -319,20 +330,61 @@ export function Chat() {
     }
   }
 
+  const uploadFiles = async (sessionId: string, files: File[]): Promise<string[]> => {
+    const attachmentIds: string[] = []
+    setUploadingFiles(true)
+
+    try {
+      for (const file of files) {
+        const formData = new FormData()
+        formData.append("file", file)
+
+        const response = await fetch(`${API_BASE_URL}/chat/sessions/${sessionId}/attachments`, {
+          method: "POST",
+          body: formData,
+        })
+
+        if (response.ok) {
+          const data = await response.json()
+          attachmentIds.push(data.attachment.id)
+        } else {
+          const error = await response.json()
+          throw new Error(error.detail || "Failed to upload file")
+        }
+      }
+    } finally {
+      setUploadingFiles(false)
+    }
+
+    return attachmentIds
+  }
+
   const sendMessage = async (content: string) => {
-    if (!content.trim()) return
+    if (!content.trim() && selectedFiles.length === 0) return
 
     let sessionId = currentSessionId
     if (!sessionId) {
-      sessionId = await createNewSession(content.trim())
+      sessionId = await createNewSession(content.trim() || "File upload")
       if (!sessionId) return
+    }
+
+    // Upload files first if any
+    let attachmentIds: string[] = []
+    if (selectedFiles.length > 0) {
+      try {
+        attachmentIds = await uploadFiles(sessionId, selectedFiles)
+        setSelectedFiles([]) // Clear selected files after upload
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Failed to upload files")
+        return
+      }
     }
 
     const userMessage: Message = {
       id: Date.now().toString(),
       session_id: sessionId,
       role: "user",
-      content: content.trim(),
+      content: content.trim() || `Uploaded ${selectedFiles.length} file(s)`,
       created_at: new Date().toISOString(),
       saved: false
     }
@@ -1474,6 +1526,30 @@ ${researchProcess.tools_used && researchProcess.tools_used.length > 0
                           </div>
                         )}
 
+                        {message.attachments && message.attachments.length > 0 && (
+                          <div className="space-y-2">
+                            {message.attachments.map((attachment) => (
+                              <div
+                                key={attachment.id}
+                                className="flex items-center gap-2 p-2 rounded-lg border border-white/10 bg-white/5"
+                              >
+                                <FileText className="w-4 h-4 text-muted-foreground" />
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-sm font-medium truncate">{attachment.filename}</p>
+                                  <p className="text-xs text-muted-foreground">
+                                    {(attachment.file_size / 1024).toFixed(1)} KB • {attachment.file_type}
+                                  </p>
+                                </div>
+                                {attachment.processed && (
+                                  <Badge variant="outline" className="text-xs">
+                                    Processed
+                                  </Badge>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
                         <div className="prose prose-sm md:prose-base max-w-none dark:prose-invert text-sm md:text-base">
                           <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw, rehypeHighlight]}>
                             {formatMessageWithCitations(message.content, message.sources)}
@@ -1760,10 +1836,38 @@ ${researchProcess.tools_used && researchProcess.tools_used.length > 0
                 <span className="text-[10px]">{isLoading ? "Streaming..." : "Ready"}</span>
               </div>
             </div>
+            {selectedFiles.length > 0 && (
+              <div className="mb-2 px-2">
+                <FileUpload
+                  files={selectedFiles}
+                  onFilesChange={setSelectedFiles}
+                  maxFiles={5}
+                  maxSizeMB={10}
+                />
+              </div>
+            )}
             <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 shadow-lg backdrop-blur-lg">
               <div className="flex items-end gap-2">
                 <div className="flex items-center gap-1">
-                  <Button variant="ghost" size="icon" type="button" className="h-8 w-8 rounded-xl text-muted-foreground">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    type="button"
+                    className="h-8 w-8 rounded-xl text-muted-foreground"
+                    onClick={() => {
+                      const input = document.createElement("input")
+                      input.type = "file"
+                      input.multiple = true
+                      input.accept = ".pdf,.png,.jpg,.jpeg,.txt,.md"
+                      input.onchange = (e) => {
+                        const files = (e.target as HTMLInputElement).files
+                        if (files) {
+                          setSelectedFiles(prev => [...prev, ...Array.from(files)].slice(0, 5))
+                        }
+                      }
+                      input.click()
+                    }}
+                  >
                     <Paperclip className="w-3.5 h-3.5" />
                   </Button>
                   <Button variant="ghost" size="icon" type="button" className="h-8 w-8 rounded-xl text-muted-foreground">

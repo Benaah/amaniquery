@@ -15,6 +15,19 @@ export interface SendMessageRequest {
   content: string;
   role: 'user';
   stream?: boolean;
+  attachment_ids?: string[];
+}
+
+export interface UploadAttachmentResponse {
+  attachment: {
+    id: string;
+    filename: string;
+    file_type: string;
+    file_size: number;
+    uploaded_at: string;
+    processed: boolean;
+  };
+  message: string;
 }
 
 export interface QueryRequest {
@@ -51,11 +64,32 @@ export const chatAPI = {
     return apiClient.get<Message[]>(`/chat/sessions/${sessionId}/messages`);
   },
 
+  async uploadAttachment(
+    sessionId: string,
+    fileUri: string,
+    fileName: string,
+    fileType: string,
+  ): Promise<string> {
+    const formData = new FormData();
+    formData.append('file', {
+      uri: fileUri,
+      name: fileName,
+      type: fileType,
+    } as any);
+
+    const response = await apiClient.postForm<UploadAttachmentResponse>(
+      `/chat/sessions/${sessionId}/attachments`,
+      formData,
+    );
+    return response.attachment.id;
+  },
+
   async sendMessage(
     sessionId: string,
     content: string,
     onChunk?: (chunk: string) => void,
     onComplete?: (metadata?: StreamMetadata) => void,
+    attachmentIds?: string[],
   ): Promise<void> {
     if (onChunk) {
       // Use streaming endpoint
@@ -65,6 +99,7 @@ export const chatAPI = {
           content,
           role: 'user',
           stream: true,
+          attachment_ids: attachmentIds,
         },
         onChunk,
         onComplete,
@@ -75,6 +110,7 @@ export const chatAPI = {
         content,
         role: 'user',
         stream: false,
+        attachment_ids: attachmentIds,
       });
     }
   },

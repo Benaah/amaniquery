@@ -1,3 +1,12 @@
+export interface Attachment {
+  id: string;
+  filename: string;
+  file_type: string;
+  file_size: number;
+  uploaded_at: string;
+  processed: boolean;
+}
+
 export interface Message {
   id: string;
   session_id: string;
@@ -7,6 +16,7 @@ export interface Message {
   token_count?: number;
   model_used?: string;
   sources?: Source[];
+  attachments?: Attachment[];
   feedback_type?: 'like' | 'dislike';
   saved?: boolean;
   failed?: boolean;

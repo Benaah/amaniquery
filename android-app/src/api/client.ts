@@ -74,6 +74,43 @@ class APIClient {
     return this.request<T>(endpoint, {...options, method: 'DELETE'});
   }
 
+  async postForm<T>(endpoint: string, formData: FormData): Promise<T> {
+    const url = `${this.baseURL}${endpoint}`;
+    
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          // Don't set Content-Type, let fetch set it with boundary
+        },
+        body: formData,
+      });
+
+      if (!response.ok) {
+        let errorData: any;
+        try {
+          errorData = await response.json();
+        } catch {
+          errorData = {
+            error: `HTTP ${response.status}: ${response.statusText}`,
+          };
+        }
+        throw new Error(errorData.error || errorData.detail || 'Request failed');
+      }
+
+      const contentType = response.headers.get('content-type');
+      if (contentType && contentType.includes('application/json')) {
+        return response.json();
+      }
+      return {} as T;
+    } catch (error) {
+      if (error instanceof Error) {
+        throw error;
+      }
+      throw new Error('Network request failed');
+    }
+  }
+
   // For streaming responses (SSE)
   async stream(
     endpoint: string,

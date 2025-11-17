@@ -151,7 +151,8 @@ class AmaniQueryVoiceAgent:
             tts = openai.TTS()
         
         # Create custom LLM that uses RAG pipeline
-        rag_llm = RAGLLM(self.rag_integration, self.session_manager, session_id)
+        # Pass room context for sending transcriptions
+        rag_llm = RAGLLM(self.rag_integration, self.session_manager, session_id, ctx.room)
         
         # Create agent session using VoiceAssistant
         if VoiceAssistant is None:
@@ -215,6 +216,7 @@ class RAGLLM(llm.LLM):
         rag_integration: VoiceRAGIntegration,
         session_manager: VoiceSessionManager,
         session_id: str,
+        room: Optional[rtc.Room] = None,
     ):
         """
         Initialize RAG-based LLM
@@ -223,11 +225,13 @@ class RAGLLM(llm.LLM):
             rag_integration: Voice RAG integration instance
             session_manager: Session manager for conversation context
             session_id: Current session ID
+            room: LiveKit room for sending transcriptions
         """
         super().__init__()
         self.rag_integration = rag_integration
         self.session_manager = session_manager
         self.session_id = session_id
+        self.room = room
     
     async def chat(
         self,
@@ -275,6 +279,24 @@ class RAGLLM(llm.LLM):
             
             logger.info(f"RAG response generated: {len(response_text)} characters")
             
+            # Send transcription to client via data channel
+            if self.room:
+                try:
+                    import json
+                    data = {
+                        "type": "transcription",
+                        "role": "agent",
+                        "text": response_text,
+                        "isFinal": True
+                    }
+                    await self.room.local_participant.publish_data(
+                        json.dumps(data).encode("utf-8"),
+                        reliable=True
+                    )
+                    logger.debug("Sent agent transcription to client")
+                except Exception as e:
+                    logger.warning(f"Failed to send transcription: {e}")
+            
             # Create chat stream with response
             stream = llm.ChatStream()
             stream.append(role="assistant", content=response_text)
@@ -290,6 +312,23 @@ class RAGLLM(llm.LLM):
                 user_query,
                 error_response
             )
+            
+            # Send error transcription to client
+            if self.room:
+                try:
+                    import json
+                    data = {
+                        "type": "transcription",
+                        "role": "agent",
+                        "text": error_response,
+                        "isFinal": True
+                    }
+                    await self.room.local_participant.publish_data(
+                        json.dumps(data).encode("utf-8"),
+                        reliable=True
+                    )
+                except Exception as send_error:
+                    logger.warning(f"Failed to send error transcription: {send_error}")
             
             stream = llm.ChatStream()
             stream.append(role="assistant", content=error_response)

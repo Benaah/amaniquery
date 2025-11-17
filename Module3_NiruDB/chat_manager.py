@@ -142,8 +142,9 @@ class ChatDatabaseManager:
                    sources: Optional[List[Dict]] = None) -> str:
         """Add a message to a chat session"""
         message_id = generate_message_id()
-
-        with get_db_session(self.engine) as db:
+        db = get_db_session(self.engine)
+        
+        try:
             message = ChatMessage(
                 id=message_id,
                 session_id=session_id,
@@ -161,8 +162,14 @@ class ChatDatabaseManager:
                 session.updated_at = datetime.utcnow()
 
             db.commit()
+            logger.info(f"Added {role} message {message_id} to session {session_id}")
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Error adding message to session {session_id}: {e}")
+            raise
+        finally:
+            db.close()
 
-        logger.info(f"Added {role} message to session {session_id}")
         return message_id
 
     def get_messages(self, session_id: str, limit: int = 100) -> List[ChatMessageResponse]:

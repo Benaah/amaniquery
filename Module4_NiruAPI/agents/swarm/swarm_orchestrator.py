@@ -39,7 +39,7 @@ class SwarmOrchestrator:
         self.provider_configs = {
             "openai": {"model": "gpt-4", "requires_key": "OPENAI_API_KEY"},
             "anthropic": {"model": "claude-3-opus-20240229", "requires_key": "ANTHROPIC_API_KEY"},
-            "gemini": {"model": "gemini-1.5-pro", "requires_key": "GEMINI_API_KEY"},
+            "gemini": {"model": "gemini-2.5-flash", "requires_key": "GEMINI_API_KEY"},  # Updated to 2.5-flash
             "moonshot": {"model": "moonshot-v1-8k", "requires_key": "MOONSHOT_API_KEY"}
         }
         

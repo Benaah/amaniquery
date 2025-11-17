@@ -40,7 +40,7 @@ class ModelManager:
         if os.getenv("GEMINI_API_KEY"):
             models['gemini'] = {
                 'provider': 'gemini',
-                'models': ['gemini-1.5-pro', 'gemini-1.5-flash'],
+                'models': ['gemini-2.5-pro', 'gemini-2.5-flash'],
                 'available': True
             }
         

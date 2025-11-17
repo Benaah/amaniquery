@@ -75,11 +75,47 @@ class VectorStore:
         if self._embedding_model is None:
             try:
                 from sentence_transformers import SentenceTransformer
-                self._embedding_model = SentenceTransformer(self.embedding_model_name)
-                logger.info(f"Loaded embedding model: {self.embedding_model_name}")
+                import torch
+                
+                # Ensure model is loaded on CPU to avoid device issues
+                # Explicitly set device to avoid meta tensor errors
+                device = 'cpu'  # Use CPU for embeddings to avoid GPU/meta device issues
+                
+                self._embedding_model = SentenceTransformer(
+                    self.embedding_model_name,
+                    device=device
+                )
+                
+                # Ensure model is properly initialized (not on meta device)
+                if hasattr(self._embedding_model, 'to'):
+                    # Move to CPU explicitly if needed
+                    try:
+                        self._embedding_model = self._embedding_model.to(device)
+                    except Exception as device_error:
+                        # If to() fails, try to_empty() for meta tensors
+                        if 'meta' in str(device_error).lower():
+                            logger.warning(f"Model on meta device, reinitializing: {device_error}")
+                            # Reinitialize model without meta device
+                            self._embedding_model = SentenceTransformer(
+                                self.embedding_model_name,
+                                device=device
+                            )
+                        else:
+                            raise
+                
+                logger.info(f"Loaded embedding model: {self.embedding_model_name} on {device}")
             except ImportError as e:
                 logger.error(f"Failed to import SentenceTransformer: {e}")
                 raise
+            except Exception as e:
+                logger.error(f"Failed to load embedding model: {e}")
+                # Try fallback: load without device specification
+                try:
+                    self._embedding_model = SentenceTransformer(self.embedding_model_name)
+                    logger.info(f"Loaded embedding model (fallback): {self.embedding_model_name}")
+                except Exception as fallback_error:
+                    logger.error(f"Fallback model loading also failed: {fallback_error}")
+                    raise
         return self._embedding_model
     
     def _init_with_fallback(self) -> str:
@@ -528,8 +564,20 @@ class VectorStore:
             List of similar documents with metadata
         """
         try:
-            # Generate query embedding
-            query_embedding = self.embedding_model.encode(query_text).tolist()
+            # Generate query embedding with error handling for device issues
+            try:
+                query_embedding = self.embedding_model.encode(query_text).tolist()
+            except Exception as encode_error:
+                if 'meta' in str(encode_error).lower() or 'device' in str(encode_error).lower():
+                    logger.warning(f"Encoding error (device issue): {encode_error}, retrying with CPU")
+                    # Ensure model is on CPU
+                    import torch
+                    if hasattr(self._embedding_model, 'to'):
+                        self._embedding_model = self._embedding_model.to('cpu')
+                    # Retry encoding
+                    query_embedding = self.embedding_model.encode(query_text).tolist()
+                else:
+                    raise
             
             if self.backend == "upstash":
                 return self._query_upstash(query_embedding, n_results, filter)

@@ -7,10 +7,10 @@ import { ArrowLeft } from "lucide-react"
 export default function VoicePage() {
   return (
     <div className="min-h-screen bg-background p-4 md:p-6">
-      <div className="absolute top-4 right-4">
+      <div className="absolute top-4 right-4 z-10">
         <ThemeToggle />
       </div>
-      <div className="max-w-2xl mx-auto space-y-4">
+      <div className="max-w-6xl mx-auto space-y-4">
         <div className="flex items-center gap-4">
           <Link href="/">
             <Button variant="outline" size="sm">
@@ -25,9 +25,10 @@ export default function VoicePage() {
             </p>
           </div>
         </div>
-        <VoiceAgentWrapper />
+        <div className="h-[calc(100vh-12rem)] min-h-[600px]">
+          <VoiceAgentWrapper />
+        </div>
       </div>
     </div>
   )
 }
-

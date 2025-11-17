@@ -1150,6 +1150,7 @@ async def add_chat_message(session_id: str, message: ChatMessageCreate):
                 import json
                 
                 async def generate_stream():
+                    full_answer = ""
                     try:
                         # First send sources
                         sources_data = {
@@ -1161,7 +1162,6 @@ async def add_chat_message(session_id: str, message: ChatMessageCreate):
                         yield f"data: {json.dumps(sources_data)}\n\n"
                         
                         # Then stream the answer
-                        full_answer = ""
                         
                         # Check if we have streaming response or fallback to regular answer
                         if "answer_stream" in result and result["answer_stream"] is not None:
@@ -1223,21 +1223,6 @@ async def add_chat_message(session_id: str, message: ChatMessageCreate):
                         }
                         yield f"data: {json.dumps(completion_data)}\n\n"
                         
-                        # Add assistant message to chat after streaming
-                        assistant_msg_id = chat_manager.add_message(
-                            session_id=session_id,
-                            content=full_answer,
-                            role="assistant",
-                            token_count=result.get("retrieved_chunks", 0),
-                            model_used=result.get("model_used", "unknown"),
-                            sources=result.get("sources", [])
-                        )
-                        
-                        # Generate session title if needed
-                        if not session.title:
-                            title = chat_manager.generate_session_title(session_id)
-                            chat_manager.update_session_title(session_id, title)
-                            
                     except Exception as e:
                         logger.error(f"Error in streaming: {e}")
                         error_data = {
@@ -1245,6 +1230,26 @@ async def add_chat_message(session_id: str, message: ChatMessageCreate):
                             "error": str(e)
                         }
                         yield f"data: {json.dumps(error_data)}\n\n"
+                    finally:
+                        # Always save assistant message, even if streaming failed
+                        try:
+                            if full_answer.strip():  # Only save if we have content
+                                assistant_msg_id = chat_manager.add_message(
+                                    session_id=session_id,
+                                    content=full_answer,
+                                    role="assistant",
+                                    token_count=result.get("retrieved_chunks", 0),
+                                    model_used=result.get("model_used", "unknown"),
+                                    sources=result.get("sources", [])
+                                )
+                                logger.info(f"Saved assistant message {assistant_msg_id} to session {session_id}")
+                                
+                                # Generate session title if needed
+                                if not session.title:
+                                    title = chat_manager.generate_session_title(session_id)
+                                    chat_manager.update_session_title(session_id, title)
+                        except Exception as save_error:
+                            logger.error(f"Failed to save assistant message: {save_error}")
                 
                 return StreamingResponse(
                     generate_stream(),

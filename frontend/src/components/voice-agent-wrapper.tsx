@@ -5,12 +5,14 @@ import { VoiceAgent } from "./voice-agent"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { VoiceSelector, OpenAIVoice } from "./voice-selector"
 
 export function VoiceAgentWrapper() {
   const [roomName, setRoomName] = useState(`voice-${Date.now()}`)
   const [token, setToken] = useState<string | null>(null)
   const [isConnecting, setIsConnecting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [selectedVoice, setSelectedVoice] = useState<OpenAIVoice>("alloy")
 
   const livekitUrl = process.env.NEXT_PUBLIC_LIVEKIT_URL || ""
 
@@ -43,6 +45,7 @@ export function VoiceAgentWrapper() {
         body: JSON.stringify({
           roomName: roomName.trim(),
           participantName: "user",
+          voice: selectedVoice, // Pass voice selection to backend
         }),
       })
 
@@ -66,6 +69,7 @@ export function VoiceAgentWrapper() {
         livekitUrl={livekitUrl}
         token={token}
         roomName={roomName}
+        selectedVoice={selectedVoice}
       />
     )
   }
@@ -86,6 +90,15 @@ export function VoiceAgentWrapper() {
           />
         </div>
 
+        <div>
+          <label className="text-sm font-medium mb-2 block">Voice</label>
+          <VoiceSelector
+            selectedVoice={selectedVoice}
+            onVoiceChange={setSelectedVoice}
+            disabled={isConnecting}
+          />
+        </div>
+
         {error && (
           <p className="text-sm text-destructive">{error}</p>
         )}
@@ -101,4 +114,3 @@ export function VoiceAgentWrapper() {
     </Card>
   )
 }
-

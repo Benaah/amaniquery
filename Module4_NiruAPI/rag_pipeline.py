@@ -71,8 +71,16 @@ class RAGPipeline:
             try:
                 import google.generativeai as genai
                 genai.configure(api_key=api_key)
+                # Update deprecated model names
+                gemini_model = self.model
+                if gemini_model == "gemini-pro":
+                    gemini_model = "gemini-2.5-flash"  # Use flash as default (faster)
+                elif gemini_model not in ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-flash"]:
+                    # If model not specified or unknown, default to flash
+                    gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+                self.model = gemini_model  # Update self.model to the correct name
                 self.client = genai.GenerativeModel(self.model)
-                logger.info("Using Google Gemini AI")
+                logger.info(f"Using Google Gemini AI with model: {self.model}")
                 
                 # Test the connection
                 test_response = self.client.generate_content("test")
@@ -199,11 +207,16 @@ class RAGPipeline:
             if api_key:
                 import google.generativeai as genai
                 genai.configure(api_key=api_key)
+                # Use gemini-2.5-flash as default (faster) or gemini-2.5-pro (more capable)
+                gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+                # Fallback to gemini-2.5-pro if flash not available
+                if gemini_model == "gemini-2.5-pro":
+                    gemini_model = "gemini-2.5-flash"
                 clients["gemini"] = {
-                    "client": genai.GenerativeModel(os.getenv("GEMINI_MODEL", "gemini-pro")),
-                    "model": os.getenv("GEMINI_MODEL", "gemini-pro")
+                    "client": genai.GenerativeModel(gemini_model),
+                    "model": gemini_model
                 }
-                logger.info("Ensemble: Gemini client initialized")
+                logger.info(f"Ensemble: Gemini client initialized with {gemini_model}")
         except Exception as e:
             logger.warning(f"Ensemble: Failed to initialize Gemini: {e}")
         

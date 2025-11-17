@@ -56,6 +56,7 @@ from Module4_NiruAPI.routers.news_router import router as news_router
 from Module4_NiruAPI.routers.websocket_router import router as websocket_router, broadcast_new_article
 from Module4_NiruAPI.routers.notification_router import router as notification_router
 from Module4_NiruAPI.services.notification_service import NotificationService
+from Module4_NiruAPI.agents.tools.autocomplete import AutocompleteTool
 
 # Load environment
 load_dotenv()
@@ -64,7 +65,7 @@ load_dotenv()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Handle application startup and shutdown"""
-    global vector_store, rag_pipeline, alignment_pipeline, sms_pipeline, sms_service, metadata_manager, chat_manager, crawler_manager, research_module, agentic_research_module, report_generator, config_manager, notification_service, hybrid_rag_pipeline
+    global vector_store, rag_pipeline, alignment_pipeline, sms_pipeline, sms_service, metadata_manager, chat_manager, crawler_manager, research_module, agentic_research_module, report_generator, config_manager, notification_service, hybrid_rag_pipeline, autocomplete_tool
     
     logger.info("Starting AmaniQuery API")
     
@@ -259,6 +260,14 @@ async def lifespan(app: FastAPI):
         logger.warning(f"Notification service not available: {e}")
         notification_service = None
     
+    # Initialize autocomplete tool
+    try:
+        autocomplete_tool = AutocompleteTool()
+        logger.info("Autocomplete tool initialized")
+    except Exception as e:
+        logger.warning(f"Autocomplete tool not available: {e}")
+        autocomplete_tool = None
+    
     logger.info("AmaniQuery API ready")
     
     yield
@@ -335,6 +344,41 @@ async def health_check():
         embedding_model=os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2"),
         llm_provider=os.getenv("LLM_PROVIDER", "moonshot"),
     )
+
+
+@app.get("/api/autocomplete", tags=["Query"])
+async def get_autocomplete(
+    q: str,
+    max_results: int = 10,
+    location: Optional[str] = None,
+    language: str = "en"
+):
+    """
+    Get Google autocomplete suggestions
+    
+    Args:
+        q: Partial search query
+        max_results: Maximum number of suggestions (default: 10)
+        location: Location for localized suggestions (e.g., "Kenya")
+        language: Language code (e.g., "en", "sw")
+    
+    Returns:
+        Autocomplete suggestions
+    """
+    if autocomplete_tool is None:
+        raise HTTPException(status_code=503, detail="Autocomplete service not available")
+    
+    try:
+        result = autocomplete_tool.execute(
+            query=q,
+            max_results=max_results,
+            location=location,
+            language=language
+        )
+        return result
+    except Exception as e:
+        logger.error(f"Error in autocomplete: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/v1/news/health", tags=["news"])
@@ -562,6 +606,7 @@ async def query_stream(request: QueryRequest):
 
 # Hybrid RAG Pipeline Endpoints
 hybrid_rag_pipeline = None
+autocomplete_tool = None
 
 @app.post("/query/hybrid", response_model=QueryResponse, tags=["Hybrid RAG"])
 async def query_hybrid(request: QueryRequest):

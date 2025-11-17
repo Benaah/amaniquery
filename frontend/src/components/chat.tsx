@@ -161,8 +161,12 @@ export function Chat() {
   const [shareCache, setShareCache] = useState<
     Record<string, Partial<Record<SharePlatform, ShareFormatResponse>>>
   >({})
+  const [autocompleteSuggestions, setAutocompleteSuggestions] = useState<string[]>([])
+  const [showAutocomplete, setShowAutocomplete] = useState(false)
+  const autocompleteTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const messagesContainerRef = useRef<HTMLDivElement | null>(null)
   const messagesEndRef = useRef<HTMLDivElement | null>(null)
+  const inputRef = useRef<HTMLInputElement | null>(null)
 
   const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
@@ -215,6 +219,53 @@ export function Chat() {
   useEffect(() => {
     loadChatHistory()
   }, [loadChatHistory])
+
+  // Autocomplete functionality
+  const fetchAutocomplete = useCallback(async (query: string) => {
+    if (!query.trim() || query.length < 2) {
+      setAutocompleteSuggestions([])
+      setShowAutocomplete(false)
+      return
+    }
+
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/api/autocomplete?q=${encodeURIComponent(query)}&max_results=5&location=Kenya&language=en`
+      )
+      if (response.ok) {
+        const data = await response.json()
+        const suggestions = data.suggestions?.map((s: { text: string }) => s.text) || []
+        setAutocompleteSuggestions(suggestions)
+        setShowAutocomplete(suggestions.length > 0)
+      }
+    } catch (error) {
+      console.error("Failed to fetch autocomplete:", error)
+      setAutocompleteSuggestions([])
+      setShowAutocomplete(false)
+    }
+  }, [API_BASE_URL])
+
+  // Debounced autocomplete
+  useEffect(() => {
+    if (autocompleteTimeoutRef.current) {
+      clearTimeout(autocompleteTimeoutRef.current)
+    }
+
+    if (input.trim().length >= 2) {
+      autocompleteTimeoutRef.current = setTimeout(() => {
+        fetchAutocomplete(input)
+      }, 300)
+    } else {
+      setAutocompleteSuggestions([])
+      setShowAutocomplete(false)
+    }
+
+    return () => {
+      if (autocompleteTimeoutRef.current) {
+        clearTimeout(autocompleteTimeoutRef.current)
+      }
+    }
+  }, [input, fetchAutocomplete])
 
   const createNewSession = async (firstMessage?: string) => {
     // Generate title from first message if provided
@@ -1648,14 +1699,29 @@ ${additionalConsiderations}
                 <Sparkles className="w-3 h-3 text-primary" />
                 <span className="hidden sm:inline">
                   {isResearchMode
-                    ? "Deep research mode prioritizes structure & citations."
-                    : "Chat mode delivers fast summaries with citations."}
+                    ? "Agentic research mode with multi-stage reasoning & tool use"
+                    : useHybrid
+                    ? "Hybrid RAG with enhanced retrieval"
+                    : "Chat mode delivers fast summaries with citations"}
                 </span>
                 <span className="sm:hidden">
-                  {isResearchMode ? "Research mode" : "Chat mode"}
+                  {isResearchMode ? "Agentic Research" : useHybrid ? "Hybrid RAG" : "Chat"}
                 </span>
               </div>
-              <span className="text-[10px]">{isLoading ? "Streaming..." : "Ready"}</span>
+              <div className="flex items-center gap-2">
+                {isResearchMode && (
+                  <Badge variant="secondary" className="text-[10px] px-1.5 py-0.5">
+                    <Sparkles className="w-2.5 h-2.5 mr-1" />
+                    Agentic
+                  </Badge>
+                )}
+                {useHybrid && (
+                  <Badge variant="outline" className="text-[10px] px-1.5 py-0.5">
+                    Hybrid
+                  </Badge>
+                )}
+                <span className="text-[10px]">{isLoading ? "Streaming..." : "Ready"}</span>
+              </div>
             </div>
             <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 shadow-lg backdrop-blur-lg">
               <div className="flex items-end gap-2">
@@ -1667,17 +1733,53 @@ ${additionalConsiderations}
                     <Mic className="w-3.5 h-3.5" />
                   </Button>
                 </div>
-                <Input
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  placeholder={
-                    isResearchMode
-                      ? "Ask detailed legal research questions about Kenyan laws..."
-                      : "Ask about Kenyan law, parliament, or news..."
-                  }
-                  className="flex-1 border-0 bg-transparent text-sm md:text-base focus-visible:ring-0 py-2"
-                  disabled={isLoading}
-                />
+                <div className="relative flex-1">
+                  <Input
+                    ref={inputRef}
+                    value={input}
+                    onChange={(e) => {
+                      setInput(e.target.value)
+                      setShowAutocomplete(true)
+                    }}
+                    onFocus={() => {
+                      if (autocompleteSuggestions.length > 0) {
+                        setShowAutocomplete(true)
+                      }
+                    }}
+                    onBlur={() => {
+                      // Delay hiding to allow clicking on suggestions
+                      setTimeout(() => setShowAutocomplete(false), 200)
+                    }}
+                    placeholder={
+                      isResearchMode
+                        ? "Ask detailed legal research questions about Kenyan laws..."
+                        : "Ask about Kenyan law, parliament, or news..."
+                    }
+                    className="w-full border-0 bg-transparent text-sm md:text-base focus-visible:ring-0 py-2"
+                    disabled={isLoading}
+                  />
+                  {showAutocomplete && autocompleteSuggestions.length > 0 && (
+                    <div className="absolute top-full left-0 right-0 mt-1 rounded-xl border border-white/10 bg-white/95 backdrop-blur-lg shadow-lg z-50 max-h-60 overflow-y-auto">
+                      {autocompleteSuggestions.map((suggestion, idx) => (
+                        <button
+                          key={idx}
+                          type="button"
+                          onClick={() => {
+                            setInput(suggestion)
+                            setShowAutocomplete(false)
+                            inputRef.current?.focus()
+                          }}
+                          className="w-full px-4 py-2 text-left text-sm hover:bg-primary/10 transition-colors first:rounded-t-xl last:rounded-b-xl"
+                        >
+                          <div className="flex items-center gap-2">
+                            <Search className="w-3.5 h-3.5 text-muted-foreground" />
+                            <span>{suggestion}</span>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
                 <Button type="submit" disabled={isLoading || !input.trim()} className="h-9 w-9 rounded-xl">
                   {isLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
                 </Button>

@@ -22,6 +22,7 @@ class ParliamentSpider(scrapy.Spider):
         "https://www.parliament.go.ke/the-national-assembly/house-business/hansard",
         "https://www.parliament.go.ke/the-national-assembly/house-business/bills",
         "https://www.parliament.go.ke/documents-publications",
+        "https://www.parliament.go.ke/index.php/2025-2026-budget-documents",
     ]
     
     custom_settings = {
@@ -35,26 +36,58 @@ class ParliamentSpider(scrapy.Spider):
         """Parse listing pages"""
         self.logger.info(f"Parsing: {response.url}")
         
+        # Special handling for budget documents page
+        if "budget-documents" in response.url:
+            yield from self.parse_budget_documents(response)
+            return
+        
         # Look for PDF links (most parliamentary documents are PDFs)
         pdf_links = response.css('a[href$=".pdf"]::attr(href)').getall()
         
+        # Also look for links that might point to PDFs (download links, file links)
+        pdf_links.extend(response.css('a[href*=".pdf"]::attr(href)').getall())
+        pdf_links.extend(response.css('a[href*="/sites/default/files/"]::attr(href)').getall())
+        
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_pdf_links = []
         for link in pdf_links:
-            # Extract title from link text or nearby text
-            link_element = response.css(f'a[href="{link}"]')
-            title = link_element.css('::text').get() or link_element.xpath('./text()').get()
+            if link and link not in seen:
+                seen.add(link)
+                unique_pdf_links.append(link)
+        
+        for link in unique_pdf_links:
+            # Make absolute URL if relative
+            if link.startswith('/'):
+                link = response.urljoin(link)
+            elif not link.startswith('http'):
+                link = response.urljoin(link)
             
-            if not title:
-                # Try to get title from parent element
-                title = link_element.xpath('..//text()').get()
+            # Extract title from link text or nearby text
+            link_element = response.css(f'a[href*="{link.split("/")[-1]}"]').first()
+            if not link_element:
+                # Try exact match
+                link_element = response.css(f'a[href="{link}"]').first()
+            
+            title = None
+            if link_element:
+                title = link_element.css('::text').get() or link_element.xpath('./text()').get()
+                
+                if not title:
+                    # Try to get title from parent element or sibling
+                    title = link_element.xpath('../text()').get() or link_element.xpath('preceding-sibling::text()[1]').get()
             
             if not title:
                 # Use filename as title
-                title = link.split('/')[-1].replace('.pdf', '').replace('-', ' ').title()
+                filename = link.split('/')[-1]
+                if filename.endswith('.pdf'):
+                    filename = filename.replace('.pdf', '')
+                title = filename.replace('-', ' ').replace('_', ' ').title()
             
             yield response.follow(
                 link,
                 callback=self.parse_pdf,
-                meta={'title': title.strip()}
+                meta={'title': title.strip() if title else 'Parliamentary Document'}
             )
         
         # Look for article/document links
@@ -68,20 +101,104 @@ class ParliamentSpider(scrapy.Spider):
         if next_page:
             yield response.follow(next_page, callback=self.parse)
     
+    def parse_budget_documents(self, response):
+        """Special parser for budget documents page"""
+        self.logger.info(f"Parsing budget documents page: {response.url}")
+        
+        # Look for all PDF links on the page
+        pdf_links = response.css('a[href$=".pdf"]::attr(href)').getall()
+        pdf_links.extend(response.css('a[href*=".pdf"]::attr(href)').getall())
+        
+        # Also look for file download links
+        file_links = response.css('a[href*="/sites/default/files/"]::attr(href)').getall()
+        pdf_links.extend(file_links)
+        
+        # Remove duplicates
+        seen = set()
+        unique_links = []
+        for link in pdf_links:
+            if link and link not in seen:
+                seen.add(link)
+                unique_links.append(link)
+        
+        self.logger.info(f"Found {len(unique_links)} PDF links on budget documents page")
+        
+        for link in unique_links:
+            # Make absolute URL
+            if link.startswith('/'):
+                link = response.urljoin(link)
+            elif not link.startswith('http'):
+                link = response.urljoin(link)
+            
+            # Extract title - try multiple strategies
+            title = None
+            
+            # Strategy 1: Link text
+            link_selector = f'a[href*="{link.split("/")[-1]}"]'
+            link_element = response.css(link_selector).first()
+            
+            if link_element:
+                title = link_element.css('::text').get()
+                if not title:
+                    # Try parent or preceding text
+                    title = link_element.xpath('../text()').get() or link_element.xpath('preceding-sibling::text()[1]').get()
+            
+            # Strategy 2: Look for text near the link (within same container)
+            if not title and link_element:
+                parent = link_element.xpath('..')
+                if parent:
+                    title = parent.css('::text').get()
+            
+            # Strategy 3: Extract from filename
+            if not title:
+                filename = link.split('/')[-1]
+                if filename.endswith('.pdf'):
+                    filename = filename.replace('.pdf', '')
+                # Clean up filename to create readable title
+                title = filename.replace('-', ' ').replace('_', ' ').replace('%20', ' ')
+                # Capitalize properly
+                title = ' '.join(word.capitalize() for word in title.split())
+            
+            # Add budget document context to title
+            if title and 'budget' not in title.lower() and 'finance' not in title.lower():
+                if '2025' in link or '2026' in link:
+                    title = f"{title} (Budget 2025-2026)"
+            
+            yield response.follow(
+                link,
+                callback=self.parse_pdf,
+                meta={
+                    'title': title.strip() if title else 'Budget Document',
+                    'is_budget_doc': True
+                }
+            )
+    
     def parse_pdf(self, response):
         """Handle PDF documents"""
         title = response.meta.get('title', 'Untitled Parliamentary Document')
+        is_budget_doc = response.meta.get('is_budget_doc', False)
         
         # Try to extract date from URL or title
         date_match = re.search(r'(\d{4}[-/]\d{2}[-/]\d{2})', response.url)
         pub_date = date_match.group(1) if date_match else None
+        
+        # Extract year from URL or title for budget documents
+        if is_budget_doc and not pub_date:
+            year_match = re.search(r'(202[4-9])', response.url + ' ' + title)
+            if year_match:
+                pub_date = year_match.group(1) + "-01-01"  # Default to start of year
+        
+        # Enhance category for budget documents
+        category = "Parliament"
+        if is_budget_doc or 'budget' in title.lower() or 'finance' in title.lower():
+            category = "Parliament - Budget Documents"
         
         yield DocumentItem(
             url=response.url,
             title=title,
             content="",
             content_type="pdf",
-            category="Parliament",
+            category=category,
             source_name="Parliament of Kenya",
             publication_date=pub_date,
             raw_html="",

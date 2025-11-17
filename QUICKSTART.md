@@ -60,7 +60,7 @@ python -m Module1_NiruSpider.crawl_all
 
 This will:
 - Crawl Kenya Law website
-- Fetch Parliamentary documents
+- Fetch Parliamentary documents (Hansards, Bills, Budget Documents including Finance Bill)
 - Parse Kenyan news RSS feeds
 - Collect global tech/policy news
 
@@ -100,20 +100,48 @@ This will:
 
 **Output:** Vector database in `data/chroma_db/`
 
-### Step 4: Start API Server (Module 4)
+### Step 4: Start API Server
+
+**Recommended method (starts API and optionally voice agent):**
 
 ```bash
-python -m Module4_NiruAPI.api
+python start_api.py
 ```
 
 This will:
 - Start FastAPI server on http://localhost:8000
 - Initialize RAG pipeline
 - Serve API endpoints
+- Optionally start voice agent (if LiveKit credentials are configured)
+
+**Alternative (API only):**
+
+```bash
+python -m Module4_NiruAPI.api
+```
 
 **Access:**
 - API: http://localhost:8000
 - Interactive Docs: http://localhost:8000/docs
+
+**Note:** The `start_api.py` script can also start the voice agent if you have LiveKit credentials configured in your `.env` file. Set `ENABLE_VOICE_AGENT=true` and provide `LIVEKIT_URL`, `LIVEKIT_API_KEY`, and `LIVEKIT_API_SECRET` to enable voice queries.
+
+### Quick Option: Run All Steps at Once
+
+Instead of running each step individually, you can use the convenience script to run all three steps (crawl, process, populate) in sequence:
+
+```bash
+python refresh_data.py
+```
+
+This will:
+- Run all spiders to crawl fresh data
+- Process and parse the crawled data
+- Populate vector databases with processed chunks
+
+**Time:** 1-3 hours (depending on data volume)
+
+**Note:** This script will prompt for confirmation before starting. Use individual steps if you need more control over the process.
 
 ## Testing the API
 
@@ -181,9 +209,21 @@ for i, tweet in enumerate(formatted["content"], 1):
 
 ## Scheduled Crawling
 
-To keep data up-to-date, schedule Module 1 to run periodically:
+To keep data up-to-date, schedule data refresh to run periodically:
 
 ### Windows Task Scheduler
+
+**Option 1: Full data refresh (recommended for weekly/monthly updates)**
+
+1. Open Task Scheduler
+2. Create Basic Task
+3. Set trigger (e.g., weekly on Monday at 6 AM)
+4. Action: Start a program
+   - Program: `C:\Users\YourUser\OneDrive\Desktop\AmaniQuery\venv\Scripts\python.exe`
+   - Arguments: `refresh_data.py`
+   - Start in: `C:\Users\YourUser\OneDrive\Desktop\AmaniQuery`
+
+**Option 2: Crawl only (for daily news updates)**
 
 1. Open Task Scheduler
 2. Create Basic Task
@@ -194,6 +234,18 @@ To keep data up-to-date, schedule Module 1 to run periodically:
    - Start in: `C:\Users\YourUser\OneDrive\Desktop\AmaniQuery`
 
 ### Linux/Mac Cron
+
+**Option 1: Full data refresh (recommended for weekly/monthly updates)**
+
+```bash
+# Edit crontab
+crontab -e
+
+# Add weekly refresh on Monday at 6 AM
+0 6 * * 1 cd /path/to/AmaniQuery && venv/bin/python refresh_data.py
+```
+
+**Option 2: Crawl only (for daily news updates)**
 
 ```bash
 # Edit crontab
@@ -235,13 +287,24 @@ Adjust `DOWNLOAD_DELAY` in `Module1_NiruSpider/niruspider/settings.py` (lower = 
 # Delete all data
 rm -rf data/raw/* data/processed/* data/chroma_db/*
 
-# Re-run pipeline
+# Re-run pipeline (quick option)
+python refresh_data.py
+
+# Or run steps individually for more control
 python -m Module1_NiruSpider.crawl_all
 python -m Module2_NiruParser.process_all
 python -m Module3_NiruDB.populate_db
 ```
 
 ### Update Data Only
+
+**Quick option (runs all steps):**
+
+```bash
+python refresh_data.py
+```
+
+**Or run steps individually for granular control:**
 
 ```bash
 # Crawl new data

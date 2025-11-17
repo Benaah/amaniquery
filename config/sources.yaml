@@ -64,6 +64,10 @@ sources:
       - name: "Publications"
         url: "/documents-publications"
         type: "mixed"
+      - name: "Budget Documents"
+        url: "/index.php/2025-2026-budget-documents"
+        type: "pdf"
+        description: "Finance Bill, Budget Summary, Financial Statements, Development and Recurrent Budget Books"
     settings:
       download_delay: 2.5
       max_pages: 50

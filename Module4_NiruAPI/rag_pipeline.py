@@ -297,6 +297,7 @@ class RAGPipeline:
         temperature: float = 0.7,
         max_tokens: int = 1500,
         max_context_length: int = 3000,
+        session_id: Optional[str] = None,
     ) -> Dict:
         """
         Run RAG query
@@ -330,11 +331,39 @@ class RAGPipeline:
             logger.info("Cache hit for query!")
             return cached_result
         
+        # Retrieve from main vector store
         retrieved_docs = self.vector_store.query(
             query_text=query,
             n_results=top_k,
             filter=filter_dict if filter_dict else None,
         )
+        
+        # If session_id provided, also retrieve from session-specific collection
+        if session_id:
+            try:
+                collection_name = f"chat_session_{session_id}"
+                # Try to query session-specific collection
+                if hasattr(self.vector_store, 'get_collection'):
+                    collection = self.vector_store.get_collection(collection_name)
+                    if collection:
+                        session_docs = collection.query(
+                            query_texts=[query],
+                            n_results=min(3, top_k),  # Limit session docs
+                        )
+                        # Merge session docs with main docs
+                        if session_docs and len(session_docs) > 0:
+                            # Format session docs to match main docs format
+                            if isinstance(session_docs, dict) and "documents" in session_docs:
+                                for i, doc_text in enumerate(session_docs["documents"][0] if session_docs["documents"] else []):
+                                    session_doc = {
+                                        "text": doc_text,
+                                        "source": session_docs.get("metadatas", [[]])[0][i] if session_docs.get("metadatas") else {},
+                                        "score": session_docs.get("distances", [[]])[0][i] if session_docs.get("distances") else 0.0,
+                                    }
+                                    retrieved_docs.append(session_doc)
+                            logger.info(f"Retrieved {len(session_docs) if isinstance(session_docs, list) else 1} documents from session collection")
+            except Exception as e:
+                logger.warning(f"Failed to retrieve session documents: {e}")
         
         # Check if context is limited - use ensemble if so
         use_ensemble = self._is_context_limited(retrieved_docs)
@@ -679,6 +708,33 @@ Combined Response:"""
                 n_results=top_k,
                 filter=filter_dict if filter_dict else None,
             )
+            
+            # If session_id provided, also retrieve from session-specific collection
+            if session_id:
+                try:
+                    collection_name = f"chat_session_{session_id}"
+                    # Try to query session-specific collection
+                    if hasattr(self.vector_store, 'get_collection'):
+                        collection = self.vector_store.get_collection(collection_name)
+                        if collection:
+                            session_docs = collection.query(
+                                query_texts=[query],
+                                n_results=min(3, top_k),  # Limit session docs
+                            )
+                            # Merge session docs with main docs
+                            if session_docs and len(session_docs) > 0:
+                                # Format session docs to match main docs format
+                                if isinstance(session_docs, dict) and "documents" in session_docs:
+                                    for i, doc_text in enumerate(session_docs["documents"][0] if session_docs["documents"] else []):
+                                        session_doc = {
+                                            "text": doc_text,
+                                            "source": session_docs.get("metadatas", [[]])[0][i] if session_docs.get("metadatas") else {},
+                                            "score": session_docs.get("distances", [[]])[0][i] if session_docs.get("distances") else 0.0,
+                                        }
+                                        retrieved_docs.append(session_doc)
+                                logger.info(f"Retrieved {len(session_docs) if isinstance(session_docs, list) else 1} documents from session collection")
+                except Exception as e:
+                    logger.warning(f"Failed to retrieve session documents: {e}")
             
             # Check if context is limited - use ensemble if so
             use_ensemble = self._is_context_limited(retrieved_docs)

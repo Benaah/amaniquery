@@ -139,7 +139,7 @@ class ChatDatabaseManager:
 
     def add_message(self, session_id: str, content: str, role: str,
                    token_count: Optional[int] = None, model_used: Optional[str] = None,
-                   sources: Optional[List[Dict]] = None) -> str:
+                   sources: Optional[List[Dict]] = None, attachments: Optional[List[Dict]] = None) -> str:
         """Add a message to a chat session"""
         message_id = generate_message_id()
         db = get_db_session(self.engine)
@@ -152,7 +152,8 @@ class ChatDatabaseManager:
                 content=content,
                 token_count=token_count,
                 model_used=model_used,
-                sources=sources
+                sources=sources,
+                attachments=attachments
             )
             db.add(message)
 
@@ -188,6 +189,7 @@ class ChatDatabaseManager:
                 token_count=msg.token_count,
                 model_used=msg.model_used,
                 sources=msg.sources,
+                attachments=msg.attachments,
                 feedback_type=msg.feedback_type
             ) for msg in messages]
 

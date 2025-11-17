@@ -28,7 +28,7 @@ def main():
     config_manager = None
     try:
         config_manager = ConfigManager()
-        print("✅ ConfigManager initialized")
+        print("✔ ConfigManager initialized")
     except Exception as e:
         print(f"⚠️  ConfigManager not available ({e}), using environment variables")
         config_manager = None
@@ -45,9 +45,9 @@ def main():
             config_manager=config_manager
         )
         vector_stores.append(("Upstash", upstash_store))
-        print("✅ Upstash Vector Store initialized")
+        print("✔ Upstash Vector Store initialized")
     except Exception as e:
-        print(f"❌ Failed to initialize Upstash: {e}")
+        print(f"✗ Failed to initialize Upstash: {e}")
 
     # Try to initialize QDrant Vector Store
     try:
@@ -58,9 +58,9 @@ def main():
             config_manager=config_manager
         )
         vector_stores.append(("QDrant", qdrant_store))
-        print("✅ QDrant Vector Store initialized")
+        print("✔ QDrant Vector Store initialized")
     except Exception as e:
-        print(f"❌ Failed to initialize QDrant: {e}")
+        print(f"✗ Failed to initialize QDrant: {e}")
 
     # Initialize ChromaDB as fallback
     try:
@@ -71,12 +71,12 @@ def main():
             config_manager=config_manager
         )
         vector_stores.append(("ChromaDB", chromadb_store))
-        print("✅ ChromaDB Vector Store initialized")
+        print("✔ ChromaDB Vector Store initialized")
     except Exception as e:
-        print(f"❌ Failed to initialize ChromaDB: {e}")
+        print(f"✗ Failed to initialize ChromaDB: {e}")
 
     if not vector_stores:
-        print("❌ Error: No vector stores could be initialized")
+        print("✗ Error: No vector stores could be initialized")
         print("   Please check your configuration and API keys")
         return
 
@@ -88,7 +88,7 @@ def main():
     processed_path = Path(__file__).parent.parent / "data" / "processed"
 
     if not processed_path.exists():
-        print(f"❌ Error: Processed data directory not found")
+        print(f"✗ Error: Processed data directory not found")
         print(f"   Please run Module 2 (NiruParser) first")
         return
 
@@ -123,16 +123,16 @@ def main():
                 try:
                     print(f"     → Adding to {store_name}...")
                     vector_store.add_documents(chunks)
-                    print(f"     ✅ Added to {store_name}")
+                    print(f"     ✔ Added to {store_name}")
                 except Exception as e:
-                    print(f"     ❌ Failed to add to {store_name}: {e}")
+                    print(f"     ✗ Failed to add to {store_name}: {e}")
 
             total_chunks += len(chunks)
             total_files += 1
 
     # Show stats for each vector store
     print("\n" + "=" * 60)
-    print(f"✅ Database Population Complete!")
+    print(f"✔ Database Population Complete!")
     print(f"📊 Total files processed: {total_files}")
     print(f"📊 Total chunks added: {total_chunks}")
     print(f"📊 Vector stores updated: {len(vector_stores)}")
@@ -157,7 +157,7 @@ def main():
                 print(f"   Categories: {', '.join(stats['sample_categories'].keys())}")
 
         except Exception as e:
-            print(f"   ❌ Could not get stats: {e}")
+            print(f"   ✗ Could not get stats: {e}")
 
     print("\n" + "=" * 60)
     print("🎉 All databases updated successfully!")

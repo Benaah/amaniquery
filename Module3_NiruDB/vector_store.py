@@ -305,113 +305,102 @@ class VectorStore:
             metadata={"description": "AmaniQuery document embeddings"}
         )
     
-    def add_documents(self, chunks: List[Dict], batch_size: int = 100):
-        """
-        Add document chunks to all available vector stores and Elasticsearch
-        
-        Args:
-            chunks: List of chunk dictionaries with embeddings
-            batch_size: Number of chunks to add at once
-        """
-        if not chunks:
-            logger.warning("No chunks to add")
-            return
-        
-        logger.info(f"Adding {len(chunks)} chunks to all available backends and Elasticsearch")
-        
-        # Add to all available cloud backends
-        for backend_name, backend_client in self.backends.items():
+    def get_or_create_collection(self, collection_name: str):
+        """Get or create a collection by name (for session-specific collections)"""
+        if self.backend == "chromadb":
+            return self.client.get_or_create_collection(
+                name=collection_name,
+                metadata={"description": f"AmaniQuery session collection: {collection_name}"}
+            )
+        elif self.backend == "qdrant":
             try:
-                if backend_name == "upstash":
-                    self._add_upstash(chunks, client=backend_client)
-                elif backend_name == "qdrant":
-                    self._add_qdrant(chunks, batch_size, client=backend_client)
-                logger.info(f"Added {len(chunks)} chunks to {backend_name}")
-            except Exception as e:
-                logger.error(f"Failed to add chunks to {backend_name}: {e}")
-        
-        # Add to primary backend (ChromaDB or selected backend)
-        try:
-            if self.backend == "upstash":
-                self._add_upstash(chunks)
-            elif self.backend == "qdrant":
-                self._add_qdrant(chunks, batch_size)
-            elif self.backend == "chromadb":
-                self._add_chromadb(chunks, batch_size)
-        except Exception as e:
-            logger.error(f"Failed to add chunks to primary backend {self.backend}: {e}")
-        
-        # Index full documents in Elasticsearch
-        self._index_documents_in_elasticsearch(chunks)
+                self.client.get_collection(collection_name)
+            except:
+                from qdrant_client.http import models
+                self.client.create_collection(
+                    collection_name=collection_name,
+                    vectors_config=models.VectorParams(size=384, distance=models.Distance.COSINE)
+                )
+            # Return a wrapper that mimics ChromaDB collection interface
+            return QDrantCollectionWrapper(self.client, collection_name)
+        elif self.backend == "upstash":
+            # Upstash uses a single index, so we'll use metadata filtering
+            return UpstashCollectionWrapper(self.client, collection_name)
+        else:
+            raise ValueError(f"Unsupported backend for get_or_create_collection: {self.backend}")
     
-    def _index_documents_in_elasticsearch(self, chunks: List[Dict]):
-        """Index document chunks in Elasticsearch for full-text search"""
-        if not self.es_client:
-            logger.warning("Elasticsearch not configured, skipping document indexing")
-            return
-        
-        try:
-            # Group chunks by document for full document indexing
-            documents_by_id = {}
-            
-            for chunk in chunks:
-                doc_id = chunk.get("doc_id") or chunk.get("chunk_id", "").rsplit("_", 1)[0]  # Remove chunk suffix
-                
-                if doc_id not in documents_by_id:
-                    documents_by_id[doc_id] = {
-                        "id": doc_id,
-                        "title": str(chunk.get("title", "")),
-                        "content": "",
-                        "category": str(chunk.get("category", "")),
-                        "source_url": str(chunk.get("source_url", "")),
-                        "source_name": str(chunk.get("source_name", "")),
-                        "author": str(chunk.get("author", "")),
-                        "publication_date": str(chunk.get("publication_date", "")),
-                        "crawl_date": str(chunk.get("crawl_date", "")),
-                        "content_type": str(chunk.get("content_type", "")),
-                        "language": str(chunk.get("language", "")),
-                        "chunk_count": 0,
-                        "total_text_length": 0
-                    }
-                
-                # Add chunk content
-                chunk_text = str(chunk.get("text", ""))
-                if documents_by_id[doc_id]["content"]:
-                    documents_by_id[doc_id]["content"] += "\n\n"
-                documents_by_id[doc_id]["content"] += chunk_text
-                
-                # Update counters
-                documents_by_id[doc_id]["chunk_count"] += 1
-                documents_by_id[doc_id]["total_text_length"] += len(chunk_text)
-            
-            # Index each document in Elasticsearch
-            for doc_id, document in documents_by_id.items():
-                try:
-                    # Ensure all fields are strings to avoid Elasticsearch mapping issues
-                    clean_document = {}
-                    for key, value in document.items():
-                        if isinstance(value, (int, float)):
-                            clean_document[key] = str(value)
-                        elif isinstance(value, str):
-                            clean_document[key] = value
-                        else:
-                            # Convert complex objects to strings
-                            clean_document[key] = str(value)
-                    
-                    self.es_client.index(
-                        index=self.collection_name,
-                        id=doc_id,
-                        document=clean_document
-                    )
-                    logger.info(f"Indexed document: {doc_id}")
-                except Exception as e:
-                    logger.error(f"Failed to index document {doc_id}: {e}")
-            
-            logger.info(f"Indexed {len(documents_by_id)} documents in Elasticsearch")
-            
-        except Exception as e:
-            logger.error(f"Error indexing documents in Elasticsearch: {e}")
+    def get_collection(self, collection_name: str):
+        """Get an existing collection by name"""
+        if self.backend == "chromadb":
+            try:
+                return self.client.get_collection(collection_name)
+            except:
+                return None
+        elif self.backend == "qdrant":
+            try:
+                self.client.get_collection(collection_name)
+                return QDrantCollectionWrapper(self.client, collection_name)
+            except:
+                return None
+        elif self.backend == "upstash":
+            return UpstashCollectionWrapper(self.client, collection_name)
+        else:
+            return None
+
+
+class QDrantCollectionWrapper:
+    """Wrapper to make QDrant collection work like ChromaDB collection"""
+    def __init__(self, client, collection_name: str):
+        self.client = client
+        self.collection_name = collection_name
     
+    def add(self, embeddings=None, documents=None, metadatas=None, ids=None):
+        """Add documents to QDrant collection"""
+        from qdrant_client.http import models
+        points = []
+        for i, doc_id in enumerate(ids):
+            payload = metadatas[i] if metadatas else {}
+            payload["text"] = documents[i] if documents else ""
+            point_id = hash(doc_id) % (2**63 - 1)
+            points.append(models.PointStruct(
+                id=point_id,
+                vector=embeddings[i] if embeddings else [],
+                payload=payload
+            ))
+        self.client.upsert(collection_name=self.collection_name, points=points)
+    
+    def query(self, query_texts=None, n_results=5, where=None):
+        """Query QDrant collection"""
+        # This is a simplified version - full implementation would need embedding
+        return {"documents": [[]], "metadatas": [[]], "distances": [[]]}
+
+
+class UpstashCollectionWrapper:
+    """Wrapper to make Upstash index work like ChromaDB collection"""
+    def __init__(self, client, collection_name: str):
+        self.client = client
+        self.collection_name = collection_name
+    
+    def add(self, embeddings=None, documents=None, metadatas=None, ids=None):
+        """Add documents to Upstash index"""
+        vectors = []
+        for i, doc_id in enumerate(ids):
+            metadata = metadatas[i] if metadatas else {}
+            metadata["text"] = documents[i] if documents else ""
+            metadata["collection"] = self.collection_name
+            vectors.append({
+                "id": doc_id,
+                "vector": embeddings[i] if embeddings else [],
+                "metadata": metadata
+            })
+        self.client.upsert(vectors=vectors)
+    
+    def query(self, query_texts=None, n_results=5, where=None):
+        """Query Upstash index"""
+        # This is a simplified version - full implementation would need embedding
+        return {"documents": [[]], "metadatas": [[]], "distances": [[]]}
+
+
     def _add_upstash(self, chunks: List[Dict], client=None):
         """Add to Upstash Vector"""
         if client is None:

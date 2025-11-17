@@ -37,6 +37,7 @@ class ChatMessage(Base):
     token_count = Column(Integer, nullable=True)
     model_used = Column(String, nullable=True)
     sources = Column(JSON, nullable=True)  # Store sources as JSON
+    attachments = Column(JSON, nullable=True)  # Store attachments as JSON
 
     # Feedback
     feedback_type = Column(String, nullable=True)  # "like", "dislike", or None
@@ -71,10 +72,20 @@ class ChatSessionResponse(BaseModel):
     is_active: bool
     message_count: int = 0
 
+class ChatAttachment(BaseModel):
+    """Attachment metadata model"""
+    id: str
+    filename: str
+    file_type: str  # "pdf", "image", "text"
+    file_size: int  # in bytes
+    uploaded_at: datetime
+    processed: bool = False
+
 class ChatMessageCreate(BaseModel):
     content: str
     role: str = "user"
     stream: bool = False
+    attachment_ids: Optional[List[str]] = None  # List of attachment IDs
 
 class ChatMessageResponse(BaseModel):
     id: str
@@ -85,6 +96,7 @@ class ChatMessageResponse(BaseModel):
     token_count: Optional[int]
     model_used: Optional[str]
     sources: Optional[List[dict]]
+    attachments: Optional[List[dict]] = None
     feedback_type: Optional[str]
 
     model_config = {"protected_namespaces": ()}

@@ -73,7 +73,19 @@ class DatabaseStorage:
                 database_url = unpooled_url
 
         self.database_url = database_url
-        self.engine = create_engine(database_url, echo=False)
+        # Add connection pooling and SSL settings to prevent connection drops
+        self.engine = create_engine(
+            database_url,
+            echo=False,
+            pool_pre_ping=True,  # Verify connections before using
+            pool_recycle=300,    # Recycle connections every 5 minutes
+            pool_size=5,         # Maintain 5 connections
+            max_overflow=10,     # Allow up to 10 overflow connections
+            connect_args={
+                "connect_timeout": 10,
+                "sslmode": "require" if "neon.tech" in database_url or "postgres" in database_url else None,
+            } if "postgres" in database_url or "neon" in database_url else {}
+        )
         self.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=self.engine)
 
         # Create tables
@@ -159,47 +171,70 @@ class DatabaseStorage:
         return saved_count
 
     def save_processed_chunks(self, chunks: List[Dict]) -> int:
-        """Save processed chunks to database"""
+        """Save processed chunks to database with retry logic for connection issues"""
         saved_count = 0
+        max_retries = 3
+        retry_delay = 1
 
-        with self.get_db_session() as db:
+        for attempt in range(max_retries):
             try:
-                for chunk in chunks:
-                    # Check if chunk already exists
-                    existing = db.query(ProcessedChunk).filter_by(chunk_id=chunk.get("chunk_id")).first()
-                    if existing:
-                        logger.debug(f"Chunk already exists: {chunk.get('chunk_id')}")
-                        continue
+                db = self.get_db_session()
+                try:
+                    for chunk in chunks:
+                        # Check if chunk already exists
+                        existing = db.query(ProcessedChunk).filter_by(chunk_id=chunk.get("chunk_id")).first()
+                        if existing:
+                            logger.debug(f"Chunk already exists: {chunk.get('chunk_id')}")
+                            continue
 
-                    # Create new processed chunk
-                    processed_chunk = ProcessedChunk(
-                        chunk_id=chunk.get("chunk_id", ""),
-                        doc_id=chunk.get("doc_id", ""),
-                        source_url=chunk.get("source_url", ""),
-                        title=chunk.get("title", "Untitled"),
-                        category=chunk.get("category", "Unknown"),
-                        source_name=chunk.get("source_name", "Unknown"),
-                        author=chunk.get("author"),
-                        publication_date=self._parse_date(chunk.get("publication_date")),
-                        crawl_date=self._parse_date(chunk.get("crawl_date")),
-                        content_type=chunk.get("content_type", "html"),
-                        text=chunk.get("text", ""),
-                        chunk_index=chunk.get("chunk_index", 0),
-                        total_chunks=chunk.get("total_chunks", 1),
-                        embedding=chunk.get("embedding", []),
-                        metadata_json=chunk.get("metadata", {})
-                    )
+                        # Create new processed chunk
+                        processed_chunk = ProcessedChunk(
+                            chunk_id=chunk.get("chunk_id", ""),
+                            doc_id=chunk.get("doc_id", ""),
+                            source_url=chunk.get("source_url", ""),
+                            title=chunk.get("title", "Untitled"),
+                            category=chunk.get("category", "Unknown"),
+                            source_name=chunk.get("source_name", "Unknown"),
+                            author=chunk.get("author"),
+                            publication_date=self._parse_date(chunk.get("publication_date")),
+                            crawl_date=self._parse_date(chunk.get("crawl_date")),
+                            content_type=chunk.get("content_type", "html"),
+                            text=chunk.get("text", ""),
+                            chunk_index=chunk.get("chunk_index", 0),
+                            total_chunks=chunk.get("total_chunks", 1),
+                            embedding=chunk.get("embedding", []),
+                            metadata_json=chunk.get("metadata", {})
+                        )
 
-                    db.add(processed_chunk)
-                    saved_count += 1
+                        db.add(processed_chunk)
+                        saved_count += 1
 
-                db.commit()
-                logger.info(f"Saved {saved_count} processed chunks to database")
+                    db.commit()
+                    logger.info(f"Saved {saved_count} processed chunks to database")
+                    return saved_count
+
+                except Exception as e:
+                    db.rollback()
+                    # Check if it's a connection error
+                    error_str = str(e).lower()
+                    if any(keyword in error_str for keyword in ['ssl', 'connection', 'closed', 'timeout', 'broken']):
+                        if attempt < max_retries - 1:
+                            logger.warning(f"Connection error (attempt {attempt + 1}/{max_retries}): {e}. Retrying...")
+                            import time
+                            time.sleep(retry_delay * (attempt + 1))  # Exponential backoff
+                            # Invalidate the connection pool
+                            self.engine.dispose()
+                            continue
+                    raise
+                finally:
+                    db.close()
 
             except Exception as e:
-                db.rollback()
-                logger.error(f"Error saving processed chunks: {e}")
-                raise
+                if attempt == max_retries - 1:
+                    logger.error(f"Error saving processed chunks after {max_retries} attempts: {e}")
+                    raise
+                else:
+                    logger.warning(f"Retry {attempt + 1}/{max_retries} failed: {e}")
 
         return saved_count
 

@@ -14,7 +14,8 @@ from datetime import datetime
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from fastapi import FastAPI, HTTPException, Request, Form
+from fastapi import FastAPI, HTTPException, Request, Form, UploadFile, File
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
@@ -1135,14 +1136,28 @@ async def add_chat_message(session_id: str, message: ChatMessageCreate):
                     top_k=3,  # Reduced for faster chat responses
                     max_tokens=1000,  # Shorter responses for chat
                     max_context_length=2000,  # Smaller context for chat
-                    temperature=0.7
+                    temperature=0.7,
+                    session_id=session_id  # Include session for document context
                 )
                 
-                # Add user message
+                # Process attachments if provided
+                attachments_data = None
+                if message.attachment_ids:
+                    # Retrieve attachment metadata from messages
+                    session_messages = chat_manager.get_messages(session_id)
+                    attachments_data = []
+                    for msg in session_messages:
+                        if msg.attachments:
+                            for att in msg.attachments:
+                                if att.get("id") in message.attachment_ids:
+                                    attachments_data.append(att)
+                
+                # Add user message with attachments
                 user_msg_id = chat_manager.add_message(
                     session_id=session_id,
                     content=message.content,
-                    role="user"
+                    role="user",
+                    attachments=attachments_data
                 )
                 
                 # Return streaming response
@@ -1266,14 +1281,28 @@ async def add_chat_message(session_id: str, message: ChatMessageCreate):
                     top_k=3,  # Reduced for faster chat responses
                     max_tokens=1000,  # Shorter responses for chat
                     max_context_length=2000,  # Smaller context for chat
-                    temperature=0.7
+                    temperature=0.7,
+                    session_id=session_id  # Include session for document context
                 )
                 
-                # Add user message
+                # Process attachments if provided
+                attachments_data = None
+                if message.attachment_ids:
+                    # Retrieve attachment metadata from messages
+                    session_messages = chat_manager.get_messages(session_id)
+                    attachments_data = []
+                    for msg in session_messages:
+                        if msg.attachments:
+                            for att in msg.attachments:
+                                if att.get("id") in message.attachment_ids:
+                                    attachments_data.append(att)
+                
+                # Add user message with attachments
                 user_msg_id = chat_manager.add_message(
                     session_id=session_id,
                     content=message.content,
-                    role="user"
+                    role="user",
+                    attachments=attachments_data
                 )
                 
                 # Add assistant response
@@ -1296,11 +1325,24 @@ async def add_chat_message(session_id: str, message: ChatMessageCreate):
                 return messages[-1] if messages else None
             
         else:
+            # Process attachments if provided
+            attachments_data = None
+            if message.attachment_ids:
+                # Retrieve attachment metadata from messages
+                session_messages = chat_manager.get_messages(session_id)
+                attachments_data = []
+                for msg in session_messages:
+                    if msg.attachments:
+                        for att in msg.attachments:
+                            if att.get("id") in message.attachment_ids:
+                                attachments_data.append(att)
+            
             # Add assistant message directly
             msg_id = chat_manager.add_message(
                 session_id=session_id,
                 content=message.content,
-                role=message.role
+                role=message.role,
+                attachments=attachments_data
             )
             messages = chat_manager.get_messages(session_id, limit=1)
             return messages[-1] if messages else None
@@ -1322,6 +1364,93 @@ async def get_chat_messages(session_id: str, limit: int = 100):
         return chat_manager.get_messages(session_id, limit)
     except Exception as e:
         logger.error(f"Error getting chat messages: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/chat/sessions/{session_id}/attachments", tags=["Chat"])
+async def upload_chat_attachment(
+    session_id: str,
+    file: UploadFile = File(...)
+):
+    """Upload a document attachment for a chat session"""
+    if chat_manager is None or vector_store is None:
+        raise HTTPException(status_code=503, detail="Services not initialized")
+    
+    # Validate session exists
+    session = chat_manager.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    # Validate file size (10MB limit)
+    MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
+    file_content = await file.read()
+    if len(file_content) > MAX_FILE_SIZE:
+        raise HTTPException(status_code=413, detail="File size exceeds 10MB limit")
+    
+    # Validate file type
+    allowed_extensions = [".pdf", ".png", ".jpg", ".jpeg", ".txt", ".md"]
+    file_ext = Path(file.filename).suffix.lower()
+    if file_ext not in allowed_extensions:
+        raise HTTPException(
+            status_code=400,
+            detail=f"File type not supported. Allowed: {', '.join(allowed_extensions)}"
+        )
+    
+    try:
+        # Initialize document processor
+        from Module4_NiruAPI.services.document_processor import DocumentProcessor
+        processor = DocumentProcessor()
+        
+        # Process file
+        result = processor.process_file(
+            file_content=file_content,
+            filename=file.filename,
+            session_id=session_id
+        )
+        
+        # Store chunks in vector store with session-specific collection
+        collection_name = f"chat_session_{session_id}"
+        processor.store_chunks_in_vector_store(
+            chunks=result["chunks"],
+            vector_store=vector_store,
+            collection_name=collection_name
+        )
+        
+        logger.info(f"Processed attachment {result['attachment']['id']} for session {session_id}")
+        
+        return {
+            "attachment": result["attachment"],
+            "message": "File processed and stored successfully"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error processing attachment: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to process file: {str(e)}")
+
+
+@app.get("/chat/sessions/{session_id}/attachments/{attachment_id}", tags=["Chat"])
+async def get_chat_attachment(session_id: str, attachment_id: str):
+    """Get attachment metadata"""
+    if chat_manager is None:
+        raise HTTPException(status_code=503, detail="Chat service not initialized")
+    
+    try:
+        # Get messages for session
+        messages = chat_manager.get_messages(session_id)
+        
+        # Find attachment in messages
+        for message in messages:
+            if message.attachments:
+                for attachment in message.attachments:
+                    if attachment.get("id") == attachment_id:
+                        return attachment
+        
+        raise HTTPException(status_code=404, detail="Attachment not found")
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting attachment: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

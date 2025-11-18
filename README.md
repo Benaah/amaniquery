@@ -4,7 +4,7 @@
 
 A Retrieval-Augmented Generation (RAG) system for Kenyan legal, parliamentary, and news intelligence with **three unique "wow" features**: Constitutional Alignment Analysis, Public Sentiment Gauge, InfoSMS Gateway, and Parliament Video Indexer.
 
-## 🌟 Unique Features (Hackathon Differentiators)
+## 🌟 Unique Features
 
 ### 1. 📊 Public Sentiment Gauge
 **Track public sentiment on trending topics from news coverage**

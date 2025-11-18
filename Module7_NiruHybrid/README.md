@@ -12,6 +12,8 @@ Module7_NiruHybrid provides a hybrid convolutional-transformer architecture inte
 - **Quantized Attention**: FP16/INT8 mixed precision for efficient processing
 - **Real-time Streaming**: Optimized for streaming queries and generated data
 
+![Hybrid](../imgs/hybrid_module_2.png)
+
 ## Quick Start
 
 ### Installation

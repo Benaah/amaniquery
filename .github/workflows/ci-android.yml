@@ -1,0 +1,69 @@
+name: Android CI
+
+on:
+  push:
+    branches: [master, develop]
+    paths:
+      - 'android-app/**'
+      - '.github/workflows/ci-android.yml'
+  pull_request:
+    branches: [master, develop]
+    paths:
+      - 'android-app/**'
+      - '.github/workflows/ci-android.yml'
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: android-app/package-lock.json
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'gradle'
+          cache-dependency-path: android-app/android/build.gradle
+
+      - name: Install dependencies
+        working-directory: ./android-app
+        run: npm ci
+
+      - name: Run ESLint
+        working-directory: ./android-app
+        run: npm run lint
+        continue-on-error: true
+
+      - name: Run Jest tests
+        working-directory: ./android-app
+        run: npm test -- --coverage --watchAll=false
+        continue-on-error: true
+
+      - name: Cache Gradle dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+            android-app/android/.gradle
+          key: ${{ runner.os }}-gradle-${{ hashFiles('android-app/android/**/*.gradle*') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      - name: Build Android app (optional)
+        working-directory: ./android-app/android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+        continue-on-error: true
+

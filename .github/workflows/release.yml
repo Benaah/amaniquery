@@ -1,0 +1,76 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get version from tag
+        id: tag_version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Generate changelog
+        id: changelog
+        uses: metcalfc/changelog-generator@v4
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create Release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.tag_version.outputs.VERSION }}
+          release_name: Release ${{ steps.tag_version.outputs.VERSION }}
+          body: |
+            ## Changes in ${{ steps.tag_version.outputs.VERSION }}
+
+            ${{ steps.changelog.outputs.changelog }}
+
+            ## Installation
+
+            ```bash
+            # Install dependencies
+            pip install -r requirements.txt
+
+            # For frontend
+            cd frontend && npm install
+
+            # For Android app
+            cd android-app && npm install
+            ```
+
+            ## Docker
+
+            ```bash
+            docker-compose up -d
+            ```
+
+          draft: false
+          prerelease: false
+
+      - name: Build release artifacts
+        run: |
+          mkdir -p release-artifacts
+          echo "AmaniQuery ${{ steps.tag_version.outputs.VERSION }}" > release-artifacts/version.txt
+          echo "Released on $(date)" >> release-artifacts/version.txt
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-artifacts
+          path: release-artifacts/
+          retention-days: 30
+

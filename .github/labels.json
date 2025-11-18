@@ -1,0 +1,178 @@
+[
+  {
+    "name": "bug",
+    "color": "d73a4a",
+    "description": "Something isn't working"
+  },
+  {
+    "name": "enhancement",
+    "color": "a2eeef",
+    "description": "New feature or request"
+  },
+  {
+    "name": "documentation",
+    "color": "0075ca",
+    "description": "Improvements or additions to documentation"
+  },
+  {
+    "name": "good first issue",
+    "color": "7057ff",
+    "description": "Good for newcomers"
+  },
+  {
+    "name": "help wanted",
+    "color": "008672",
+    "description": "Extra attention is needed"
+  },
+  {
+    "name": "invalid",
+    "color": "e4e669",
+    "description": "This doesn't seem right"
+  },
+  {
+    "name": "question",
+    "color": "d876e3",
+    "description": "Further information is requested"
+  },
+  {
+    "name": "wontfix",
+    "color": "ffffff",
+    "description": "This will not be worked on"
+  },
+  {
+    "name": "module:spider",
+    "color": "1d76db",
+    "description": "Module1_NiruSpider (Web Crawler)"
+  },
+  {
+    "name": "module:parser",
+    "color": "1d76db",
+    "description": "Module2_NiruParser (ETL & Embedding)"
+  },
+  {
+    "name": "module:db",
+    "color": "1d76db",
+    "description": "Module3_NiruDB (Vector Database)"
+  },
+  {
+    "name": "module:api",
+    "color": "1d76db",
+    "description": "Module4_NiruAPI (RAG API)"
+  },
+  {
+    "name": "module:share",
+    "color": "1d76db",
+    "description": "Module5_NiruShare (Social Media Sharing)"
+  },
+  {
+    "name": "module:voice",
+    "color": "1d76db",
+    "description": "Module6_NiruVoice (Voice Agent)"
+  },
+  {
+    "name": "module:hybrid",
+    "color": "1d76db",
+    "description": "Module7_NiruHybrid (Hybrid RAG)"
+  },
+  {
+    "name": "frontend",
+    "color": "0e8a16",
+    "description": "Next.js frontend"
+  },
+  {
+    "name": "android",
+    "color": "0e8a16",
+    "description": "React Native Android app"
+  },
+  {
+    "name": "priority:critical",
+    "color": "b60205",
+    "description": "Critical priority issue"
+  },
+  {
+    "name": "priority:high",
+    "color": "d93f0b",
+    "description": "High priority issue"
+  },
+  {
+    "name": "priority:medium",
+    "color": "fbca04",
+    "description": "Medium priority issue"
+  },
+  {
+    "name": "priority:low",
+    "color": "0e8a16",
+    "description": "Low priority issue"
+  },
+  {
+    "name": "status:needs-triage",
+    "color": "f9d0c4",
+    "description": "Needs to be triaged"
+  },
+  {
+    "name": "status:in-progress",
+    "color": "fef2c0",
+    "description": "Work in progress"
+  },
+  {
+    "name": "status:blocked",
+    "color": "d93f0b",
+    "description": "Blocked by another issue"
+  },
+  {
+    "name": "status:ready-for-review",
+    "color": "0e8a16",
+    "description": "Ready for review"
+  },
+  {
+    "name": "dependencies",
+    "color": "0366d6",
+    "description": "Pull requests that update a dependency file"
+  },
+  {
+    "name": "python",
+    "color": "3776ab",
+    "description": "Python-related changes"
+  },
+  {
+    "name": "github-actions",
+    "color": "2088ff",
+    "description": "GitHub Actions related"
+  },
+  {
+    "name": "docker",
+    "color": "2496ed",
+    "description": "Docker related"
+  },
+  {
+    "name": "security",
+    "color": "b60205",
+    "description": "Security related"
+  },
+  {
+    "name": "breaking-change",
+    "color": "b60205",
+    "description": "Breaking change"
+  },
+  {
+    "name": "performance",
+    "color": "fbca04",
+    "description": "Performance related"
+  },
+  {
+    "name": "refactor",
+    "color": "e99695",
+    "description": "Code refactoring"
+  },
+  {
+    "name": "testing",
+    "color": "bfe5bf",
+    "description": "Testing related"
+  },
+  {
+    "name": "ci/cd",
+    "color": "2088ff",
+    "description": "CI/CD related"
+  }
+]
+

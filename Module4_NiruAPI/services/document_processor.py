@@ -92,30 +92,50 @@ class DocumentProcessor:
             file_path.write_bytes(file_content)
             
             # Extract text based on file type
+            # For images with Vision RAG enabled, OCR is optional
+            text = ""
+            chunks = []
+            
             if file_type == "pdf":
                 text = self._extract_pdf_text(file_path)
             elif file_type == "image":
-                text = self._extract_image_text(file_path)
+                # For images, try OCR if available, but don't fail if Vision RAG is enabled
+                if OCR_AVAILABLE:
+                    try:
+                        text = self._extract_image_text(file_path)
+                    except Exception as e:
+                        logger.warning(f"OCR extraction failed for image: {e}")
+                        text = ""
+                elif self.enable_vision:
+                    # Vision RAG doesn't need OCR - skip text extraction
+                    logger.info(f"Skipping OCR for image {filename} - using Vision RAG instead")
+                    text = ""
+                else:
+                    raise ValueError("OCR not available and Vision RAG is disabled. Install pytesseract and PIL for image text extraction.")
             elif file_type == "text":
                 text = self._extract_text_file(file_path)
             else:
                 raise ValueError(f"Unsupported file type: {file_type}")
             
-            if not text or len(text.strip()) < 10:
-                raise ValueError("No text extracted from file")
-            
-            # Create chunks
-            chunks = self.chunker.chunk_text(text)
-            
-            # Generate embeddings
-            embeddings = self.embedder.embed_batch([chunk["text"] for chunk in chunks])
-            
-            # Add embeddings to chunks
-            for i, chunk in enumerate(chunks):
-                chunk["embedding"] = embeddings[i]
-                chunk["session_id"] = session_id
-                chunk["attachment_id"] = file_id
-                chunk["source"] = f"attachment:{filename}"
+            # Process text chunks only if text was extracted
+            if text and len(text.strip()) >= 10:
+                # Create chunks
+                chunks = self.chunker.chunk_text(text)
+                
+                # Generate embeddings
+                embeddings = self.embedder.embed_batch([chunk["text"] for chunk in chunks])
+                
+                # Add embeddings to chunks
+                for i, chunk in enumerate(chunks):
+                    chunk["embedding"] = embeddings[i]
+                    chunk["session_id"] = session_id
+                    chunk["attachment_id"] = file_id
+                    chunk["source"] = f"attachment:{filename}"
+            else:
+                # No text extracted - this is OK for Vision RAG
+                if not self.enable_vision and file_type == "image":
+                    raise ValueError("No text extracted from image and Vision RAG is disabled")
+                logger.info(f"No text extracted from {filename}, processing with Vision RAG only")
             
             # Create attachment metadata
             attachment_metadata = {
@@ -126,14 +146,8 @@ class DocumentProcessor:
                 "uploaded_at": datetime.utcnow().isoformat(),
                 "processed": True,
                 "chunk_count": len(chunks),
-                "text_length": len(text),
+                "text_length": len(text) if text else 0,
             }
-            
-            # Clean up temporary file
-            try:
-                file_path.unlink()
-            except Exception as e:
-                logger.warning(f"Failed to delete temp file: {e}")
             
             result = {
                 "attachment": attachment_metadata,
@@ -143,6 +157,7 @@ class DocumentProcessor:
             # Generate vision embeddings for images and PDFs
             if self.enable_vision and file_type in ["image", "pdf"]:
                 try:
+                    # Don't delete file yet - vision processing needs it
                     vision_data = self._process_vision_embeddings(
                         file_path=file_path,
                         file_type=file_type,
@@ -154,6 +169,12 @@ class DocumentProcessor:
                 except Exception as e:
                     logger.warning(f"Failed to process vision embeddings: {e}")
                     result["vision_data"] = None
+            
+            # Clean up temporary file after vision processing
+            try:
+                file_path.unlink()
+            except Exception as e:
+                logger.warning(f"Failed to delete temp file: {e}")
             
             return result
             

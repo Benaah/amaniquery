@@ -1,5 +1,7 @@
 # AmaniQuery 🇰🇪
 
+![AmaniQuery](imgs/readme.png)
+
 A Retrieval-Augmented Generation (RAG) system for Kenyan legal, parliamentary, and news intelligence with **three unique "wow" features**: Constitutional Alignment Analysis, Public Sentiment Gauge, InfoSMS Gateway, and Parliament Video Indexer.
 
 ## 🌟 Unique Features (Hackathon Differentiators)
@@ -128,6 +130,26 @@ AmaniQuery/
 ├── .env.example
 └── README.md
 ```
+
+## 📸 Screenshots
+
+### Homepage
+![Homepage](imgs/homepage.png)
+
+### Chat Interface
+![Chat Interface](imgs/chat_1.png)
+
+### Voice Agent
+![Voice Agent 1](imgs/voice_1.png)
+![Voice Agent 2](imgs/voice_2.png)
+
+### Admin Dashboard
+![Admin Dashboard 1](imgs/admin_1.png)
+![Admin Dashboard 2](imgs/admin_2.png)
+![Admin Dashboard 3](imgs/admin_3.png)
+
+### AI Integration
+![AI Integration](imgs/ai_integration.png)
 
 ## 🚀 Quick Start
 
@@ -264,6 +286,7 @@ print(share.json()["content"])
 - ✅ **InfoSMS Gateway** - SMS queries via Africa's Talking (kabambe accessibility)
 - ✅ **Parliament Video Indexer** - Searchable YouTube transcripts with timestamps
 - ✅ **Constitutional Alignment Analysis** - Dual-retrieval Bill-Constitution comparison
+- ✅ **Vision RAG** - Multimodal RAG with Cohere Embed-4 and Gemini 2.5 Flash for image/PDF analysis
 - ✅ **Social media sharing** - Intelligent formatting for Twitter/X, LinkedIn, Facebook
 - ✅ **Chat interface** - Modern, responsive UI with copy/edit/resend for failed queries
 - ✅ **Voice agent** - Real-time voice conversations via LiveKit

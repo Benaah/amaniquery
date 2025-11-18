@@ -66,7 +66,7 @@ load_dotenv()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Handle application startup and shutdown"""
-    global vector_store, rag_pipeline, alignment_pipeline, sms_pipeline, sms_service, metadata_manager, chat_manager, crawler_manager, research_module, agentic_research_module, report_generator, config_manager, notification_service, hybrid_rag_pipeline, autocomplete_tool
+    global vector_store, rag_pipeline, alignment_pipeline, sms_pipeline, sms_service, metadata_manager, chat_manager, crawler_manager, research_module, agentic_research_module, report_generator, config_manager, notification_service, hybrid_rag_pipeline, autocomplete_tool, vision_storage, vision_rag_service
     
     logger.info("Starting AmaniQuery API")
     
@@ -279,6 +279,17 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Autocomplete tool not available: {e}")
         autocomplete_tool = None
+    
+    # Initialize Vision RAG service and storage
+    vision_storage = {}  # In-memory storage: {session_id: [image_data, ...]}
+    vision_rag_service = None
+    try:
+        from Module4_NiruAPI.services.vision_rag import VisionRAGService
+        vision_rag_service = VisionRAGService()
+        logger.info("Vision RAG service initialized")
+    except Exception as e:
+        logger.warning(f"Vision RAG service not available: {e}. Vision RAG features will be disabled.")
+        vision_rag_service = None
     
     logger.info("AmaniQuery API ready")
     
@@ -537,34 +548,65 @@ async def query(request: QueryRequest):
     - "What does the Kenyan Constitution say about freedom of speech?"
     - "What are the recent parliamentary debates on finance?"
     - "Latest news on AI policy in Kenya"
+    
+    **Vision RAG:** If session has uploaded images/PDFs, automatically uses Vision RAG for visual question answering.
     """
     if rag_pipeline is None:
         raise HTTPException(status_code=503, detail="Service not initialized")
     
     try:
-        # Run RAG query
-        result = rag_pipeline.query(
-            query=request.query,
-            top_k=request.top_k,
-            category=request.category,
-            source=request.source,
-            temperature=request.temperature,
-            max_tokens=request.max_tokens,
-            session_id=request.session_id
-        )
+        # Check if session has vision data and use Vision RAG if available
+        use_vision_rag = False
+        if request.session_id and vision_rag_service and vision_storage:
+            session_images = vision_storage.get(request.session_id, [])
+            if session_images:
+                use_vision_rag = True
+                logger.info(f"Using Vision RAG for session {request.session_id} with {len(session_images)} image(s)")
+        
+        if use_vision_rag:
+            # Use Vision RAG
+            result = vision_rag_service.query(
+                question=request.query,
+                session_images=session_images,
+                top_k=min(request.top_k, 3),  # Limit to 3 images for Vision RAG
+                temperature=request.temperature,
+                max_tokens=request.max_tokens,
+            )
+            
+            # Convert vision sources to Source format
+            sources = []
+            for src in result.get("sources", []):
+                sources.append(Source(
+                    title=src.get("filename", "Image"),
+                    url="",  # No URL for uploaded images
+                    source_name=src.get("source_file", "Uploaded Image"),
+                    category="vision",
+                    excerpt=f"Image similarity: {src.get('similarity', 0):.2f}",
+                ))
+        else:
+            # Use regular RAG
+            result = rag_pipeline.query(
+                query=request.query,
+                top_k=request.top_k,
+                category=request.category,
+                source=request.source,
+                temperature=request.temperature,
+                max_tokens=request.max_tokens,
+                session_id=request.session_id
+            )
+            
+            # Format sources
+            sources = [Source(**src) for src in result["sources"]]
         
         # Save to chat if session_id provided
         if request.session_id:
             save_query_to_chat(request.session_id, request.query, result)
         
-        # Format sources
-        sources = [Source(**src) for src in result["sources"]]
-        
         return QueryResponse(
             answer=result["answer"],
             sources=sources if request.include_sources else [],
             query_time=result["query_time"],
-            retrieved_chunks=result["retrieved_chunks"],
+            retrieved_chunks=result.get("retrieved_chunks", result.get("retrieved_images", 0)),
             model_used=result["model_used"],
         )
         
@@ -685,6 +727,8 @@ crawler_manager = None
 research_module = None
 agentic_research_module = None
 report_generator = None
+vision_storage = {}  # In-memory vision storage: {session_id: [image_data, ...]}
+vision_rag_service = None
 config_manager = None
 notification_service = None
 hybrid_rag_pipeline = None
@@ -1227,15 +1271,47 @@ async def add_chat_message(session_id: str, message: ChatMessageCreate):
             # Check if streaming is requested
             stream = message.stream
             
+            # Check if session has vision data and use Vision RAG if available
+            use_vision_rag = False
+            session_images = []
+            if vision_rag_service and vision_storage:
+                session_images = vision_storage.get(session_id, [])
+                if session_images:
+                    use_vision_rag = True
+                    logger.info(f"Using Vision RAG for chat session {session_id} with {len(session_images)} image(s)")
+            
             if stream:
                 # Use streaming RAG
-                result = rag_pipeline.query_stream(
-                    query=message.content,
-                    top_k=3,  # Reduced for faster chat responses
-                    max_tokens=1000,  # Shorter responses for chat
-                    max_context_length=2000,  # Smaller context for chat
-                    temperature=0.7
-                )
+                if use_vision_rag:
+                    # Use Vision RAG with streaming
+                    result = vision_rag_service.query(
+                        question=message.content,
+                        session_images=session_images,
+                        top_k=3,
+                        temperature=0.7,
+                        max_tokens=1000,
+                        stream=True,  # Enable streaming
+                    )
+                    # Convert vision sources to standard format
+                    vision_sources = []
+                    for src in result.get("sources", []):
+                        vision_sources.append({
+                            "title": src.get("filename", "Image"),
+                            "url": "",
+                            "source_name": src.get("source_file", "Uploaded Image"),
+                            "category": "vision",
+                            "excerpt": f"Image similarity: {src.get('similarity', 0):.2f}",
+                        })
+                    result["sources"] = vision_sources
+                    result["retrieved_chunks"] = result.get("retrieved_images", 0)
+                else:
+                    result = rag_pipeline.query_stream(
+                        query=message.content,
+                        top_k=3,  # Reduced for faster chat responses
+                        max_tokens=1000,  # Shorter responses for chat
+                        max_context_length=2000,  # Smaller context for chat
+                        temperature=0.7
+                    )
                 
                 # Process attachments if provided
                 attachments_data = None
@@ -1279,29 +1355,61 @@ async def add_chat_message(session_id: str, message: ChatMessageCreate):
                         if "answer_stream" in result and result["answer_stream"] is not None:
                             # Handle streaming response
                             if hasattr(result["answer_stream"], '__iter__') and not isinstance(result["answer_stream"], str):
-                                # True streaming response (OpenAI/Moonshot/Anthropic)
-                                for chunk in result["answer_stream"]:
-                                    if hasattr(chunk, 'choices') and chunk.choices:
-                                        delta = chunk.choices[0].delta
-                                        if hasattr(delta, 'content') and delta.content:
-                                            content = delta.content
+                                # Check if it's a generator/iterator (Gemini streaming or other)
+                                try:
+                                    # Try Gemini streaming format first (yields text chunks directly)
+                                    for chunk in result["answer_stream"]:
+                                        if isinstance(chunk, str):
+                                            # Gemini streaming format - direct text chunks
+                                            content = chunk
                                             full_answer += content
                                             chunk_data = {
                                                 "type": "content",
                                                 "content": content
                                             }
                                             yield f"data: {json.dumps(chunk_data)}\n\n"
-                                    elif hasattr(chunk, 'delta') and hasattr(chunk.delta, 'text'):
-                                        # Anthropic format
-                                        content = chunk.delta.text
-                                        full_answer += content
-                                        chunk_data = {
-                                            "type": "content",
-                                            "content": content
-                                        }
-                                        yield f"data: {json.dumps(chunk_data)}\n\n"
+                                        elif hasattr(chunk, 'choices') and chunk.choices:
+                                            # OpenAI/Moonshot format
+                                            delta = chunk.choices[0].delta
+                                            if hasattr(delta, 'content') and delta.content:
+                                                content = delta.content
+                                                full_answer += content
+                                                chunk_data = {
+                                                    "type": "content",
+                                                    "content": content
+                                                }
+                                                yield f"data: {json.dumps(chunk_data)}\n\n"
+                                        elif hasattr(chunk, 'delta') and hasattr(chunk.delta, 'text'):
+                                            # Anthropic format
+                                            content = chunk.delta.text
+                                            full_answer += content
+                                            chunk_data = {
+                                                "type": "content",
+                                                "content": content
+                                            }
+                                            yield f"data: {json.dumps(chunk_data)}\n\n"
+                                        elif hasattr(chunk, 'text'):
+                                            # Gemini chunk format
+                                            content = chunk.text
+                                            if content:
+                                                full_answer += content
+                                                chunk_data = {
+                                                    "type": "content",
+                                                    "content": content
+                                                }
+                                                yield f"data: {json.dumps(chunk_data)}\n\n"
+                                except Exception as stream_error:
+                                    logger.error(f"Error in streaming loop: {stream_error}")
+                                    # Fallback to sending as single chunk
+                                    content = str(result.get("answer", "Error in streaming response"))
+                                    full_answer = content
+                                    chunk_data = {
+                                        "type": "content",
+                                        "content": content
+                                    }
+                                    yield f"data: {json.dumps(chunk_data)}\n\n"
                             else:
-                                # Fallback for non-streaming providers (Gemini) - send as single chunk
+                                # Fallback for non-streaming providers - send as single chunk
                                 content = str(result["answer_stream"])
                                 full_answer = content
                                 chunk_data = {
@@ -1373,14 +1481,36 @@ async def add_chat_message(session_id: str, message: ChatMessageCreate):
                 )
             else:
                 # Regular non-streaming response
-                result = rag_pipeline.query(
-                    query=message.content,
-                    top_k=3,  # Reduced for faster chat responses
-                    max_tokens=1000,  # Shorter responses for chat
-                    max_context_length=2000,  # Smaller context for chat
-                    temperature=0.7,
-                    session_id=session_id  # Include session for document context
-                )
+                if use_vision_rag:
+                    # Use Vision RAG
+                    result = vision_rag_service.query(
+                        question=message.content,
+                        session_images=session_images,
+                        top_k=3,
+                        temperature=0.7,
+                        max_tokens=1000,
+                    )
+                    # Convert vision sources to standard format
+                    vision_sources = []
+                    for src in result.get("sources", []):
+                        vision_sources.append({
+                            "title": src.get("filename", "Image"),
+                            "url": "",
+                            "source_name": src.get("source_file", "Uploaded Image"),
+                            "category": "vision",
+                            "excerpt": f"Image similarity: {src.get('similarity', 0):.2f}",
+                        })
+                    result["sources"] = vision_sources
+                    result["retrieved_chunks"] = result.get("retrieved_images", 0)
+                else:
+                    result = rag_pipeline.query(
+                        query=message.content,
+                        top_k=3,  # Reduced for faster chat responses
+                        max_tokens=1000,  # Shorter responses for chat
+                        max_context_length=2000,  # Smaller context for chat
+                        temperature=0.7,
+                        session_id=session_id  # Include session for document context
+                    )
                 
                 # Process attachments if provided
                 attachments_data = None
@@ -1513,11 +1643,23 @@ async def upload_chat_attachment(
             collection_name=collection_name
         )
         
+        # Store vision data if available
+        vision_data = result.get("vision_data")
+        if vision_data and vision_data.get("images"):
+            # Initialize session storage if needed
+            if session_id not in vision_storage:
+                vision_storage[session_id] = []
+            
+            # Add vision images to session storage
+            vision_storage[session_id].extend(vision_data["images"])
+            logger.info(f"Stored {len(vision_data['images'])} vision item(s) for session {session_id}")
+        
         logger.info(f"Processed attachment {result['attachment']['id']} for session {session_id}")
         
         return {
             "attachment": result["attachment"],
-            "message": "File processed and stored successfully"
+            "message": "File processed and stored successfully",
+            "vision_processed": vision_data is not None and vision_data.get("count", 0) > 0,
         }
         
     except Exception as e:
@@ -1548,6 +1690,38 @@ async def get_chat_attachment(session_id: str, attachment_id: str):
         raise
     except Exception as e:
         logger.error(f"Error getting attachment: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/chat/sessions/{session_id}/vision-content", tags=["Chat"])
+async def get_vision_content(session_id: str):
+    """Get vision content (images/PDF pages) for a session"""
+    if vision_storage is None:
+        raise HTTPException(status_code=503, detail="Vision storage not initialized")
+    
+    try:
+        session_images = vision_storage.get(session_id, [])
+        
+        # Return metadata only (not full embeddings)
+        content_list = []
+        for img_data in session_images:
+            content_list.append({
+                "id": img_data.get("id"),
+                "filename": img_data.get("metadata", {}).get("filename", ""),
+                "file_path": img_data.get("file_path", ""),
+                "type": img_data.get("metadata", {}).get("type", ""),
+                "page_number": img_data.get("metadata", {}).get("page_number"),
+                "source_file": img_data.get("metadata", {}).get("source_file", ""),
+            })
+        
+        return {
+            "session_id": session_id,
+            "count": len(content_list),
+            "content": content_list,
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting vision content: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -2102,8 +2276,23 @@ async def send_sms_manual(phone_number: str, message: str):
     }
     ```
     """
-    if sms_service is None or not sms_service.available:
-        raise HTTPException(status_code=503, detail="SMS service not available")
+    if sms_service is None:
+        raise HTTPException(
+            status_code=503, 
+            detail="SMS service not initialized. Please restart the FastAPI server."
+        )
+    
+    if not sms_service.available:
+        # Provide more detailed error message
+        error_detail = "SMS service not available"
+        if hasattr(sms_service, 'test_mode') and sms_service.test_mode:
+            error_detail += " (test mode is enabled - SMS will be simulated)"
+        elif hasattr(sms_service, 'use_direct_api') and sms_service.use_direct_api:
+            error_detail += " (using direct API fallback)"
+        else:
+            error_detail += ". Check AT_USERNAME and AT_API_KEY environment variables."
+        
+        raise HTTPException(status_code=503, detail=error_detail)
     
     try:
         # Format phone number

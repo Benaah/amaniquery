@@ -30,14 +30,15 @@ except ImportError:
     OCR_AVAILABLE = False
 
 from Module2_NiruParser.chunkers import TextChunker
-from Module2_NiruParser.embedders import TextEmbedder
+from Module2_NiruParser.embedders import TextEmbedder, VisionEmbedder
 from Module2_NiruParser.config import Config
+from Module4_NiruAPI.services.pdf_page_extractor import PDFPageExtractor
 
 
 class DocumentProcessor:
     """Process uploaded documents for chat attachments"""
     
-    def __init__(self, config: Optional[Config] = None):
+    def __init__(self, config: Optional[Config] = None, enable_vision: bool = True):
         self.config = config or Config()
         self.chunker = TextChunker(
             chunk_size=self.config.CHUNK_SIZE,
@@ -49,6 +50,20 @@ class DocumentProcessor:
         )
         self.upload_dir = Path(tempfile.gettempdir()) / "amaniquery_uploads"
         self.upload_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Initialize vision components if enabled
+        self.enable_vision = enable_vision
+        self.vision_embedder = None
+        self.pdf_extractor = None
+        
+        if self.enable_vision:
+            try:
+                self.vision_embedder = VisionEmbedder()
+                self.pdf_extractor = PDFPageExtractor()
+                logger.info("Vision RAG components initialized")
+            except Exception as e:
+                logger.warning(f"Failed to initialize vision components: {e}. Vision RAG will be disabled.")
+                self.enable_vision = False
     
     def process_file(
         self,
@@ -120,10 +135,27 @@ class DocumentProcessor:
             except Exception as e:
                 logger.warning(f"Failed to delete temp file: {e}")
             
-            return {
+            result = {
                 "attachment": attachment_metadata,
                 "chunks": chunks,
             }
+            
+            # Generate vision embeddings for images and PDFs
+            if self.enable_vision and file_type in ["image", "pdf"]:
+                try:
+                    vision_data = self._process_vision_embeddings(
+                        file_path=file_path,
+                        file_type=file_type,
+                        file_id=file_id,
+                        filename=filename,
+                        session_id=session_id,
+                    )
+                    result["vision_data"] = vision_data
+                except Exception as e:
+                    logger.warning(f"Failed to process vision embeddings: {e}")
+                    result["vision_data"] = None
+            
+            return result
             
         except Exception as e:
             logger.error(f"Error processing file {filename}: {e}")
@@ -352,4 +384,100 @@ class DocumentProcessor:
         except Exception as e:
             logger.error(f"Error cleaning up session chunks: {e}")
             # Don't raise - cleanup is best effort
+    
+    def _process_vision_embeddings(
+        self,
+        file_path: Path,
+        file_type: str,
+        file_id: str,
+        filename: str,
+        session_id: str,
+    ) -> Dict:
+        """
+        Process vision embeddings for images and PDF pages
+        
+        Args:
+            file_path: Path to the file
+            file_type: Type of file ("image" or "pdf")
+            file_id: Unique file ID
+            filename: Original filename
+            session_id: Chat session ID
+            
+        Returns:
+            Dictionary with vision data (images, embeddings, metadata)
+        """
+        if not self.enable_vision or not self.vision_embedder:
+            return None
+        
+        vision_images = []
+        
+        try:
+            if file_type == "image":
+                # Process single image
+                embedding = self.vision_embedder.embed_image(file_path)
+                
+                # Save image to persistent location for Vision RAG
+                vision_dir = self.upload_dir / "vision" / session_id
+                vision_dir.mkdir(parents=True, exist_ok=True)
+                vision_image_path = vision_dir / f"{file_id}_{filename}"
+                
+                # Copy image to vision directory
+                import shutil
+                shutil.copy2(file_path, vision_image_path)
+                
+                vision_images.append({
+                    "id": f"{file_id}_image",
+                    "file_path": str(vision_image_path),
+                    "embedding": embedding.tolist(),  # Convert to list for JSON
+                    "metadata": {
+                        "filename": filename,
+                        "file_id": file_id,
+                        "session_id": session_id,
+                        "type": "image",
+                        "page_number": None,
+                        "source_file": filename,
+                    }
+                })
+                
+            elif file_type == "pdf":
+                # Extract PDF pages as images
+                page_images = self.pdf_extractor.extract_pages_from_file(file_path)
+                
+                # Save pages to persistent location
+                vision_dir = self.upload_dir / "vision" / session_id
+                vision_dir.mkdir(parents=True, exist_ok=True)
+                
+                # Generate embeddings for each page
+                for page_num, page_image in enumerate(page_images, start=1):
+                    # Save page image
+                    page_filename = f"{file_id}_page_{page_num:04d}.png"
+                    page_path = vision_dir / page_filename
+                    page_image.save(page_path, format="PNG")
+                    
+                    # Generate embedding
+                    embedding = self.vision_embedder.embed_image(page_image)
+                    
+                    vision_images.append({
+                        "id": f"{file_id}_page_{page_num}",
+                        "file_path": str(page_path),
+                        "embedding": embedding.tolist(),
+                        "metadata": {
+                            "filename": page_filename,
+                            "file_id": file_id,
+                            "session_id": session_id,
+                            "type": "pdf_page",
+                            "page_number": page_num,
+                            "source_file": filename,
+                        }
+                    })
+            
+            logger.info(f"Processed {len(vision_images)} vision item(s) for {filename}")
+            return {
+                "images": vision_images,
+                "count": len(vision_images),
+            }
+            
+        except Exception as e:
+            logger.error(f"Error processing vision embeddings: {e}")
+            return None
 

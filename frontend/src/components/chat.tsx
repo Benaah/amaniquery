@@ -42,7 +42,9 @@ import {
   User,
   X,
   Edit,
-  RotateCw
+  RotateCw,
+  Image as ImageIcon,
+  Eye
 } from "lucide-react"
 import { FileUpload } from "./chat/FileUpload"
 
@@ -1526,27 +1528,58 @@ ${researchProcess.tools_used && researchProcess.tools_used.length > 0
                           </div>
                         )}
 
+                        {message.model_used === "gemini-2.5-flash" && message.sources && 
+                         message.sources.some((src: Source) => src.category === "vision") && (
+                          <div className="inline-flex items-center gap-2 rounded-full border border-purple-500/40 bg-purple-500/10 px-3 py-1 text-xs text-purple-100">
+                            <Eye className="w-3.5 h-3.5" />
+                            Vision RAG Analysis
+                          </div>
+                        )}
+
                         {message.attachments && message.attachments.length > 0 && (
                           <div className="space-y-2">
-                            {message.attachments.map((attachment) => (
-                              <div
-                                key={attachment.id}
-                                className="flex items-center gap-2 p-2 rounded-lg border border-white/10 bg-white/5"
-                              >
-                                <FileText className="w-4 h-4 text-muted-foreground" />
-                                <div className="flex-1 min-w-0">
-                                  <p className="text-sm font-medium truncate">{attachment.filename}</p>
-                                  <p className="text-xs text-muted-foreground">
-                                    {(attachment.file_size / 1024).toFixed(1)} KB • {attachment.file_type}
-                                  </p>
+                            {message.attachments.map((attachment) => {
+                              const isImage = attachment.file_type === "image" || 
+                                /\.(png|jpg|jpeg|gif|bmp|webp)$/i.test(attachment.filename)
+                              const isPDF = attachment.file_type === "pdf" || 
+                                attachment.filename.toLowerCase().endsWith(".pdf")
+                              
+                              return (
+                                <div
+                                  key={attachment.id}
+                                  className="flex items-start gap-2 p-2 rounded-lg border border-white/10 bg-white/5"
+                                >
+                                  {isImage ? (
+                                    <ImageIcon className="w-4 h-4 text-muted-foreground mt-1" />
+                                  ) : isPDF ? (
+                                    <FileText className="w-4 h-4 text-muted-foreground mt-1" />
+                                  ) : (
+                                    <FileText className="w-4 h-4 text-muted-foreground mt-1" />
+                                  )}
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-sm font-medium truncate">{attachment.filename}</p>
+                                    <p className="text-xs text-muted-foreground">
+                                      {(attachment.file_size / 1024).toFixed(1)} KB • {attachment.file_type}
+                                    </p>
+                                    {isImage && (
+                                      <p className="text-xs text-blue-400 mt-1">
+                                        📷 Ready for Vision RAG analysis
+                                      </p>
+                                    )}
+                                    {isPDF && (
+                                      <p className="text-xs text-blue-400 mt-1">
+                                        📄 Pages will be analyzed with Vision RAG
+                                      </p>
+                                    )}
+                                  </div>
+                                  {attachment.processed && (
+                                    <Badge variant="outline" className="text-xs">
+                                      Processed
+                                    </Badge>
+                                  )}
                                 </div>
-                                {attachment.processed && (
-                                  <Badge variant="outline" className="text-xs">
-                                    Processed
-                                  </Badge>
-                                )}
-                              </div>
-                            ))}
+                              )
+                            })}
                           </div>
                         )}
 
@@ -1780,26 +1813,42 @@ ${researchProcess.tools_used && researchProcess.tools_used.length > 0
             </Button>
             {showSources && (
               <div className="px-3 md:px-6 pb-5 space-y-3">
-                {messages[messages.length - 1].sources!.map((source, index) => (
-                  <div key={index} className="flex items-start space-x-3 p-3 rounded-2xl border border-white/10 bg-white/5">
-                    <div className="flex-shrink-0 w-7 h-7 bg-primary text-primary-foreground rounded-full flex items-center justify-center text-xs font-semibold">
-                      {index + 1}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <a href={source.url} target="_blank" rel="noopener noreferrer" className="text-sm font-medium hover:underline flex items-center gap-1">
-                        {source.title}
-                        <ExternalLink className="w-3 h-3 flex-shrink-0" />
-                      </a>
-                      <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{source.excerpt}</p>
-                      <div className="flex items-center gap-2 mt-2">
-                        <Badge variant="outline" className="text-xs">
-                          {source.category}
-                        </Badge>
-                        <span className="text-xs text-muted-foreground truncate">{source.source_name}</span>
+                {messages[messages.length - 1].sources!.map((source, index) => {
+                  const isVisionSource = source.category === "vision"
+                  return (
+                    <div key={index} className="flex items-start space-x-3 p-3 rounded-2xl border border-white/10 bg-white/5">
+                      <div className={`flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold ${
+                        isVisionSource 
+                          ? "bg-purple-500/20 text-purple-300 border border-purple-500/40" 
+                          : "bg-primary text-primary-foreground"
+                      }`}>
+                        {isVisionSource ? <ImageIcon className="w-4 h-4" /> : index + 1}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        {source.url ? (
+                          <a href={source.url} target="_blank" rel="noopener noreferrer" className="text-sm font-medium hover:underline flex items-center gap-1">
+                            {source.title}
+                            <ExternalLink className="w-3 h-3 flex-shrink-0" />
+                          </a>
+                        ) : (
+                          <div className="text-sm font-medium flex items-center gap-1">
+                            {isVisionSource && <Eye className="w-3 h-3 text-purple-400" />}
+                            {source.title}
+                          </div>
+                        )}
+                        <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{source.excerpt}</p>
+                        <div className="flex items-center gap-2 mt-2">
+                          <Badge variant="outline" className={`text-xs ${
+                            isVisionSource ? "border-purple-500/40 text-purple-300" : ""
+                          }`}>
+                            {isVisionSource ? "🖼️ Vision" : source.category}
+                          </Badge>
+                          <span className="text-xs text-muted-foreground truncate">{source.source_name}</span>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             )}
           </div>

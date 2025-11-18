@@ -59,13 +59,13 @@ Link: https://youtube.com/watch?v=abc123&t=942s
 
 AmaniQuery is built as a 7-module pipeline:
 
-1. **NiruSpider** - Web crawler for data ingestion
-2. **NiruParser** - ETL pipeline with embedding generation
-3. **NiruDB** - Vector database with metadata storage
-4. **NiruAPI** - RAG-powered query interface with multi-model support
-5. **NiruShare** - Social media sharing service
-6. **NiruVoice** - Voice agent for real-time conversations
-7. **NiruHybrid** - Enhanced RAG with hybrid encoder and adaptive retrieval
+1. **[NiruSpider](Module1_NiruSpider/README.md)** - Web crawler for data ingestion
+2. **[NiruParser](Module2_NiruParser/README.md)** - ETL pipeline with embedding generation
+3. **[NiruDB](Module3_NiruDB/README.md)** - Vector database with metadata storage
+4. **[NiruAPI](Module4_NiruAPI/README.md)** - RAG-powered query interface with multi-model support
+5. **[NiruShare](Module5_NiruShare/README.md)** - Social media sharing service
+6. **[NiruVoice](Module6_NiruVoice/README.md)** - Voice agent for real-time conversations
+7. **[NiruHybrid](Module7_NiruHybrid/README.md)** - Enhanced RAG with hybrid encoder and adaptive retrieval
 
 ## 📂 Project Structure
 

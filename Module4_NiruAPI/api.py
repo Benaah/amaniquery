@@ -1258,8 +1258,8 @@ async def delete_chat_session(session_id: str):
 @app.post("/chat/sessions/{session_id}/messages", response_model=ChatMessageResponse, tags=["Chat"])
 async def add_chat_message(session_id: str, message: ChatMessageCreate):
     """Add a message to a chat session"""
-    if chat_manager is None or rag_pipeline is None:
-        raise HTTPException(status_code=503, detail="Services not initialized")
+    if chat_manager is None:
+        raise HTTPException(status_code=503, detail="Chat service not initialized")
     
     try:
         # If this is the first user message and session has no title, generate one
@@ -1279,6 +1279,10 @@ async def add_chat_message(session_id: str, message: ChatMessageCreate):
                 if session_images:
                     use_vision_rag = True
                     logger.info(f"Using Vision RAG for chat session {session_id} with {len(session_images)} image(s)")
+            
+            # Check if we need RAG pipeline (only if not using Vision RAG)
+            if not use_vision_rag and rag_pipeline is None:
+                raise HTTPException(status_code=503, detail="RAG service not initialized")
             
             if stream:
                 # Use streaming RAG
@@ -1635,13 +1639,16 @@ async def upload_chat_attachment(
             session_id=session_id
         )
         
-        # Store chunks in vector store with session-specific collection
-        collection_name = f"chat_session_{session_id}"
-        processor.store_chunks_in_vector_store(
-            chunks=result["chunks"],
-            vector_store=vector_store,
-            collection_name=collection_name
-        )
+        # Store chunks in vector store with session-specific collection (only if chunks exist)
+        if result["chunks"]:
+            collection_name = f"chat_session_{session_id}"
+            processor.store_chunks_in_vector_store(
+                chunks=result["chunks"],
+                vector_store=vector_store,
+                collection_name=collection_name
+            )
+        else:
+            logger.info(f"No text chunks to store for {file.filename} (Vision RAG only)")
         
         # Store vision data if available
         vision_data = result.get("vision_data")

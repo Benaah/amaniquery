@@ -1,5 +1,7 @@
 # Module 5: NiruShare - Social Media Sharing Service
 
+![NiruShare](../imgs/share_module.png)
+
 A robust, scalable social media sharing service with plugin-based architecture, natural post formatting, and image generation capabilities.
 
 ## Features

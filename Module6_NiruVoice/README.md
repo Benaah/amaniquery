@@ -1,5 +1,7 @@
 # Module 6: NiruVoice - LiveKit Voice Agent
 
+![NiruVoice](../imgs/voice_module.png)
+
 This module provides a professional voice agent using LiveKit Agents framework that integrates with AmaniQuery's RAG pipeline to answer voice queries about Kenyan legal, parliamentary, and news intelligence.
 
 ## Features

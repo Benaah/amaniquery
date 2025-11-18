@@ -1,5 +1,7 @@
 # Module 3: NiruDB - Vector Database Storage
 
+![NiruDB](../imgs/db_module.png)
+
 This module manages vector embeddings and metadata storage using ChromaDB.
 
 ## Features

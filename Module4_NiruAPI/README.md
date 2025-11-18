@@ -1,5 +1,7 @@
 # Module 4: NiruAPI - RAG-Powered Query Interface
 
+![NiruAPI](../imgs/api_module.png)
+
 This module provides a FastAPI-based REST API for querying the AmaniQuery knowledge base using Retrieval-Augmented Generation (RAG).
 
 ## Features

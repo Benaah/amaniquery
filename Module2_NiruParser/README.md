@@ -1,5 +1,7 @@
 # Module 2: NiruParser - ETL & Embedding Pipeline
 
+![NiruParser](../imgs/parser_module.png)
+
 This module processes raw crawled data into clean, chunked, and embedded documents ready for the vector database.
 
 ## Pipeline Flow

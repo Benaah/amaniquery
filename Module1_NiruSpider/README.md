@@ -1,5 +1,7 @@
 # Module 1: NiruSpider - Data Ingestion Crawler
 
+![NiruSpider](../imgs/spider_module.png)
+
 This module handles automated web crawling and data collection from various Kenyan and global sources.
 
 ## Structure

@@ -1,5 +1,7 @@
 # Module7_NiruHybrid - Hybrid Convolutional-Transformer Pipeline
 
+![NiruHybrid](../imgs/hybrid_module_1.png)
+
 ## Overview
 
 Module7_NiruHybrid provides a hybrid convolutional-transformer architecture integrated with diffusion models for dynamic retention, designed for real-time streaming with quantized attention mechanisms. This module enhances the existing AmaniQuery RAG pipeline with:

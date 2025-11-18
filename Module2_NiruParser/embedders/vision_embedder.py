@@ -24,14 +24,14 @@ class VisionEmbedder:
     def __init__(
         self,
         api_key: Optional[str] = None,
-        model: str = "embed-english-v4.0",  # Cohere Embed-4 model name
+        model: str = "embed-english-v3.0",  # Cohere Embed v3 model (supports multimodal)
     ):
         """
         Initialize vision embedder
         
         Args:
             api_key: Cohere API key (if None, reads from COHERE_API_KEY env var)
-            model: Cohere model name (default: embed-english-v3.0, but Embed-4 is embed-multilingual-v3.0 or embed-english-v3.0)
+            model: Cohere model name (embed-english-v3.0 or embed-multilingual-v3.0)
         """
         if not COHERE_AVAILABLE:
             raise ImportError("Cohere package not available. Install with: pip install cohere")
@@ -43,7 +43,7 @@ class VisionEmbedder:
         self.model = model
         self.client = cohere.Client(api_key=self.api_key)
         
-        # Embed-4 dimension is 1024
+        # Embed v3 dimension is 1024 (for both english and multilingual)
         self.dimension = 1024
         
         logger.info(f"Vision embedder initialized with model: {model}")
@@ -130,16 +130,58 @@ class VisionEmbedder:
             else:
                 raise ValueError(f"Unsupported image type: {type(image)}")
             
-            # Use Cohere Embed-4 multimodal embedding
-            # Cohere Embed-4 accepts images as bytes
-            response = self.client.embed(
-                images=[image_bytes],
-                model=self.model,
-                input_type="search_document",  # For document/image embeddings
-            )
+            # Use Cohere Embed API for images
+            # Cohere requires base64 data URI format: "data:image/jpeg;base64,{base64_string}"
+            import base64
             
-            embedding = np.array(response.embeddings[0])
-            return embedding
+            # Convert image bytes to base64 data URI
+            img_base64 = base64.b64encode(image_bytes).decode('utf-8')
+            # Determine MIME type based on image format
+            mime_type = "image/jpeg"  # Default
+            if isinstance(image, (str, Path)):
+                ext = Path(image).suffix.lower()
+                if ext == ".png":
+                    mime_type = "image/png"
+                elif ext in [".jpg", ".jpeg"]:
+                    mime_type = "image/jpeg"
+            elif isinstance(image, Image.Image):
+                if image.format == "PNG":
+                    mime_type = "image/png"
+            
+            # Create data URI format
+            data_uri = f"data:{mime_type};base64,{img_base64}"
+            
+            try:
+                # Cohere embed API expects base64 data URI in images parameter
+                response = self.client.embed(
+                    images=[data_uri],
+                    model=self.model,
+                    input_type="search_document",
+                )
+                embedding = np.array(response.embeddings[0])
+                return embedding
+            except Exception as api_error:
+                error_str = str(api_error)
+                # Check if it's a model not found error
+                if "not found" in error_str.lower() or "404" in error_str:
+                    # Try with embed-multilingual-v3.0 as fallback
+                    logger.warning(f"Model {self.model} not found, trying embed-multilingual-v3.0")
+                    try:
+                        response = self.client.embed(
+                            images=[data_uri],
+                            model="embed-multilingual-v3.0",
+                            input_type="search_document",
+                        )
+                        embedding = np.array(response.embeddings[0])
+                        self.model = "embed-multilingual-v3.0"  # Update model for future calls
+                        return embedding
+                    except Exception as fallback_error:
+                        logger.error(f"Fallback model also failed: {fallback_error}")
+                        raise ValueError(f"Cohere embedding models not available. Please check your API key and model access. Original error: {api_error}")
+                else:
+                    # Other API errors - might be format issue
+                    logger.error(f"Cohere embed API error: {api_error}")
+                    raise ValueError(f"Failed to generate image embedding with Cohere: {api_error}")
         except Exception as e:
             logger.error(f"Error generating image embedding: {e}")
             return np.zeros(self.dimension)
@@ -158,25 +200,36 @@ class VisionEmbedder:
             return np.array([])
         
         try:
-            # Convert all images to bytes
-            image_bytes_list = []
+            import base64
+            
+            # Convert all images to base64 data URIs
+            data_uri_list = []
             for img in images:
+                # Get image bytes
                 if isinstance(img, (str, Path)):
                     image_path = Path(img)
                     with open(image_path, "rb") as f:
-                        image_bytes_list.append(f.read())
+                        image_bytes = f.read()
+                    ext = image_path.suffix.lower()
+                    mime_type = "image/png" if ext == ".png" else "image/jpeg"
                 elif isinstance(img, Image.Image):
                     buffered = io.BytesIO()
                     if img.mode != "RGB":
                         img = img.convert("RGB")
                     img.save(buffered, format="JPEG", quality=85)
-                    image_bytes_list.append(buffered.getvalue())
+                    image_bytes = buffered.getvalue()
+                    mime_type = "image/png" if img.format == "PNG" else "image/jpeg"
                 else:
                     raise ValueError(f"Unsupported image type: {type(img)}")
+                
+                # Convert to base64 data URI
+                img_base64 = base64.b64encode(image_bytes).decode('utf-8')
+                data_uri = f"data:{mime_type};base64,{img_base64}"
+                data_uri_list.append(data_uri)
             
             # Batch embed
             response = self.client.embed(
-                images=image_bytes_list,
+                images=data_uri_list,
                 model=self.model,
                 input_type="search_document",
             )

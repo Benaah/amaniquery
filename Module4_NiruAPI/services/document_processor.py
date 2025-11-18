@@ -167,8 +167,10 @@ class DocumentProcessor:
                     )
                     result["vision_data"] = vision_data
                 except Exception as e:
-                    logger.warning(f"Failed to process vision embeddings: {e}")
+                    # Don't fail the entire file processing if vision RAG fails
+                    logger.warning(f"Failed to process vision embeddings: {e}. File will still be processed for text.")
                     result["vision_data"] = None
+                    # If no text was extracted and vision failed, that's OK - at least we tried
             
             # Clean up temporary file after vision processing
             try:

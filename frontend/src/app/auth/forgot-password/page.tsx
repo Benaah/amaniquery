@@ -16,6 +16,7 @@ export default function ForgotPasswordPage() {
   const [loading, setLoading] = useState(false)
   const [email, setEmail] = useState("")
   const [phoneNumber, setPhoneNumber] = useState("")
+  const [maskedPhoneNumber, setMaskedPhoneNumber] = useState<string | null>(null)
   const [otp, setOtp] = useState("")
   const [resetToken, setResetToken] = useState("")
   const [newPassword, setNewPassword] = useState("")
@@ -26,15 +27,26 @@ export default function ForgotPasswordPage() {
     setLoading(true)
 
     try {
-      // Request password reset (this will send OTP to user's phone)
-      await apiClient.post("/api/v1/auth/password/reset-request", {
-        email: email,
-      })
+      // Request password reset (this will return masked phone number)
+      const response = await apiClient.post<{ message: string; phone_number?: string }>(
+        "/api/v1/auth/password/reset-request",
+        {
+          email: email,
+        }
+      )
 
-      // Get user's phone number (we'll need to fetch it or it should be in response)
-      // For now, we'll ask user to enter phone number
-      setStep("otp")
-      toast.success("Please enter your phone number to receive OTP")
+      if (response.phone_number) {
+        // Store masked phone number for display
+        setMaskedPhoneNumber(response.phone_number)
+        // Show masked phone number to user - they still need to enter full number for OTP verification
+        toast.success(`${response.message} (ending in ${response.phone_number.slice(-4)})`)
+        setStep("otp")
+      } else {
+        // No phone number found, ask user to enter it
+        setMaskedPhoneNumber(null)
+        toast.success("Please enter your phone number to receive OTP")
+        setStep("otp")
+      }
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : "Failed to request password reset"
       toast.error(errorMessage)
@@ -52,22 +64,30 @@ export default function ForgotPasswordPage() {
     setLoading(true)
 
     try {
-      // Verify OTP
-      await apiClient.post("/api/v1/auth/phone/verify-otp", {
-        phone_number: phoneNumber,
-        otp: otp,
-        purpose: "password_reset",
-      })
+      // Verify OTP and get password reset token
+      const response = await apiClient.post<{ status: string; message: string; reset_token?: string }>(
+        "/api/v1/auth/phone/verify-otp",
+        {
+          phone_number: phoneNumber,
+          otp: otp,
+          purpose: "password_reset",
+        }
+      )
 
-      // Get password reset token (in real implementation, this would come from the backend)
-      // For now, we'll use a placeholder
-      await apiClient.post("/api/v1/auth/password/reset-request", {
-        email: email,
-      })
-
-      setResetToken("verified") // In production, get actual token
-      setStep("reset")
-      toast.success("OTP verified. Please set your new password.")
+      if (response.reset_token) {
+        setResetToken(response.reset_token)
+        setStep("reset")
+        toast.success("OTP verified. Please set your new password.")
+      } else {
+        // Fallback: request reset token again if not returned
+        await apiClient.post("/api/v1/auth/password/reset-request", {
+          email: email,
+        })
+        // Note: In production, the token should always come from OTP verification
+        setResetToken("verified")
+        setStep("reset")
+        toast.success("OTP verified. Please set your new password.")
+      }
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : "OTP verification failed"
       toast.error(errorMessage)
@@ -120,10 +140,52 @@ export default function ForgotPasswordPage() {
           <CardHeader>
             <CardTitle>Verify OTP</CardTitle>
             <CardDescription>
-              Enter the 6-digit code sent to {phoneNumber}
+              {maskedPhoneNumber 
+                ? `Enter the 6-digit code sent to ${maskedPhoneNumber}`
+                : phoneNumber 
+                  ? `Enter the 6-digit code sent to ${phoneNumber}`
+                  : "Enter the 6-digit code sent to your phone number"}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            {!maskedPhoneNumber && (
+              <div>
+                <label htmlFor="phone" className="text-sm font-medium">
+                  Phone Number
+                </label>
+                <Input
+                  id="phone"
+                  type="tel"
+                  placeholder="+254712345678 or 0712345678"
+                  value={phoneNumber}
+                  onChange={(e) => setPhoneNumber(e.target.value)}
+                  required
+                  className="mt-1"
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Format: +254712345678, +2541XXXXXXX, 0712345678, or 01XXXXXXX
+                </p>
+              </div>
+            )}
+            {maskedPhoneNumber && !phoneNumber && (
+              <div>
+                <label htmlFor="phone" className="text-sm font-medium">
+                  Confirm Phone Number
+                </label>
+                <Input
+                  id="phone"
+                  type="tel"
+                  placeholder={`Enter full number ending in ${maskedPhoneNumber.slice(-4)}`}
+                  value={phoneNumber}
+                  onChange={(e) => setPhoneNumber(e.target.value)}
+                  required
+                  className="mt-1"
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Enter your full phone number to verify
+                </p>
+              </div>
+            )}
             <OTPInput
               value={otp}
               onChange={setOtp}
@@ -132,7 +194,7 @@ export default function ForgotPasswordPage() {
             />
             <Button
               onClick={handleOTPVerify}
-              disabled={loading || otp.length !== 6}
+              disabled={loading || otp.length !== 6 || !phoneNumber}
               className="w-full"
             >
               {loading ? (

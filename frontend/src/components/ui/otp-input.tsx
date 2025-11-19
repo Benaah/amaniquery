@@ -22,13 +22,21 @@ export function OTPInput({
 }: OTPInputProps) {
   const [otp, setOtp] = useState<string[]>(new Array(length).fill(""))
   const inputRefs = useRef<(HTMLInputElement | null)[]>([])
+  const prevValueRef = useRef<string>(value)
 
   useEffect(() => {
-    // Sync external value with internal state
-    if (value && value.length === length) {
-      setOtp(value.split(""))
-    } else if (!value) {
-      setOtp(new Array(length).fill(""))
+    // Only update if value actually changed to avoid cascading renders
+    if (prevValueRef.current !== value) {
+      prevValueRef.current = value
+      
+      // Defer state update to next tick to avoid synchronous setState in effect
+      queueMicrotask(() => {
+        if (value && value.length === length) {
+          setOtp(value.split(""))
+        } else if (!value) {
+          setOtp(new Array(length).fill(""))
+        }
+      })
     }
   }, [value, length])
 
@@ -96,7 +104,9 @@ export function OTPInput({
       {otp.map((digit, index) => (
         <Input
           key={index}
-          ref={(el) => (inputRefs.current[index] = el)}
+          ref={(el) => {
+            inputRefs.current[index] = el
+          }}
           type="text"
           inputMode="numeric"
           maxLength={1}

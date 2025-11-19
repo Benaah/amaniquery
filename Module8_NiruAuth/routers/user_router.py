@@ -8,7 +8,7 @@ from typing import Optional
 
 from ..models.pydantic_models import (
     UserRegister, UserLogin, UserResponse, UserProfileUpdate,
-    PasswordChange, PasswordResetRequest, PasswordReset,
+    PasswordChange, PasswordResetRequest, PasswordReset, PasswordResetRequestResponse,
     EmailVerificationRequest, SessionResponse
 )
 from ..providers.user_auth_provider import UserAuthProvider
@@ -34,6 +34,21 @@ async def register(
             name=user_data.name,
             phone_number=user_data.phone_number
         )
+        
+        # Send email verification email
+        if user.email_verification_token:
+            from ..services.email_service import get_email_service
+            try:
+                email_service = get_email_service()
+                email_service.send_verification_email(
+                    to_email=user.email,
+                    verification_token=user.email_verification_token
+                )
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Failed to send verification email: {e}")
+                # Don't fail registration if email sending fails
         
         return UserResponse(
             id=user.id,
@@ -185,17 +200,70 @@ async def change_password(
     return {"message": "Password changed successfully"}
 
 
-@router.post("/password/reset-request")
+@router.post("/password/reset-request", response_model=PasswordResetRequestResponse)
 async def request_password_reset(
     reset_data: PasswordResetRequest,
     db: Session = Depends(get_db)
 ):
-    """Request password reset"""
+    """Request password reset - returns masked phone number for OTP verification"""
+    # Get user by email
+    user = UserAuthProvider.get_user_by_email(db, reset_data.email)
+    
+    if not user:
+        # Don't reveal if email exists for security, but still return success message
+        return PasswordResetRequestResponse(
+            message="If the email exists, a password reset OTP will be sent to your phone number",
+            phone_number=None
+        )
+    
+    # Generate password reset token
     token = UserAuthProvider.request_password_reset(db, reset_data.email)
     
-    # In production, send email with reset token
-    # For now, just return success (token would be sent via email)
-    return {"message": "If the email exists, a password reset link has been sent"}
+    # Send OTP to user's phone number if available
+    if user.phone_number:
+        from Module8_NiruAuth.services.otp_service import get_otp_service
+        from Module1_ConfigManager.config_manager import ConfigManager
+        
+        try:
+            config_manager = ConfigManager()
+            otp_service = get_otp_service(config_manager)
+            otp_service.send_otp(
+                phone_number=user.phone_number,
+                purpose="password_reset"
+            )
+        except Exception as e:
+            # Log error but don't fail the request
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Failed to send OTP for password reset: {e}")
+    
+    # Also send password reset email with token
+    from ..services.email_service import get_email_service
+    try:
+        email_service = get_email_service()
+        email_service.send_password_reset_email(
+            to_email=user.email,
+            reset_token=token
+        )
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Failed to send password reset email: {e}")
+        # Don't fail the request if email sending fails
+    
+    # Mask phone number for security (show only last 4 digits)
+    masked_phone = None
+    if user.phone_number:
+        phone = user.phone_number
+        if len(phone) > 4:
+            masked_phone = "*" * (len(phone) - 4) + phone[-4:]
+        else:
+            masked_phone = "*" * len(phone)
+    
+    return PasswordResetRequestResponse(
+        message="Password reset OTP will be sent to your phone number",
+        phone_number=masked_phone
+    )
 
 
 @router.post("/password/reset")
@@ -227,8 +295,23 @@ async def request_email_verification(
     """Request email verification"""
     token = UserAuthProvider.request_email_verification(db, user)
     
-    # In production, send email with verification token
-    return {"message": "Verification email sent"}
+    # Send email with verification token
+    from ..services.email_service import get_email_service
+    try:
+        email_service = get_email_service()
+        success = email_service.send_verification_email(
+            to_email=user.email,
+            verification_token=token
+        )
+        if success:
+            return {"message": "Verification email sent successfully"}
+        else:
+            return {"message": "Verification email requested, but sending failed. Please try again."}
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Failed to send verification email: {e}")
+        return {"message": "Verification email requested, but sending failed. Please try again."}
 
 
 @router.get("/email/verify")
@@ -237,6 +320,9 @@ async def verify_email(
     db: Session = Depends(get_db)
 ):
     """Verify email with token"""
+    # Get user before token is cleared (verify_email clears the token)
+    user = db.query(User).filter(User.email_verification_token == token).first()
+    
     success = UserAuthProvider.verify_email(db, token)
     
     if not success:
@@ -244,6 +330,21 @@ async def verify_email(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid or expired verification token"
         )
+    
+    # Send welcome email after successful verification
+    if user:
+        from ..services.email_service import get_email_service
+        try:
+            email_service = get_email_service()
+            email_service.send_welcome_email(
+                to_email=user.email,
+                name=user.name or "User"
+            )
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Failed to send welcome email: {e}")
+            # Don't fail verification if welcome email fails
     
     return {"message": "Email verified successfully"}
 

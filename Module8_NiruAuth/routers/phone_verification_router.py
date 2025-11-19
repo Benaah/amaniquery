@@ -134,10 +134,22 @@ async def verify_otp(
                 user.status = "active"
             db.commit()
     
-    return {
+    # If password reset purpose, return the password reset token
+    reset_token = None
+    if request.purpose == "password_reset":
+        user = db.query(User).filter(User.phone_number == normalized_phone).first()
+        if user and user.password_reset_token:
+            reset_token = user.password_reset_token
+    
+    response = {
         "status": "success",
         "message": "OTP verified successfully"
     }
+    
+    if reset_token:
+        response["reset_token"] = reset_token
+    
+    return response
 
 
 @router.post("/resend-otp")

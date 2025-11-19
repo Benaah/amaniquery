@@ -76,6 +76,12 @@ class PasswordResetRequest(BaseModel):
     email: EmailStr
 
 
+class PasswordResetRequestResponse(BaseModel):
+    """Password reset request response"""
+    message: str
+    phone_number: Optional[str] = Field(None, description="Masked phone number for OTP verification")
+
+
 class PasswordReset(BaseModel):
     """Password reset with token"""
     token: str

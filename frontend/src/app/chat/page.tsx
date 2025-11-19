@@ -1,13 +1,43 @@
+"use client"
+
+import { useEffect } from "react"
+import { useRouter } from "next/navigation"
 import { Chat } from "@/components/chat"
 import { ThemeToggle } from "@/components/theme-toggle"
+import { Sidebar } from "@/components/sidebar"
+import { useAuth } from "@/lib/auth-context"
 
 export default function ChatPage() {
-  return (
-    <div className="min-h-screen bg-background">
-      <div className="absolute top-4 right-4">
-        <ThemeToggle />
+  const { isAuthenticated, loading } = useAuth()
+  const router = useRouter()
+
+  useEffect(() => {
+    if (!loading && !isAuthenticated) {
+      router.push("/auth/signin?redirect=/chat")
+    }
+  }, [isAuthenticated, loading, router])
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
       </div>
-      <Chat />
+    )
+  }
+
+  if (!isAuthenticated) {
+    return null
+  }
+
+  return (
+    <div className="min-h-screen bg-background flex">
+      <Sidebar />
+      <div className="flex-1 ml-0 md:ml-[20px]">
+        <div className="absolute top-4 right-4 z-10">
+          <ThemeToggle />
+        </div>
+        <Chat />
+      </div>
     </div>
   )
 }

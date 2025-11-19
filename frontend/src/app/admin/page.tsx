@@ -1,11 +1,15 @@
 "use client"
 
 import React, { useState, useEffect } from "react"
+import { useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Input } from "@/components/ui/input"
+import { Sidebar } from "@/components/sidebar"
+import { ThemeToggle } from "@/components/theme-toggle"
+import { useAuth } from "@/lib/auth-context"
 import { 
   Database, 
   Activity, 
@@ -106,6 +110,8 @@ interface DatabaseStats {
 }
 
 export default function AdminDashboard() {
+  const { isAuthenticated, isAdmin, loading } = useAuth()
+  const router = useRouter()
   const [stats, setStats] = useState<Stats | null>(null)
   const [health, setHealth] = useState<Health | null>(null)
   const [crawlers, setCrawlers] = useState<Record<string, Crawler>>({})
@@ -122,6 +128,14 @@ export default function AdminDashboard() {
   const [databaseStorageStats, setDatabaseStorageStats] = useState<DatabaseStorageStats | null>(null)
   const [selectedCrawler, setSelectedCrawler] = useState<string | null>(null)
   const [isRefreshing, setIsRefreshing] = useState(false)
+
+  useEffect(() => {
+    if (!loading && !isAuthenticated) {
+      router.push("/auth/signin?redirect=/admin")
+    } else if (!loading && isAuthenticated && !isAdmin) {
+      router.push("/chat")
+    }
+  }, [isAuthenticated, isAdmin, loading, router])
 
   const fetchStats = async () => {
     try {
@@ -356,22 +370,39 @@ export default function AdminDashboard() {
     }
   }
 
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      </div>
+    )
+  }
+
+  if (!isAuthenticated || !isAdmin) {
+    return null
+  }
+
   return (
-    <div className="min-h-screen bg-background p-4 md:p-6">
-      <div className="max-w-7xl mx-auto space-y-4 md:space-y-6">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <div>
-            <h1 className="text-2xl md:text-3xl font-bold">Admin Dashboard</h1>
-            <p className="text-sm md:text-base text-muted-foreground">Control Panel for AmaniQuery System</p>
-          </div>
-          <Link href="/">
-            <Button variant="outline" className="w-full sm:w-auto min-h-[44px]">
-              <Globe className="w-4 h-4 mr-2" />
-              Back to Home
-            </Button>
-          </Link>
+    <div className="min-h-screen bg-background flex">
+      <Sidebar />
+      <div className="flex-1 ml-0 md:ml-[20px] p-4 md:p-6">
+        <div className="absolute top-4 right-4 z-10">
+          <ThemeToggle />
         </div>
+        <div className="max-w-7xl mx-auto space-y-4 md:space-y-6">
+          {/* Header */}
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div>
+              <h1 className="text-2xl md:text-3xl font-bold">Admin Dashboard</h1>
+              <p className="text-sm md:text-base text-muted-foreground">Control Panel for AmaniQuery System</p>
+            </div>
+            <Link href="/">
+              <Button variant="outline" className="w-full sm:w-auto min-h-[44px]">
+                <Globe className="w-4 h-4 mr-2" />
+                Back to Home
+              </Button>
+            </Link>
+          </div>
 
         {/* Stats Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
@@ -955,6 +986,7 @@ export default function AdminDashboard() {
             </div>
           </CardContent>
         </Card>
+        </div>
       </div>
     </div>
   )

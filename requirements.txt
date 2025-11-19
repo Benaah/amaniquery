@@ -48,6 +48,11 @@ pydantic
 python-multipart
 africastalking  # SMS gateway for Kenya
 
+# Module 8: NiruAuth (Authentication & Authorization)
+PyJWT>=2.8.0  # JWT token handling
+bcrypt>=4.0.0  # Password hashing
+email-validator>=2.0.0  # Email validation for Pydantic
+
 # LLM Integration
 openai # For OpenAI models and Moonshot AI (compatible API)
 anthropic  # For Claude

@@ -318,6 +318,32 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Add authentication middleware (optional - can be enabled via env var)
+if os.getenv("ENABLE_AUTH", "false").lower() == "true":
+    from Module8_NiruAuth.middleware.auth_middleware import AuthMiddleware
+    from Module8_NiruAuth.middleware.rate_limit_middleware import RateLimitMiddleware
+    from Module8_NiruAuth.middleware.usage_tracking_middleware import UsageTrackingMiddleware
+    
+    # Add middleware in order (auth first, then rate limit, then usage tracking)
+    app.add_middleware(UsageTrackingMiddleware)
+    app.add_middleware(RateLimitMiddleware)
+    app.add_middleware(AuthMiddleware)
+    
+    # Include auth routers
+    from Module8_NiruAuth.routers import (
+        user_router, admin_router, integration_router,
+        api_key_router, oauth_router, analytics_router
+    )
+    from Module8_NiruAuth.routers.phone_verification_router import router as phone_verification_router
+    
+    app.include_router(user_router)
+    app.include_router(admin_router)
+    app.include_router(integration_router)
+    app.include_router(api_key_router)
+    app.include_router(oauth_router)
+    app.include_router(analytics_router)
+    app.include_router(phone_verification_router)
+
 app.include_router(share_router)
 app.include_router(news_router)
 app.include_router(websocket_router)

@@ -1,6 +1,6 @@
 # Contributing to AmaniQuery
 
-![Join the AmaniQuery community](imgs/contributing.png)
+![Join the AmaniQuery community](imgs/contribution.png)
 
 Thank you for your interest in contributing to AmaniQuery! This document provides guidelines and information for contributors.
 

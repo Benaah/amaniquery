@@ -30,7 +30,77 @@ class TextEmbedder:
         self.normalize = normalize
         
         logger.info(f"Loading embedding model: {model_name}")
-        self.model = SentenceTransformer(model_name)
+        
+        # Explicitly set device to CPU to avoid meta tensor errors
+        # This prevents issues when models are loaded with device_map="auto"
+        import torch
+        import os
+        device = 'cpu'  # Use CPU for embeddings to avoid GPU/meta device issues
+        
+        # Temporarily disable device_map to prevent meta tensor loading
+        old_device_map = os.environ.get('HF_DEVICE_MAP', None)
+        old_accelerate_device_map = os.environ.get('ACCELERATE_DEVICE_MAP', None)
+        
+        try:
+            # Remove device_map environment variables if set
+            if old_device_map:
+                del os.environ['HF_DEVICE_MAP']
+            if old_accelerate_device_map:
+                del os.environ['ACCELERATE_DEVICE_MAP']
+            
+            # Load model with explicit device and disable device_map
+            # This ensures the model loads directly on CPU without meta tensors
+            self.model = SentenceTransformer(
+                model_name,
+                device=device
+            )
+            
+            # Verify model is on CPU and not meta device
+            # Test with a dummy encode to ensure model is fully loaded
+            try:
+                test_embedding = self.model.encode("test", convert_to_numpy=True, show_progress_bar=False)
+                logger.debug("Model loaded successfully and tested")
+            except Exception as test_error:
+                if 'meta' in str(test_error).lower():
+                    logger.warning(f"Model still on meta device, attempting reinitialization: {test_error}")
+                    # Force reload by clearing cache and reloading
+                    import gc
+                    del self.model
+                    gc.collect()
+                    torch.cuda.empty_cache() if torch.cuda.is_available() else None
+                    
+                    # Reload with explicit CPU device
+                    self.model = SentenceTransformer(
+                        model_name,
+                        device=device
+                    )
+                else:
+                    raise
+        
+        except Exception as e:
+            logger.error(f"Error loading embedding model: {e}")
+            # Fallback: try loading without device specification
+            try:
+                logger.info("Attempting fallback model loading...")
+                self.model = SentenceTransformer(model_name)
+                # Force to CPU if possible
+                if hasattr(self.model, 'to'):
+                    try:
+                        self.model = self.model.to('cpu')
+                    except Exception as to_error:
+                        if 'meta' not in str(to_error).lower():
+                            raise
+                        # If meta tensor error, just continue - model might still work
+                        logger.warning(f"Could not move model to CPU (meta tensor issue), continuing anyway: {to_error}")
+            except Exception as fallback_error:
+                logger.error(f"Fallback model loading also failed: {fallback_error}")
+                raise RuntimeError(f"Failed to load embedding model {model_name}: {e}")
+        finally:
+            # Restore original environment variables
+            if old_device_map:
+                os.environ['HF_DEVICE_MAP'] = old_device_map
+            if old_accelerate_device_map:
+                os.environ['ACCELERATE_DEVICE_MAP'] = old_accelerate_device_map
         
         # Get embedding dimension
         self.dimension = self.model.get_sentence_embedding_dimension()

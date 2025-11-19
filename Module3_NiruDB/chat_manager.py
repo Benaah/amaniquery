@@ -197,17 +197,63 @@ class ChatDatabaseManager:
                     user_id: Optional[str] = None) -> int:
         """Add feedback for a message"""
         try:
-            with get_db_session(self.engine) as db:
+            db = get_db_session(self.engine)
+            try:
                 # Validate that the message exists
-                message = db.query(ChatMessage).filter(ChatMessage.id == message_id).first()
+                # Use explicit query with case-insensitive matching and trim whitespace
+                message_id_clean = message_id.strip()
+                
+                # Refresh the session to ensure we see latest committed data
+                db.expire_all()
+                
+                # Query for the message
+                message = db.query(ChatMessage).filter(ChatMessage.id == message_id_clean).first()
+                
+                # If still not found, try refreshing and querying again
                 if not message:
-                    error_msg = f"Message {message_id} not found in database"
-                    logger.error(error_msg)
-                    raise ValueError(error_msg)
+                    db.commit()  # Ensure any pending transactions are committed
+                    db.expire_all()  # Clear any cached data
+                    message = db.query(ChatMessage).filter(ChatMessage.id == message_id_clean).first()
+                
+                if not message:
+                    # Enhanced debugging: Check if message exists with different approaches
+                    logger.warning(f"Message {message_id_clean} not found with direct query. Attempting diagnostic queries...")
+                    
+                    # Try case-insensitive search
+                    from sqlalchemy import func
+                    message = db.query(ChatMessage).filter(
+                        func.lower(ChatMessage.id) == func.lower(message_id_clean)
+                    ).first()
+                    
+                    if message:
+                        logger.warning(f"Found message with different case: {message.id} (requested: {message_id_clean})")
+                        message_id_clean = message.id
+                    else:
+                        # Try to find any message with similar ID (for debugging)
+                        similar_messages = db.query(ChatMessage.id, ChatMessage.session_id).filter(
+                            ChatMessage.id.like(f"%{message_id_clean[-8:]}%")  # Last 8 chars
+                        ).limit(5).all()
+                        
+                        # Get total message count
+                        total_count = db.query(func.count(ChatMessage.id)).scalar()
+                        
+                        # Get sample message IDs
+                        sample_messages = db.query(ChatMessage.id).order_by(ChatMessage.created_at.desc()).limit(5).all()
+                        
+                        error_details = {
+                            "requested_id": message_id_clean,
+                            "total_messages_in_db": total_count,
+                            "sample_message_ids": [m.id for m in sample_messages],
+                            "similar_ids_found": [m.id for m in similar_messages] if similar_messages else []
+                        }
+                        
+                        logger.error(f"Message not found. Details: {error_details}")
+                        error_msg = f"Message {message_id_clean} not found in database. Total messages: {total_count}"
+                        raise ValueError(error_msg)
                 
                 # Check if feedback already exists for this message
                 existing_feedback = db.query(UserFeedback).filter(
-                    UserFeedback.message_id == message_id,
+                    UserFeedback.message_id == message_id_clean,
                     UserFeedback.feedback_type == feedback_type
                 ).first()
                 
@@ -217,26 +263,30 @@ class ChatDatabaseManager:
                         existing_feedback.content = comment
                     existing_feedback.feedback_at = datetime.utcnow()
                     db.commit()
-                    logger.info(f"Updated {feedback_type} feedback for message {message_id}")
+                    logger.info(f"Updated {feedback_type} feedback for message {message_id_clean}")
                     return existing_feedback.id
                 
                 # Add new feedback
                 feedback = UserFeedback(
                     user_id=user_id,
-                    message_id=message_id,
+                    message_id=message_id_clean,
                     feedback_type=feedback_type,
                     content=comment
                 )
                 db.add(feedback)
                 db.commit()
                 
-                logger.info(f"Added {feedback_type} feedback for message {message_id}")
+                logger.info(f"Added {feedback_type} feedback for message {message_id_clean}")
                 return feedback.id
+            finally:
+                db.close()
         except ValueError:
             # Re-raise validation errors
             raise
         except Exception as e:
             logger.error(f"Database error in add_feedback: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             raise
 
     def get_feedback_stats(self) -> Dict[str, int]:

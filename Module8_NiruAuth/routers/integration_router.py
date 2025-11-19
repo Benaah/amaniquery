@@ -28,7 +28,7 @@ async def create_integration(
         owner_user_id=user.id,
         webhook_url=integration_data.webhook_url,
         ip_whitelist=integration_data.ip_whitelist,
-        metadata=integration_data.metadata
+        extra_data=integration_data.metadata if hasattr(integration_data, 'metadata') and integration_data.metadata is not None else None
     )
     
     db.add(integration)
@@ -49,7 +49,7 @@ async def create_integration(
         status=integration.status,
         webhook_url=integration.webhook_url,
         ip_whitelist=integration.ip_whitelist,
-        metadata=integration.metadata,
+        metadata=integration.extra_data,
         created_at=integration.created_at,
         updated_at=integration.updated_at,
         roles=[]
@@ -74,7 +74,7 @@ async def list_integrations(
             status=integration.status,
             webhook_url=integration.webhook_url,
             ip_whitelist=integration.ip_whitelist,
-            metadata=integration.metadata,
+            metadata=integration.extra_data,
             created_at=integration.created_at,
             updated_at=integration.updated_at,
             roles=RoleManager.get_integration_roles(db, integration.id)
@@ -107,7 +107,7 @@ async def get_integration(
         status=integration.status,
         webhook_url=integration.webhook_url,
         ip_whitelist=integration.ip_whitelist,
-        metadata=integration.metadata,
+        metadata=integration.extra_data,
         created_at=integration.created_at,
         updated_at=integration.updated_at,
         roles=RoleManager.get_integration_roles(db, integration.id)
@@ -141,7 +141,7 @@ async def update_integration(
     if integration_data.ip_whitelist is not None:
         integration.ip_whitelist = integration_data.ip_whitelist
     if integration_data.metadata is not None:
-        integration.metadata = integration_data.metadata
+        integration.extra_data = integration_data.metadata
     
     db.commit()
     db.refresh(integration)
@@ -155,7 +155,7 @@ async def update_integration(
         status=integration.status,
         webhook_url=integration.webhook_url,
         ip_whitelist=integration.ip_whitelist,
-        metadata=integration.metadata,
+        metadata=integration.extra_data,
         created_at=integration.created_at,
         updated_at=integration.updated_at,
         roles=RoleManager.get_integration_roles(db, integration.id)

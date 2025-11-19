@@ -44,7 +44,7 @@ class PermissionChecker:
         return list(permissions)
     
     @staticmethod
-    def has_permission(db: Session, user: Optional[User] = None, integration: Optional[Integration] = None, permission: str) -> bool:
+    def has_permission(db: Session, permission: str, *, user: Optional[User] = None, integration: Optional[Integration] = None) -> bool:
         """Check if user or integration has a specific permission"""
         if user:
             permissions = PermissionChecker.get_user_permissions(db, user)
@@ -70,24 +70,26 @@ class PermissionChecker:
     @staticmethod
     def check_resource_action(
         db: Session,
-        user: Optional[User] = None,
-        integration: Optional[Integration] = None,
         resource: str,
-        action: str
+        action: str,
+        *,
+        user: Optional[User] = None,
+        integration: Optional[Integration] = None
     ) -> bool:
         """Check if user/integration can perform action on resource"""
         permission = f"{resource}:{action}"
-        return PermissionChecker.has_permission(db, user, integration, permission)
+        return PermissionChecker.has_permission(db, permission, user=user, integration=integration)
     
     @staticmethod
     def require_permission(
         db: Session,
+        permission: str,
+        *,
         user: Optional[User] = None,
-        integration: Optional[Integration] = None,
-        permission: str
+        integration: Optional[Integration] = None
     ) -> bool:
         """Require permission or raise exception"""
-        if not PermissionChecker.has_permission(db, user, integration, permission):
+        if not PermissionChecker.has_permission(db, permission, user=user, integration=integration):
             raise PermissionError(f"Permission required: {permission}")
         return True
 

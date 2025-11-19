@@ -113,10 +113,17 @@ def start_api():
     else:
         reload_enabled = os.getenv("API_RELOAD", "True").lower() == "true"
 
+    # Check auth module configuration
+    auth_enabled = os.getenv("ENABLE_AUTH", "false").lower() == "true"
+    
     logger.info(f"📍 API Server: http://{host}:{port}")
     logger.info(f"📚 API Docs: http://{host}:{port}/docs")
     logger.info(f"🔧 Provider: {os.getenv('LLM_PROVIDER', 'moonshot')}")
     logger.info(f"🔄 Reload: {'Enabled' if reload_enabled else 'Disabled'}")
+    logger.info(f"🔐 Auth Module: {'Enabled' if auth_enabled else 'Disabled'}")
+    
+    if auth_enabled:
+        logger.info("   Run 'python migrate_auth_db.py' if auth tables don't exist")
 
     try:
         uvicorn.run(
@@ -145,12 +152,25 @@ def main():
     livekit_api_key = os.getenv("LIVEKIT_API_KEY", "").strip()
     livekit_api_secret = os.getenv("LIVEKIT_API_SECRET", "").strip()
     
+    # Check auth module configuration
+    auth_enabled = os.getenv("ENABLE_AUTH", "false").lower() == "true"
+    database_url = os.getenv("DATABASE_URL", "").strip()
+    
     # Log voice agent configuration status
     print("\n🎤 Voice Agent Configuration:")
     print(f"   Enabled: {enable_voice}")
     print(f"   LIVEKIT_URL: {'✔ Set' if livekit_url else '✗ Not set'}")
     print(f"   LIVEKIT_API_KEY: {'✔ Set' if livekit_api_key else '✗ Not set'}")
     print(f"   LIVEKIT_API_SECRET: {'✔ Set' if livekit_api_secret else '✗ Not set'}")
+    
+    # Log auth module configuration status
+    print("\n🔐 Authentication Module Configuration:")
+    print(f"   Enabled: {auth_enabled}")
+    print(f"   DATABASE_URL: {'✔ Set' if database_url else '✗ Not set'}")
+    if auth_enabled and not database_url:
+        print("   ⚠️  Warning: DATABASE_URL required for auth module")
+    if auth_enabled:
+        print("   💡 Tip: Run 'python migrate_auth_db.py' to create auth tables")
     
     if enable_voice and livekit_url and livekit_api_key and livekit_api_secret:
         # Register plugins on main thread BEFORE starting agent thread

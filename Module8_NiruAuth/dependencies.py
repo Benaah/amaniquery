@@ -199,7 +199,7 @@ def require_permission(permission: str):
             )
         
         # Check permission
-        if not PermissionChecker.has_permission(db, user, integration, permission):
+        if not PermissionChecker.has_permission(db, permission, user=user, integration=integration):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Permission required: {permission}"

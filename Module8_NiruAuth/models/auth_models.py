@@ -39,17 +39,17 @@ class User(Base):
     last_login_ip = Column(String, nullable=True)
     failed_login_attempts = Column(Integer, default=0, nullable=False)
     locked_until = Column(DateTime, nullable=True)
-    metadata = Column(JSON, nullable=True)  # Additional user data
+    extra_data = Column(JSON, nullable=True)  # Additional user data (renamed from metadata to avoid SQLAlchemy conflict)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
     # Relationships
-    roles = relationship("UserRole", back_populates="user", cascade="all, delete-orphan")
+    roles = relationship("UserRole", back_populates="user", foreign_keys="[UserRole.user_id]", cascade="all, delete-orphan")
     sessions = relationship("UserSession", back_populates="user", cascade="all, delete-orphan")
-    api_keys = relationship("APIKey", back_populates="user", cascade="all, delete-orphan")
-    integrations = relationship("Integration", back_populates="owner", cascade="all, delete-orphan")
-    oauth_clients = relationship("OAuthClient", back_populates="owner", cascade="all, delete-orphan")
-    usage_logs = relationship("UsageLog", back_populates="user", cascade="all, delete-orphan")
+    api_keys = relationship("APIKey", back_populates="user", foreign_keys="[APIKey.user_id]", cascade="all, delete-orphan")
+    integrations = relationship("Integration", back_populates="owner", foreign_keys="[Integration.owner_user_id]", cascade="all, delete-orphan")
+    oauth_clients = relationship("OAuthClient", back_populates="owner", foreign_keys="[OAuthClient.owner_user_id]", cascade="all, delete-orphan")
+    usage_logs = relationship("UsageLog", back_populates="user", foreign_keys="[UsageLog.user_id]", cascade="all, delete-orphan")
 
 
 class Role(Base):
@@ -100,7 +100,7 @@ class Integration(Base):
     type = Column(String, nullable=True)  # e.g., "webhook", "api_client", "mobile_app"
     owner_user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     status = Column(String, default=IntegrationStatus.ACTIVE.value, nullable=False)
-    metadata = Column(JSON, nullable=True)  # Additional integration data
+    extra_data = Column(JSON, nullable=True)  # Additional integration data (renamed from metadata to avoid SQLAlchemy conflict)
     webhook_url = Column(String, nullable=True)
     ip_whitelist = Column(JSON, nullable=True)  # List of allowed IPs
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
@@ -151,7 +151,7 @@ class APIKey(Base):
     is_active = Column(Boolean, default=True, nullable=False)
     last_used = Column(DateTime, nullable=True)
     expires_at = Column(DateTime, nullable=True)
-    metadata = Column(JSON, nullable=True)
+    extra_data = Column(JSON, nullable=True)  # Additional key data (renamed from metadata to avoid SQLAlchemy conflict)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
@@ -274,7 +274,7 @@ class UsageLog(Base):
     response_size_bytes = Column(Integer, nullable=True)
     ip_address = Column(String, nullable=True)
     user_agent = Column(String, nullable=True)
-    metadata = Column(JSON, nullable=True)  # Additional request/response metadata
+    extra_data = Column(JSON, nullable=True)  # Additional request/response data (renamed from metadata to avoid SQLAlchemy conflict)
     timestamp = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
 
     # Relationships

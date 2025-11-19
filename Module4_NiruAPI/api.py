@@ -228,6 +228,60 @@ async def lifespan(app: FastAPI):
         logger.warning(f"Report generator not available: {e}")
         report_generator = None
     
+    # Initialize authentication module (if enabled)
+    auth_enabled = os.getenv("ENABLE_AUTH", "false").lower() == "true"
+    if auth_enabled:
+        try:
+            logger.info("Initializing authentication module...")
+            
+            # Check and create auth database tables if needed
+            try:
+                from Module3_NiruDB.chat_models import create_database_engine
+                from Module8_NiruAuth.models.auth_models import Base
+                from sqlalchemy import inspect
+                
+                database_url = os.getenv("DATABASE_URL")
+                if database_url:
+                    engine = create_database_engine(database_url)
+                    with engine.connect() as conn:
+                        inspector = inspect(conn)
+                        existing_tables = inspector.get_table_names()
+                        
+                        # Check if auth tables exist
+                        required_tables = ["users", "roles", "api_keys"]
+                        missing_tables = [t for t in required_tables if t not in existing_tables]
+                        
+                        if missing_tables:
+                            logger.info(f"Creating missing auth tables: {missing_tables}")
+                            Base.metadata.create_all(engine)
+                            logger.info("✅ Auth tables created successfully")
+                            
+                            # Initialize default roles
+                            try:
+                                from sqlalchemy.orm import sessionmaker
+                                from Module8_NiruAuth.authorization.role_manager import RoleManager
+                                Session = sessionmaker(bind=engine)
+                                db = Session()
+                                try:
+                                    RoleManager.get_or_create_default_roles(db)
+                                    logger.info("✅ Default roles initialized")
+                                finally:
+                                    db.close()
+                            except Exception as e:
+                                logger.warning(f"Could not initialize default roles: {e}")
+                        else:
+                            logger.info("✅ Auth tables already exist")
+            except Exception as e:
+                logger.warning(f"Auth database initialization check failed: {e}")
+                logger.warning("You may need to run 'python migrate_auth_db.py' manually")
+            
+            logger.info("✅ Authentication module initialized")
+        except Exception as e:
+            logger.error(f"Failed to initialize authentication module: {e}")
+            logger.error("Auth features will not be available")
+    else:
+        logger.info("Authentication module disabled (set ENABLE_AUTH=true to enable)")
+    
     # Initialize notification service
     try:
         notification_service = NotificationService(config_manager=config_manager)

@@ -57,7 +57,7 @@ Link: https://youtube.com/watch?v=abc123&t=942s
 
 ## 🏛️ Architecture
 
-AmaniQuery is built as a 7-module pipeline:
+AmaniQuery is built as an 8-module pipeline:
 
 1. **[NiruSpider](Module1_NiruSpider/README.md)** - Web crawler for data ingestion
 2. **[NiruParser](Module2_NiruParser/README.md)** - ETL pipeline with embedding generation
@@ -66,6 +66,7 @@ AmaniQuery is built as a 7-module pipeline:
 5. **[NiruShare](Module5_NiruShare/README.md)** - Social media sharing service
 6. **[NiruVoice](Module6_NiruVoice/README.md)** - Voice agent for real-time conversations
 7. **[NiruHybrid](Module7_NiruHybrid/README.md)** - Enhanced RAG with hybrid encoder and adaptive retrieval
+8. **[NiruAuth](Module8_NiruAuth/README.md)** - Authentication and authorization system for users and third-party integrations
 
 ## 📂 Project Structure
 
@@ -115,6 +116,13 @@ AmaniQuery/
 │   │   └── continual_learner.py
 │   └── streaming/
 │       └── stream_processor.py
+├── Module8_NiruAuth/            # Authentication & authorization
+│   ├── models/                  # Database models
+│   ├── providers/               # Auth providers (JWT, OAuth, API keys)
+│   ├── routers/                 # API endpoints
+│   ├── middleware/              # Auth, rate limiting, usage tracking
+│   ├── authorization/           # RBAC, permissions, policies
+│   └── services/                # OTP, email services
 ├── frontend/                    # Next.js frontend
 │   └── src/
 │       └── components/
@@ -126,6 +134,7 @@ AmaniQuery/
 ├── config/
 │   └── sources.yaml
 ├── start_api.py                 # Unified startup script
+├── migrate_auth_db.py           # Auth database migration script
 ├── requirements.txt
 ├── .env.example
 └── README.md
@@ -196,7 +205,22 @@ python -m Module4_NiruAPI.api
 - FastAPI server
 - Hybrid RAG pipeline (Module 7)
 - Voice agent (Module 6, if configured)
+- Authentication system (Module 8, if `ENABLE_AUTH=true`)
 - All API endpoints
+
+### 4. Initialize Authentication (Optional)
+
+If you want to enable authentication:
+
+```bash
+# Run database migration for auth tables
+python migrate_auth_db.py
+
+# Set environment variable
+ENABLE_AUTH=true
+```
+
+See [NiruAuth README](Module8_NiruAuth/README.md) for detailed setup instructions.
 
 ### 4. Query and Share
 
@@ -290,6 +314,7 @@ print(share.json()["content"])
 - ✅ **Social media sharing** - Intelligent formatting for Twitter/X, LinkedIn, Facebook
 - ✅ **Chat interface** - Modern, responsive UI with copy/edit/resend for failed queries
 - ✅ **Voice agent** - Real-time voice conversations via LiveKit
+- ✅ **Authentication & Authorization** - User accounts, API keys, OAuth 2.0, RBAC, rate limiting, usage tracking
 
 ## 🧠 RAG Pipeline
 
@@ -459,11 +484,37 @@ See [Constitutional Alignment Guide](docs/CONSTITUTIONAL_ALIGNMENT.md) for detai
 - `POST /alignment-check` - Full constitutional alignment analysis
 - `POST /alignment-quick-check` - Quick bill vs concept check
 
+### Authentication Endpoints (Module 8)
+- `POST /api/v1/auth/register` - Register new user
+- `POST /api/v1/auth/login` - Login user
+- `POST /api/v1/auth/logout` - Logout user
+- `GET /api/v1/auth/me` - Get current user profile
+- `POST /api/v1/auth/password/reset-request` - Request password reset (with OTP)
+- `POST /api/v1/auth/password/reset` - Reset password
+- `POST /api/v1/auth/phone/send-otp` - Send phone verification OTP
+- `POST /api/v1/auth/phone/verify-otp` - Verify phone OTP
+- `POST /api/v1/auth/integrations` - Create third-party integration
+- `POST /api/v1/auth/integrations/{id}/keys` - Create API key
+- `POST /api/v1/auth/oauth/token` - OAuth 2.0 token endpoint
+
 ### Social Media Sharing
 - `POST /share/format` - Format for specific platform
 - `POST /share/preview` - Preview all platforms
 - `POST /share/generate-link` - Get shareable link
 - `GET /share/platforms` - List supported platforms
+
+### Authentication Endpoints (Module 8)
+- `POST /api/v1/auth/register` - Register new user
+- `POST /api/v1/auth/login` - Login user
+- `POST /api/v1/auth/logout` - Logout user
+- `GET /api/v1/auth/me` - Get current user profile
+- `POST /api/v1/auth/password/reset-request` - Request password reset (with OTP)
+- `POST /api/v1/auth/password/reset` - Reset password
+- `POST /api/v1/auth/phone/send-otp` - Send phone verification OTP
+- `POST /api/v1/auth/phone/verify-otp` - Verify phone OTP
+- `POST /api/v1/auth/integrations` - Create third-party integration
+- `POST /api/v1/auth/integrations/{id}/keys` - Create API key
+- `POST /api/v1/auth/oauth/token` - OAuth 2.0 token endpoint
 
 ### Documentation
 - `GET /docs` - Interactive API documentation (Swagger UI)
@@ -529,6 +580,8 @@ See `scripts/scheduler_setup.md` for details.
 - [Constitutional Alignment](docs/CONSTITUTIONAL_ALIGNMENT.md) - **Core feature guide**
 - [Moonshot AI Setup](docs/MOONSHOT_SETUP.md) - LLM configuration
 - [Social Media Sharing](docs/SHARING_GUIDE.md) - Sharing guide
+- [Authentication System](Module8_NiruAuth/README.md) - **Auth module guide**
+- [Email Setup](Module8_NiruAuth/README_EMAIL_SETUP.md) - Gmail SMTP configuration
 - [API Documentation](http://localhost:8000/docs) - Interactive docs
 
 ## 💡 Use Cases
@@ -545,6 +598,8 @@ See `scripts/scheduler_setup.md` for details.
 - 🎤 **Voice queries** - Ask questions via voice (LiveKit integration)
 - 🔄 **Multi-model accuracy** - Enhanced responses when context is limited
 - 📊 **Hybrid retrieval** - Improved accuracy with adaptive retrieval
+- 🔐 **Third-party integrations** - API keys and OAuth 2.0 for external applications
+- 📊 **Usage analytics** - Track API usage and costs for integrations
 
 ## �📝 License
 

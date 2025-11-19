@@ -1,5 +1,7 @@
 # Module 8: NiruAuth - Authentication and Authorization System
 
+![NiruAuth](imgs/niruauth.png)
+
 Comprehensive authentication and authorization system for AmaniQuery, supporting both user accounts and third-party integrations.
 
 ## Features

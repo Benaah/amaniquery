@@ -676,6 +676,7 @@ Combined Response:"""
         temperature: float = 0.7,
         max_tokens: int = 1500,
         max_context_length: int = 3000,
+        session_id: Optional[str] = None,
     ):
         """
         Run RAG query with streaming response
@@ -687,6 +688,8 @@ Combined Response:"""
             source: Filter by source
             temperature: LLM temperature
             max_tokens: Maximum tokens in response
+            max_context_length: Maximum context length
+            session_id: Optional session ID for session-specific document retrieval
         
         Returns:
             Dictionary with answer stream and sources

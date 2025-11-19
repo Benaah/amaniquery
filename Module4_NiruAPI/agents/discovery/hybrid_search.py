@@ -294,7 +294,7 @@ class HybridSearch:
             return []
     
     @lru_cache(maxsize=128)
-    def _cached_search(self, query: str, top_k: int, bm25_w: float, vec_w: float) -> Tuple:
+    def _cached_search(self, query: str, top_k: int, bm25_w: float, vec_w: float) -> Tuple[str, int, float, float]:
         """Cached search wrapper (returns tuple for caching)"""
         # This is a helper for caching - actual search logic is in search()
         return query, top_k, bm25_w, vec_w

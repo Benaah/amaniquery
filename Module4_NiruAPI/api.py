@@ -722,6 +722,7 @@ async def query_stream(request: QueryRequest):
             source=request.source,
             temperature=request.temperature,
             max_tokens=request.max_tokens,
+            session_id=request.session_id,
         )
         
         if not result.get("stream", False):
@@ -1394,7 +1395,8 @@ async def add_chat_message(session_id: str, message: ChatMessageCreate):
                         top_k=3,  # Reduced for faster chat responses
                         max_tokens=1000,  # Shorter responses for chat
                         max_context_length=2000,  # Smaller context for chat
-                        temperature=0.7
+                        temperature=0.7,
+                        session_id=session_id,
                     )
                 
                 # Process attachments if provided

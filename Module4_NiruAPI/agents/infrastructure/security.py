@@ -1,7 +1,7 @@
 """
 Security Manager - Handles security for agent operations
 """
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Tuple
 import re
 from loguru import logger
 
@@ -24,7 +24,7 @@ class SecurityManager:
             r'eval\s*\(',
         ]
     
-    def validate_input(self, input_data: str) -> tuple[bool, Optional[str]]:
+    def validate_input(self, input_data: str) -> Tuple[bool, Optional[str]]:
         """
         Validate input for security
         
@@ -63,7 +63,7 @@ class SecurityManager:
         
         return output
     
-    def validate_tool_call(self, tool_name: str, tool_args: Dict[str, Any]) -> tuple[bool, Optional[str]]:
+    def validate_tool_call(self, tool_name: str, tool_args: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
         """
         Validate tool call for security
         

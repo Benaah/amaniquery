@@ -5,7 +5,7 @@ Handles user session management
 import secrets
 import hashlib
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, Tuple
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
 

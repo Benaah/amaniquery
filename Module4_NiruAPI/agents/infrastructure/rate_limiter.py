@@ -1,7 +1,7 @@
 """
 Rate Limiter - Token bucket rate limiting per chat/session
 """
-from typing import Dict, Optional
+from typing import Dict, Optional, Any, Tuple
 from datetime import datetime, timedelta
 from loguru import logger
 
@@ -25,7 +25,7 @@ class AgentRateLimiter:
         # Track usage per session
         self.session_usage: Dict[str, Dict[str, Any]] = {}
     
-    def check_rate_limit(self, session_id: str, tokens: int) -> tuple[bool, Optional[str]]:
+    def check_rate_limit(self, session_id: str, tokens: int) -> Tuple[bool, Optional[str]]:
         """
         Check if request is within rate limits
         

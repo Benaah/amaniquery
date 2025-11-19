@@ -37,7 +37,7 @@ AmaniQuery is an AI-powered legal intelligence platform that democratizes access
 
 1. **Fork and Clone**
    ```bash
-   git clone https://github.com/YOUR_USERNAME/amaniquery.git
+   git clone https://github.com/Benaah/amaniquery.git
    cd amaniquery
    ```
 

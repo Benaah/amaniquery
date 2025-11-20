@@ -14,7 +14,8 @@ from datetime import datetime
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from fastapi import FastAPI, HTTPException, Request, Form, UploadFile, File, Request as FastAPIRequest
+from fastapi import FastAPI, HTTPException, Request, Form, UploadFile, File
+from fastapi import Request as FastAPIRequest
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware

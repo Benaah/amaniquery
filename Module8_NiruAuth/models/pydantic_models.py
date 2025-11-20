@@ -46,6 +46,7 @@ class UserResponse(BaseModel):
     status: str
     email_verified: bool
     last_login: Optional[datetime]
+    profile_image_url: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
@@ -57,6 +58,7 @@ class UserProfileUpdate(BaseModel):
     """User profile update request"""
     name: Optional[str] = None
     email: Optional[EmailStr] = None
+    profile_image_url: Optional[str] = None
 
 
 class PasswordChange(BaseModel):

@@ -123,9 +123,19 @@ export function Sidebar() {
             {user && (
               <div className="mb-4">
                 <div className="flex items-center gap-3 px-4 py-2">
-                  <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-                    <User className="w-5 h-5 text-primary" />
-                  </div>
+                  {user.profile_image_url ? (
+                    <div className="relative w-10 h-10 rounded-full overflow-hidden flex-shrink-0">
+                      <img
+                        src={user.profile_image_url}
+                        alt={user.name || "Profile"}
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
+                  ) : (
+                    <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                      <User className="w-5 h-5 text-primary" />
+                    </div>
+                  )}
                   <div className="flex-1 min-w-0">
                     <p className="font-medium truncate">{user.name || user.email}</p>
                     <p className="text-sm text-muted-foreground truncate">{user.email}</p>

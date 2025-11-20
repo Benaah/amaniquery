@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/lib/auth-context"
 import { Button } from "@/components/ui/button"
@@ -9,7 +9,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Sidebar } from "@/components/sidebar"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { toast } from "sonner"
-import { Loader2, User, Mail, Shield, Calendar, CheckCircle, XCircle, Lock } from "lucide-react"
+import { Loader2, User, Mail, Shield, Calendar, CheckCircle, XCircle, Lock, Upload, Camera } from "lucide-react"
+import Image from "next/image"
 import { Badge } from "@/components/ui/badge"
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
@@ -28,6 +29,8 @@ export default function ProfilePage() {
     newPassword: "",
     confirmPassword: "",
   })
+  const [uploadingImage, setUploadingImage] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (!authLoading && !isAuthenticated) {
@@ -121,6 +124,56 @@ export default function ProfilePage() {
     }
   }
 
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    // Validate file type
+    const allowedTypes = ["image/png", "image/jpeg", "image/jpg", "image/gif", "image/webp"]
+    if (!allowedTypes.includes(file.type)) {
+      toast.error("Invalid file type. Please upload a PNG, JPEG, GIF, or WebP image.")
+      return
+    }
+
+    // Validate file size (5MB limit)
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("File size exceeds 5MB limit")
+      return
+    }
+
+    setUploadingImage(true)
+
+    try {
+      const sessionToken = localStorage.getItem("session_token")
+      const formData = new FormData()
+      formData.append("file", file)
+
+      const response = await fetch(`${API_URL}/api/v1/auth/me/profile-image`, {
+        method: "POST",
+        headers: {
+          "X-Session-Token": sessionToken || "",
+        },
+        body: formData,
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.detail || "Failed to upload profile image")
+      }
+
+      toast.success("Profile image updated successfully")
+      // Refresh user data
+      window.location.reload()
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to upload profile image")
+    } finally {
+      setUploadingImage(false)
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ""
+      }
+    }
+  }
+
   if (authLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -145,6 +198,99 @@ export default function ProfilePage() {
             <h1 className="text-3xl font-bold">Profile Settings</h1>
             <p className="text-muted-foreground">Manage your account information and preferences</p>
           </div>
+
+          {/* Profile Image */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Camera className="w-5 h-5" />
+                Profile Picture
+              </CardTitle>
+              <CardDescription>Upload a profile image to personalize your account</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-col items-center gap-4">
+                <div className="relative">
+                  {user?.profile_image_url ? (
+                    <div className="relative w-32 h-32 rounded-full overflow-hidden border-4 border-primary/20">
+                      <Image
+                        src={user.profile_image_url}
+                        alt={user.name || "Profile"}
+                        fill
+                        className="object-cover"
+                        sizes="128px"
+                      />
+                    </div>
+                  ) : (
+                    <div className="w-32 h-32 rounded-full bg-primary/10 flex items-center justify-center border-4 border-primary/20">
+                      <User className="w-16 h-16 text-primary/50" />
+                    </div>
+                  )}
+                  {uploadingImage && (
+                    <div className="absolute inset-0 bg-black/50 rounded-full flex items-center justify-center">
+                      <Loader2 className="w-8 h-8 animate-spin text-white" />
+                    </div>
+                  )}
+                </div>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/jpg,image/gif,image/webp"
+                  onChange={handleImageUpload}
+                  className="hidden"
+                  aria-label="Upload profile image"
+                  title="Upload profile image"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploadingImage}
+                >
+                  {uploadingImage ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Uploading...
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="mr-2 h-4 w-4" />
+                      {user?.profile_image_url ? "Change Image" : "Upload Image"}
+                    </>
+                  )}
+                </Button>
+                {user?.profile_image_url && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={async () => {
+                      try {
+                        const sessionToken = localStorage.getItem("session_token")
+                        const response = await fetch(`${API_URL}/api/v1/auth/me`, {
+                          method: "PUT",
+                          headers: {
+                            "Content-Type": "application/json",
+                            "X-Session-Token": sessionToken || "",
+                          },
+                          body: JSON.stringify({ profile_image_url: null }),
+                        })
+                        if (response.ok) {
+                          toast.success("Profile image removed")
+                          window.location.reload()
+                        }
+                      } catch {
+                        toast.error("Failed to remove profile image")
+                      }
+                    }}
+                    className="text-destructive"
+                  >
+                    Remove Image
+                  </Button>
+                )}
+              </div>
+            </CardContent>
+          </Card>
 
           {/* Account Information */}
           <Card>

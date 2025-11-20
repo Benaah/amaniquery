@@ -77,6 +77,12 @@ class ChatDatabaseManager:
                 is_active=session.is_active,
                 message_count=message_count
             )
+    
+    def get_session_with_user(self, session_id: str) -> Optional[ChatSession]:
+        """Get chat session with user_id for ownership verification"""
+        with get_db_session(self.engine) as db:
+            session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
+            return session
 
     def update_session_title(self, session_id: str, title: str):
         """Update session title"""
@@ -192,6 +198,26 @@ class ChatDatabaseManager:
                 attachments=msg.attachments,
                 feedback_type=msg.feedback_type
             ) for msg in messages]
+    
+    def get_messages_by_message_id(self, message_id: str) -> List[ChatMessageResponse]:
+        """Get a message by its ID (returns list for consistency)"""
+        with get_db_session(self.engine) as db:
+            message = db.query(ChatMessage).filter(ChatMessage.id == message_id).first()
+            if not message:
+                return []
+            
+            return [ChatMessageResponse(
+                id=message.id,
+                session_id=message.session_id,
+                role=message.role,
+                content=message.content,
+                created_at=message.created_at,
+                token_count=message.token_count,
+                model_used=message.model_used,
+                sources=message.sources,
+                attachments=message.attachments,
+                feedback_type=message.feedback_type
+            )]
 
     def add_feedback(self, message_id: str, feedback_type: str, comment: Optional[str] = None,
                     user_id: Optional[str] = None) -> int:

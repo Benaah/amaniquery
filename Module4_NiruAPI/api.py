@@ -1275,15 +1275,43 @@ async def get_topic_sentiment(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# Chat API Endpoints - Helper Functions
+def get_current_user_id(request: Request) -> Optional[str]:
+    """Get current user ID from auth context if available"""
+    try:
+        auth_context = getattr(request.state, "auth_context", None)
+        if auth_context and auth_context.user_id:
+            return auth_context.user_id
+    except Exception:
+        pass
+    return None
+
+def verify_session_ownership(session_id: str, user_id: Optional[str], chat_manager: ChatDatabaseManager) -> bool:
+    """Verify that a session belongs to the specified user"""
+    if not user_id:
+        # If no user_id provided, allow access (for backward compatibility when auth is disabled)
+        return True
+    
+    session = chat_manager.get_session_with_user(session_id)
+    if not session:
+        return False
+    
+    # Session must belong to the user
+    return session.user_id == user_id
+
+
 # Chat API Endpoints
 @app.post("/chat/sessions", response_model=ChatSessionResponse, tags=["Chat"])
-async def create_chat_session(session: ChatSessionCreate):
+async def create_chat_session(session: ChatSessionCreate, request: Request):
     """Create a new chat session"""
     if chat_manager is None:
         raise HTTPException(status_code=503, detail="Chat service not initialized")
     
     try:
-        session_id = chat_manager.create_session(session.title, session.user_id)
+        # Get user_id from auth context if available, otherwise use provided user_id
+        user_id = get_current_user_id(request) or session.user_id
+        
+        session_id = chat_manager.create_session(session.title, user_id)
         session_data = chat_manager.get_session(session_id)
         return session_data
     except Exception as e:
@@ -1292,12 +1320,15 @@ async def create_chat_session(session: ChatSessionCreate):
 
 
 @app.get("/chat/sessions", response_model=List[ChatSessionResponse], tags=["Chat"])
-async def list_chat_sessions(user_id: Optional[str] = None, limit: int = 50):
-    """List chat sessions"""
+async def list_chat_sessions(request: Request, limit: int = 50):
+    """List chat sessions for the current user"""
     if chat_manager is None:
         raise HTTPException(status_code=503, detail="Chat service not initialized")
     
     try:
+        # Get user_id from auth context - only show sessions for authenticated user
+        user_id = get_current_user_id(request)
+        
         return chat_manager.list_sessions(user_id, limit)
     except Exception as e:
         logger.error(f"Error listing chat sessions: {e}")
@@ -1306,12 +1337,17 @@ async def list_chat_sessions(user_id: Optional[str] = None, limit: int = 50):
 
 
 @app.get("/chat/sessions/{session_id}", response_model=ChatSessionResponse, tags=["Chat"])
-async def get_chat_session(session_id: str):
+async def get_chat_session(session_id: str, request: Request):
     """Get a specific chat session"""
     if chat_manager is None:
         raise HTTPException(status_code=503, detail="Chat service not initialized")
     
     try:
+        # Verify session ownership
+        user_id = get_current_user_id(request)
+        if not verify_session_ownership(session_id, user_id, chat_manager):
+            raise HTTPException(status_code=403, detail="Access denied: You don't have permission to access this session")
+        
         session = chat_manager.get_session(session_id)
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
@@ -1324,26 +1360,38 @@ async def get_chat_session(session_id: str):
 
 
 @app.delete("/chat/sessions/{session_id}", tags=["Chat"])
-async def delete_chat_session(session_id: str):
+async def delete_chat_session(session_id: str, request: Request):
     """Delete a chat session"""
     if chat_manager is None:
         raise HTTPException(status_code=503, detail="Chat service not initialized")
     
     try:
+        # Verify session ownership
+        user_id = get_current_user_id(request)
+        if not verify_session_ownership(session_id, user_id, chat_manager):
+            raise HTTPException(status_code=403, detail="Access denied: You don't have permission to delete this session")
+        
         chat_manager.delete_session(session_id)
         return {"message": "Session deleted successfully"}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error deleting chat session: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/chat/sessions/{session_id}/messages", response_model=ChatMessageResponse, tags=["Chat"])
-async def add_chat_message(session_id: str, message: ChatMessageCreate):
+async def add_chat_message(session_id: str, message: ChatMessageCreate, request: Request):
     """Add a message to a chat session"""
     if chat_manager is None:
         raise HTTPException(status_code=503, detail="Chat service not initialized")
     
     try:
+        # Verify session ownership
+        user_id = get_current_user_id(request)
+        if not verify_session_ownership(session_id, user_id, chat_manager):
+            raise HTTPException(status_code=403, detail="Access denied: You don't have permission to access this session")
+        
         # If this is the first user message and session has no title, generate one
         session = chat_manager.get_session(session_id)
         if not session:
@@ -1669,13 +1717,20 @@ async def add_chat_message(session_id: str, message: ChatMessageCreate):
 
 
 @app.get("/chat/sessions/{session_id}/messages", response_model=List[ChatMessageResponse], tags=["Chat"])
-async def get_chat_messages(session_id: str, limit: int = 100):
+async def get_chat_messages(session_id: str, request: Request, limit: int = 100):
     """Get messages for a chat session"""
     if chat_manager is None:
         raise HTTPException(status_code=503, detail="Chat service not initialized")
     
     try:
+        # Verify session ownership
+        user_id = get_current_user_id(request)
+        if not verify_session_ownership(session_id, user_id, chat_manager):
+            raise HTTPException(status_code=403, detail="Access denied: You don't have permission to access this session")
+        
         return chat_manager.get_messages(session_id, limit)
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error getting chat messages: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -1683,12 +1738,18 @@ async def get_chat_messages(session_id: str, limit: int = 100):
 
 @app.post("/chat/sessions/{session_id}/attachments", tags=["Chat"])
 async def upload_chat_attachment(
+    request: Request,
     session_id: str,
     file: UploadFile = File(...)
 ):
     """Upload a document attachment for a chat session"""
     if chat_manager is None or vector_store is None:
         raise HTTPException(status_code=503, detail="Services not initialized")
+    
+    # Verify session ownership
+    user_id = get_current_user_id(request) if request else None
+    if not verify_session_ownership(session_id, user_id, chat_manager):
+        raise HTTPException(status_code=403, detail="Access denied: You don't have permission to access this session")
     
     # Validate session exists
     session = chat_manager.get_session(session_id)
@@ -1758,12 +1819,17 @@ async def upload_chat_attachment(
 
 
 @app.get("/chat/sessions/{session_id}/attachments/{attachment_id}", tags=["Chat"])
-async def get_chat_attachment(session_id: str, attachment_id: str):
+async def get_chat_attachment(session_id: str, attachment_id: str, request: Request):
     """Get attachment metadata"""
     if chat_manager is None:
         raise HTTPException(status_code=503, detail="Chat service not initialized")
     
     try:
+        # Verify session ownership
+        user_id = get_current_user_id(request)
+        if not verify_session_ownership(session_id, user_id, chat_manager):
+            raise HTTPException(status_code=403, detail="Access denied: You don't have permission to access this session")
+        
         # Get messages for session
         messages = chat_manager.get_messages(session_id)
         
@@ -1784,12 +1850,17 @@ async def get_chat_attachment(session_id: str, attachment_id: str):
 
 
 @app.get("/chat/sessions/{session_id}/vision-content", tags=["Chat"])
-async def get_vision_content(session_id: str):
+async def get_vision_content(session_id: str, request: Request):
     """Get vision content (images/PDF pages) for a session"""
     if vision_storage is None:
         raise HTTPException(status_code=503, detail="Vision storage not initialized")
     
     try:
+        # Verify session ownership
+        user_id = get_current_user_id(request)
+        if chat_manager and not verify_session_ownership(session_id, user_id, chat_manager):
+            raise HTTPException(status_code=403, detail="Access denied: You don't have permission to access this session")
+        
         session_images = vision_storage.get(session_id, [])
         
         # Return metadata only (not full embeddings)
@@ -1816,17 +1887,31 @@ async def get_vision_content(session_id: str):
 
 
 @app.post("/chat/feedback", response_model=FeedbackResponse, tags=["Chat"])
-async def add_feedback(feedback: FeedbackCreate):
+async def add_feedback(feedback: FeedbackCreate, request: Request):
     """Add feedback for a chat message"""
     if chat_manager is None:
         raise HTTPException(status_code=503, detail="Chat service not initialized")
     
     try:
+        # Verify that the message belongs to a session owned by the user
+        user_id = get_current_user_id(request)
+        if user_id:
+            # Get the message to find its session
+            messages = chat_manager.get_messages_by_message_id(feedback.message_id)
+            if not messages:
+                raise HTTPException(status_code=404, detail="Message not found")
+            
+            message = messages[0]
+            # Verify session ownership
+            if not verify_session_ownership(message.session_id, user_id, chat_manager):
+                raise HTTPException(status_code=403, detail="Access denied: You don't have permission to provide feedback for this message")
+        
         # Validate message exists (add_feedback will also check, but we can provide better error here)
         feedback_id = chat_manager.add_feedback(
             message_id=feedback.message_id,
             feedback_type=feedback.feedback_type,
-            comment=feedback.comment
+            comment=feedback.comment,
+            user_id=user_id
         )
         
         # Return feedback response
@@ -1862,12 +1947,17 @@ async def get_feedback_stats():
 
 
 @app.post("/chat/share", tags=["Chat"])
-async def share_chat_session(session_id: str, share_type: str = "link"):
+async def share_chat_session(session_id: str, request: Request, share_type: str = "link"):
     """Generate a shareable link for a chat session"""
     if chat_manager is None:
         raise HTTPException(status_code=503, detail="Chat service not initialized")
     
     try:
+        # Verify session ownership
+        user_id = get_current_user_id(request)
+        if not verify_session_ownership(session_id, user_id, chat_manager):
+            raise HTTPException(status_code=403, detail="Access denied: You don't have permission to share this session")
+        
         session = chat_manager.get_session(session_id)
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")

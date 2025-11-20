@@ -14,7 +14,7 @@ from datetime import datetime
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from fastapi import FastAPI, HTTPException, Request, Form, UploadFile, File
+from fastapi import FastAPI, HTTPException, Request, Form, UploadFile, File, Depends
 from fastapi import Request as FastAPIRequest
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -1979,23 +1979,30 @@ async def share_chat_session(session_id: str, request: Request, share_type: str 
 
 
 # Admin Endpoints
-# Note: Admin endpoints are protected by AuthMiddleware when ENABLE_AUTH=true
-# The middleware automatically checks for admin role on /admin/* routes
+# Note: Admin endpoints are protected by require_admin dependency when ENABLE_AUTH=true
+
+def get_admin_dependency():
+    """Get admin dependency - conditional based on ENABLE_AUTH"""
+    if os.getenv("ENABLE_AUTH", "false").lower() == "true":
+        from Module8_NiruAuth.dependencies import require_admin
+        from Module8_NiruAuth.models.auth_models import User
+        # Return the actual require_admin dependency
+        return require_admin
+    else:
+        # Return a no-op dependency when auth is disabled
+        def no_auth_required(request: Request):
+            return None
+        return no_auth_required
+
+# Create the dependency instance
+_admin_dependency = get_admin_dependency()
 
 @app.get("/admin/crawlers", tags=["Admin"])
 async def get_crawler_status(
-    request: Request = None
+    request: Request,
+    admin = Depends(_admin_dependency)
 ):
     """Get status of all crawlers (admin only)"""
-    # Check admin access if auth is enabled
-    if os.getenv("ENABLE_AUTH", "false").lower() == "true":
-        from Module8_NiruAuth.dependencies import require_admin, get_db
-        from sqlalchemy.orm import Session
-        db = next(get_db())
-        try:
-            require_admin(request, db)
-        finally:
-            db.close()
     if crawler_manager is None:
         raise HTTPException(status_code=503, detail="Crawler manager not initialized")
     
@@ -2008,7 +2015,11 @@ async def get_crawler_status(
 
 
 @app.post("/admin/crawlers/{crawler_name}/start", tags=["Admin"])
-async def start_crawler(crawler_name: str):
+async def start_crawler(
+    crawler_name: str,
+    request: Request,
+    admin = Depends(_admin_dependency)
+):
     """Start a specific crawler"""
     if crawler_manager is None:
         raise HTTPException(status_code=503, detail="Crawler manager not initialized")
@@ -2023,7 +2034,11 @@ async def start_crawler(crawler_name: str):
 
 
 @app.post("/admin/crawlers/{crawler_name}/stop", tags=["Admin"])
-async def stop_crawler(crawler_name: str):
+async def stop_crawler(
+    crawler_name: str,
+    request: Request,
+    admin = Depends(_admin_dependency)
+):
     """Stop a specific crawler"""
     if crawler_manager is None:
         raise HTTPException(status_code=503, detail="Crawler manager not initialized")
@@ -2039,11 +2054,13 @@ async def stop_crawler(crawler_name: str):
 
 @app.get("/admin/documents", tags=["Admin"])
 async def search_documents(
+    request: Request,
     query: str = "",
     category: Optional[str] = None,
     source: Optional[str] = None,
     limit: int = 50,
-    offset: int = 0
+    offset: int = 0,
+    admin = Depends(_admin_dependency)
 ):
     """Search and retrieve documents from the database"""
     if vector_store is None:
@@ -2105,7 +2122,11 @@ async def search_documents(
 
 
 @app.get("/admin/documents/{doc_id}", tags=["Admin"])
-async def get_document(doc_id: str):
+async def get_document(
+    doc_id: str,
+    request: Request,
+    admin = Depends(_admin_dependency)
+):
     """Get a specific document by ID"""
     if vector_store is None:
         raise HTTPException(status_code=503, detail="Vector store not initialized")
@@ -2130,7 +2151,12 @@ async def get_document(doc_id: str):
 
 
 @app.post("/admin/execute", tags=["Admin"])
-async def execute_command(command: str, cwd: Optional[str] = None):
+async def execute_command(
+    command: str,
+    request: Request,
+    cwd: Optional[str] = None,
+    admin = Depends(_admin_dependency)
+):
     """Execute a shell command (admin only)"""
     try:
         # Security check - only allow safe commands
@@ -2176,7 +2202,10 @@ async def execute_command(command: str, cwd: Optional[str] = None):
 
 
 @app.get("/admin/config", tags=["Admin"])
-async def get_config_list():
+async def get_config_list(
+    request: Request,
+    admin = Depends(_admin_dependency)
+):
     """Get list of all configuration keys"""
     if config_manager is None:
         return {
@@ -2199,7 +2228,11 @@ class ConfigSetRequest(BaseModel):
 
 
 @app.post("/admin/config", tags=["Admin"])
-async def set_config(config: ConfigSetRequest):
+async def set_config(
+    config: ConfigSetRequest,
+    request: Request,
+    admin = Depends(_admin_dependency)
+):
     """Set a configuration value"""
     if config_manager is None:
         raise HTTPException(
@@ -2216,7 +2249,11 @@ async def set_config(config: ConfigSetRequest):
 
 
 @app.put("/admin/config/{key}", tags=["Admin"])
-async def update_config_entry(key: str, request: FastAPIRequest):
+async def update_config_entry(
+    key: str,
+    request: FastAPIRequest,
+    admin = Depends(_admin_dependency)
+):
     """Update a configuration value"""
     if config_manager is None:
         raise HTTPException(
@@ -2236,7 +2273,11 @@ async def update_config_entry(key: str, request: FastAPIRequest):
 
 
 @app.delete("/admin/config/{key}", tags=["Admin"])
-async def delete_config_entry(key: str):
+async def delete_config_entry(
+    key: str,
+    request: Request,
+    admin = Depends(_admin_dependency)
+):
     """Delete a configuration value"""
     if config_manager is None:
         raise HTTPException(
@@ -2253,7 +2294,10 @@ async def delete_config_entry(key: str):
 
 
 @app.get("/admin/databases", tags=["Admin"])
-async def get_database_stats():
+async def get_database_stats(
+    request: Request,
+    admin = Depends(_admin_dependency)
+):
     """Get statistics for all vector database backends"""
     if vector_store is None:
         raise HTTPException(status_code=503, detail="Vector store not initialized")
@@ -2332,7 +2376,10 @@ def get_individual_backend_stats(backend_name: str) -> Dict:
 
 
 @app.get("/admin/database-storage", tags=["Admin"])
-async def get_database_storage_stats():
+async def get_database_storage_stats(
+    request: Request,
+    admin = Depends(_admin_dependency)
+):
     """Get database storage statistics"""
     try:
         from Module3_NiruDB.database_storage import DatabaseStorage

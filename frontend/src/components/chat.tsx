@@ -186,6 +186,12 @@ export function Chat() {
   const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
   const ENABLE_AUTOCOMPLETE = process.env.NEXT_PUBLIC_ENABLE_AUTOCOMPLETE !== "false" // Default to true if not set
 
+  // Helper function to get auth headers
+  const getAuthHeaders = useCallback((): Record<string, string> => {
+    const token = localStorage.getItem("session_token")
+    return token ? { "X-Session-Token": token } : {}
+  }, [])
+
   const scrollMessagesToBottom = useCallback(
     (behavior: ScrollBehavior = "smooth") => {
       requestAnimationFrame(() => {
@@ -221,7 +227,13 @@ export function Chat() {
 
   const loadChatHistory = useCallback(async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/chat/sessions`)
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        ...getAuthHeaders()
+      }
+      const response = await fetch(`${API_BASE_URL}/chat/sessions`, {
+        headers
+      })
       if (response.ok) {
         const sessions = await response.json()
         setChatHistory(sessions)
@@ -229,7 +241,7 @@ export function Chat() {
     } catch (error) {
       console.error("Failed to load chat history:", error)
     }
-  }, [API_BASE_URL])
+  }, [API_BASE_URL, getAuthHeaders])
 
   // Load chat history on component mount
   useEffect(() => {
@@ -302,9 +314,13 @@ export function Chat() {
     }
 
     try {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        ...getAuthHeaders()
+      }
       const response = await fetch(`${API_BASE_URL}/chat/sessions`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({ title })
       })
       if (response.ok) {
@@ -322,7 +338,13 @@ export function Chat() {
 
   const loadSession = async (sessionId: string) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/chat/sessions/${sessionId}/messages`)
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        ...getAuthHeaders()
+      }
+      const response = await fetch(`${API_BASE_URL}/chat/sessions/${sessionId}/messages`, {
+        headers
+      })
       if (response.ok) {
         const sessionMessages = await response.json()
         setMessages(sessionMessages)
@@ -343,8 +365,12 @@ export function Chat() {
         const formData = new FormData()
         formData.append("file", file)
 
+        const headers: Record<string, string> = {
+          ...getAuthHeaders()
+        }
         const response = await fetch(`${API_BASE_URL}/chat/sessions/${sessionId}/attachments`, {
           method: "POST",
+          headers,
           body: formData,
         })
 
@@ -380,8 +406,14 @@ export function Chat() {
         attachmentIds = await uploadFiles(sessionId, selectedFiles)
         // Fetch attachment details to display immediately
         try {
+          const headers: Record<string, string> = {
+            "Content-Type": "application/json",
+            ...getAuthHeaders()
+          }
           const attachmentPromises = attachmentIds.map(id =>
-            fetch(`${API_BASE_URL}/chat/sessions/${sessionId}/attachments/${id}`)
+            fetch(`${API_BASE_URL}/chat/sessions/${sessionId}/attachments/${id}`, {
+              headers
+            })
               .then(res => res.ok ? res.json() : null)
               .catch(() => null)
           )
@@ -434,9 +466,13 @@ export function Chat() {
         })
       } else if (useHybrid) {
         // Use hybrid streaming endpoint
+        const headers: Record<string, string> = {
+          "Content-Type": "application/json",
+          ...getAuthHeaders()
+        }
         response = await fetch(`${API_BASE_URL}/stream/query`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers,
           body: JSON.stringify({
             query: content.trim(),
             top_k: 5,
@@ -446,9 +482,13 @@ export function Chat() {
         })
       } else {
         // Use standard streaming chat endpoint
+        const headers: Record<string, string> = {
+          "Content-Type": "application/json",
+          ...getAuthHeaders()
+        }
         response = await fetch(`${API_BASE_URL}/chat/sessions/${sessionId}/messages`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers,
           body: JSON.stringify({
             content: content.trim(),
             role: "user",
@@ -747,9 +787,13 @@ ${researchProcess.tools_used && researchProcess.tools_used.length > 0
   const submitFeedback = async (messageId: string, feedbackType: "like" | "dislike") => {
     console.log("Submitting feedback for message:", messageId, "type:", feedbackType)
     try {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        ...getAuthHeaders()
+      }
       const response = await fetch(`${API_BASE_URL}/chat/feedback`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({
           message_id: messageId,
           feedback_type: feedbackType
@@ -822,8 +866,13 @@ ${researchProcess.tools_used && researchProcess.tools_used.length > 0
     }
 
     try {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        ...getAuthHeaders()
+      }
       const response = await fetch(`${API_BASE_URL}/chat/sessions/${sessionId}`, {
-        method: "DELETE"
+        method: "DELETE",
+        headers
       })
       
       if (response.ok) {
@@ -846,11 +895,15 @@ ${researchProcess.tools_used && researchProcess.tools_used.length > 0
     if (!currentSessionId) return null
 
     try {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        ...getAuthHeaders()
+      }
       const response = await fetch(
         `${API_BASE_URL}/chat/share?session_id=${encodeURIComponent(currentSessionId)}`,
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" }
+          headers
         }
       )
       if (response.ok) {

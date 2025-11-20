@@ -47,6 +47,7 @@ uvicorn[standard]
 pydantic
 python-multipart
 africastalking  # SMS gateway for Kenya
+cloudinary  # Cloud storage for chat attachments
 
 # Module 8: NiruAuth (Authentication & Authorization)
 PyJWT>=2.8.0  # JWT token handling

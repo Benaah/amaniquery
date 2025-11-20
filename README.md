@@ -603,7 +603,7 @@ See `scripts/scheduler_setup.md` for details.
 
 ## �📝 License
 
-MIT License - See LICENSE file
+Apache License 2.0 - See LICENSE file
 
 ## 🤝 Contributing
 

@@ -25,6 +25,26 @@ def column_exists(conn, table_name: str, column_name: str) -> bool:
     except:
         return False
 
+def add_missing_columns(engine):
+    """Add missing columns to existing tables"""
+    from sqlalchemy import text
+    
+    with engine.begin() as conn:
+        # Add profile_image_url column to users table if it doesn't exist
+        if not column_exists(conn, "users", "profile_image_url"):
+            logger.info("Adding 'profile_image_url' column to users table...")
+            try:
+                conn.execute(text("""
+                    ALTER TABLE users 
+                    ADD COLUMN profile_image_url VARCHAR
+                """))
+                logger.info("✅ 'profile_image_url' column added to users table")
+            except Exception as e:
+                logger.error(f"❌ Failed to add 'profile_image_url' column: {e}")
+                raise
+        else:
+            logger.info("✅ 'profile_image_url' column already exists in users table")
+
 def table_exists(conn, table_name: str) -> bool:
     """Check if a table exists"""
     try:
@@ -70,6 +90,9 @@ def run_migrations():
                     logger.info(f"✅ Table '{table}' exists")
                 else:
                     logger.warning(f"⚠️  Table '{table}' not found")
+        
+        # Add any missing columns to existing tables
+        add_missing_columns(engine)
         
         # Test connection
         with engine.connect() as conn:

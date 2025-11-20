@@ -2,9 +2,10 @@
 User Authentication Router
 Handles user registration, login, profile management
 """
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Request, UploadFile, File
 from sqlalchemy.orm import Session
 from typing import Optional
+from pathlib import Path
 
 from ..models.pydantic_models import (
     UserRegister, UserLogin, UserResponse, UserProfileUpdate,
@@ -93,20 +94,32 @@ async def login(
             user_agent=request.headers.get("user-agent")
         )
         
+        # Get user roles
+        from ..authorization.role_manager import RoleManager
+        user_roles = RoleManager.get_user_roles(db, user.id)
+        role_names = [role.name for role in user_roles]
+        
+        # Create user response with roles
+        user_response = UserResponse(
+            id=user.id,
+            email=user.email,
+            name=user.name,
+            status=user.status,
+            email_verified=user.email_verified,
+            last_login=user.last_login,
+            profile_image_url=user.profile_image_url,
+            created_at=user.created_at,
+            updated_at=user.updated_at
+        )
+        # Add roles to response
+        user_response_dict = user_response.model_dump()
+        user_response_dict["roles"] = role_names
+        
         return SessionResponse(
             session_token=session_token,
             refresh_token=None,  # Session-based, no separate refresh token
             expires_at=session.expires_at,
-            user=UserResponse(
-                id=user.id,
-                email=user.email,
-                name=user.name,
-                status=user.status,
-                email_verified=user.email_verified,
-                last_login=user.last_login,
-                created_at=user.created_at,
-                updated_at=user.updated_at
-            )
+            user=user_response_dict
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
@@ -128,19 +141,30 @@ async def logout(
 
 @router.get("/me", response_model=UserResponse)
 async def get_current_user_profile(
-    user: User = Depends(get_current_user)
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ):
     """Get current user profile"""
-    return UserResponse(
+    from ..authorization.role_manager import RoleManager
+    user_roles = RoleManager.get_user_roles(db, user.id)
+    role_names = [role.name for role in user_roles]
+    
+    # Create response with roles
+    response = UserResponse(
         id=user.id,
         email=user.email,
         name=user.name,
         status=user.status,
         email_verified=user.email_verified,
         last_login=user.last_login,
+        profile_image_url=user.profile_image_url,
         created_at=user.created_at,
         updated_at=user.updated_at
     )
+    # Add roles to response (using model_dump and update since roles might not be in model)
+    response_dict = response.model_dump()
+    response_dict["roles"] = role_names
+    return response_dict
 
 
 @router.put("/me", response_model=UserResponse)
@@ -161,20 +185,114 @@ async def update_user_profile(
                 detail="Email already in use"
             )
         user.email = profile_data.email.lower()
+    if profile_data.profile_image_url is not None:
+        user.profile_image_url = profile_data.profile_image_url
     
     db.commit()
     db.refresh(user)
     
-    return UserResponse(
+    # Get user roles for response
+    from ..authorization.role_manager import RoleManager
+    user_roles = RoleManager.get_user_roles(db, user.id)
+    role_names = [role.name for role in user_roles]
+    
+    user_response = UserResponse(
         id=user.id,
         email=user.email,
         name=user.name,
         status=user.status,
         email_verified=user.email_verified,
         last_login=user.last_login,
+        profile_image_url=user.profile_image_url,
         created_at=user.created_at,
         updated_at=user.updated_at
     )
+    # Add roles to response
+    response_dict = user_response.model_dump()
+    response_dict["roles"] = role_names
+    return response_dict
+
+
+@router.post("/me/profile-image", response_model=UserResponse)
+async def upload_profile_image(
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Upload profile image to Cloudinary"""
+    # Validate file type
+    allowed_types = ["image/png", "image/jpeg", "image/jpg", "image/gif", "image/webp"]
+    if file.content_type not in allowed_types:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid file type. Allowed: {', '.join(allowed_types)}"
+        )
+    
+    # Validate file size (5MB limit)
+    MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
+    file_content = await file.read()
+    if len(file_content) > MAX_FILE_SIZE:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="File size exceeds 5MB limit"
+        )
+    
+    try:
+        # Upload to Cloudinary
+        from Module4_NiruAPI.services.cloudinary_service import CloudinaryService
+        cloudinary_service = CloudinaryService()
+        
+        # Get file extension
+        file_ext = Path(file.filename).suffix or ".jpg"
+        filename = f"profile_{user.id}{file_ext}"
+        
+        # Upload to Cloudinary using upload_bytes
+        result = cloudinary_service.upload_bytes(
+            file_content=file_content,
+            filename=filename,
+            session_id=user.id,
+            resource_type="image",
+            folder="user_profiles"
+        )
+        
+        cloudinary_url = result.get("secure_url") or result.get("url")
+        
+        # Update user profile
+        user.profile_image_url = cloudinary_url
+        db.commit()
+        db.refresh(user)
+        
+        # Get user roles for response
+        from ..authorization.role_manager import RoleManager
+        user_roles = RoleManager.get_user_roles(db, user.id)
+        role_names = [role.name for role in user_roles]
+        
+        user_response = UserResponse(
+            id=user.id,
+            email=user.email,
+            name=user.name,
+            status=user.status,
+            email_verified=user.email_verified,
+            last_login=user.last_login,
+            profile_image_url=user.profile_image_url,
+            created_at=user.created_at,
+            updated_at=user.updated_at
+        )
+        # Add roles to response
+        response_dict = user_response.model_dump()
+        response_dict["roles"] = role_names
+        return response_dict
+                
+    except ImportError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Cloudinary service not available"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to upload profile image: {str(e)}"
+        )
 
 
 @router.post("/password/change")

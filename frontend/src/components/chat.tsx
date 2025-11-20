@@ -47,6 +47,7 @@ import {
   Eye
 } from "lucide-react"
 import { FileUpload } from "./chat/FileUpload"
+import { ImagePreview } from "./chat/ImagePreview"
 
 interface Message {
   id: string
@@ -70,6 +71,7 @@ interface Message {
     file_size: number
     uploaded_at: string
     processed: boolean
+    cloudinary_url?: string
   }>
   feedback_type?: "like" | "dislike"
   saved?: boolean
@@ -372,9 +374,32 @@ export function Chat() {
 
     // Upload files first if any
     let attachmentIds: string[] = []
+    let attachmentMetadata: Message["attachments"] = []
     if (selectedFiles.length > 0) {
       try {
         attachmentIds = await uploadFiles(sessionId, selectedFiles)
+        // Fetch attachment details to display immediately
+        try {
+          const attachmentPromises = attachmentIds.map(id =>
+            fetch(`${API_BASE_URL}/chat/sessions/${sessionId}/attachments/${id}`)
+              .then(res => res.ok ? res.json() : null)
+              .catch(() => null)
+          )
+          const attachmentResults = await Promise.all(attachmentPromises)
+          attachmentMetadata = attachmentResults
+            .filter(att => att !== null)
+            .map(att => ({
+              id: att.id,
+              filename: att.filename,
+              file_type: att.file_type,
+              file_size: att.file_size,
+              uploaded_at: att.uploaded_at,
+              processed: att.processed || false,
+              cloudinary_url: att.cloudinary_url
+            }))
+        } catch (error) {
+          console.error("Failed to fetch attachment metadata:", error)
+        }
         setSelectedFiles([]) // Clear selected files after upload
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Failed to upload files")
@@ -388,7 +413,8 @@ export function Chat() {
       role: "user",
       content: content.trim() || `Uploaded ${selectedFiles.length} file(s)`,
       created_at: new Date().toISOString(),
-      saved: false
+      saved: false,
+      attachments: attachmentMetadata.length > 0 ? attachmentMetadata : undefined
     }
 
     setMessages(prev => [...prev, userMessage])
@@ -426,7 +452,8 @@ export function Chat() {
           body: JSON.stringify({
             content: content.trim(),
             role: "user",
-            stream: true
+            stream: true,
+            attachment_ids: attachmentIds.length > 0 ? attachmentIds : undefined
           })
         })
       }
@@ -1536,50 +1563,82 @@ ${researchProcess.tools_used && researchProcess.tools_used.length > 0
                           </div>
                         )}
 
+                        {/* Attachments - displayed above message content */}
                         {message.attachments && message.attachments.length > 0 && (
-                          <div className="space-y-2">
-                            {message.attachments.map((attachment) => {
-                              const isImage = attachment.file_type === "image" || 
-                                /\.(png|jpg|jpeg|gif|bmp|webp)$/i.test(attachment.filename)
-                              const isPDF = attachment.file_type === "pdf" || 
-                                attachment.filename.toLowerCase().endsWith(".pdf")
-                              
-                              return (
-                                <div
-                                  key={attachment.id}
-                                  className="flex items-start gap-2 p-2 rounded-lg border border-white/10 bg-white/5"
-                                >
-                                  {isImage ? (
-                                    <ImageIcon className="w-4 h-4 text-muted-foreground mt-1" />
-                                  ) : isPDF ? (
-                                    <FileText className="w-4 h-4 text-muted-foreground mt-1" />
-                                  ) : (
-                                    <FileText className="w-4 h-4 text-muted-foreground mt-1" />
-                                  )}
-                                  <div className="flex-1 min-w-0">
-                                    <p className="text-sm font-medium truncate">{attachment.filename}</p>
-                                    <p className="text-xs text-muted-foreground">
-                                      {(attachment.file_size / 1024).toFixed(1)} KB • {attachment.file_type}
-                                    </p>
-                                    {isImage && (
-                                      <p className="text-xs text-blue-400 mt-1">
-                                        📷 Ready for Vision RAG analysis
-                                      </p>
+                          <div className="space-y-3">
+                            {/* Separate images from other files */}
+                            {message.attachments.filter(att => {
+                              const isImage = att.file_type === "image" || 
+                                /\.(png|jpg|jpeg|gif|bmp|webp)$/i.test(att.filename)
+                              return isImage && att.cloudinary_url
+                            }).length > 0 && (
+                              <div className="space-y-2">
+                                {message.attachments
+                                  .filter(att => {
+                                    const isImage = att.file_type === "image" || 
+                                      /\.(png|jpg|jpeg|gif|bmp|webp)$/i.test(att.filename)
+                                    return isImage && att.cloudinary_url
+                                  })
+                                  .map((attachment) => (
+                                    <ImagePreview
+                                      key={attachment.id}
+                                      src={attachment.cloudinary_url!}
+                                      alt={attachment.filename}
+                                      className="w-full"
+                                    />
+                                  ))}
+                              </div>
+                            )}
+
+                            {/* Non-image files and images without Cloudinary URLs */}
+                            {message.attachments
+                              .filter(att => {
+                                const isImage = att.file_type === "image" || 
+                                  /\.(png|jpg|jpeg|gif|bmp|webp)$/i.test(att.filename)
+                                return !isImage || !att.cloudinary_url
+                              })
+                              .map((attachment) => {
+                                const isImage = attachment.file_type === "image" || 
+                                  /\.(png|jpg|jpeg|gif|bmp|webp)$/i.test(attachment.filename)
+                                const isPDF = attachment.file_type === "pdf" || 
+                                  attachment.filename.toLowerCase().endsWith(".pdf")
+                                
+                                return (
+                                  <div
+                                    key={attachment.id}
+                                    className="flex items-start gap-2 p-2 rounded-lg border border-white/10 bg-white/5"
+                                  >
+                                    {isImage ? (
+                                      <ImageIcon className="w-4 h-4 text-muted-foreground mt-1" />
+                                    ) : isPDF ? (
+                                      <FileText className="w-4 h-4 text-muted-foreground mt-1" />
+                                    ) : (
+                                      <FileText className="w-4 h-4 text-muted-foreground mt-1" />
                                     )}
-                                    {isPDF && (
-                                      <p className="text-xs text-blue-400 mt-1">
-                                        📄 Pages will be analyzed with Vision RAG
+                                    <div className="flex-1 min-w-0">
+                                      <p className="text-sm font-medium truncate">{attachment.filename}</p>
+                                      <p className="text-xs text-muted-foreground">
+                                        {(attachment.file_size / 1024).toFixed(1)} KB • {attachment.file_type}
                                       </p>
+                                      {isImage && !attachment.cloudinary_url && (
+                                        <p className="text-xs text-blue-400 mt-1">
+                                          📷 Ready for Vision RAG analysis
+                                        </p>
+                                      )}
+                                      {isPDF && (
+                                        <p className="text-xs text-blue-400 mt-1">
+                                          📄 Pages will be analyzed with Vision RAG
+                                        </p>
+                                      )}
+                                    </div>
+                                    {attachment.processed && (
+                                      <Badge variant="outline" className="text-xs">
+                                        Processed
+                                      </Badge>
                                     )}
                                   </div>
-                                  {attachment.processed && (
-                                    <Badge variant="outline" className="text-xs">
-                                      Processed
-                                    </Badge>
-                                  )}
-                                </div>
-                              )
-                            })}
+                                )
+                              })}
                           </div>
                         )}
 

@@ -40,14 +40,32 @@ class UsageTrackingMiddleware(BaseHTTPMiddleware):
         
         # Track request start time
         start_time = time.time()
-        request_size = len(await request.body()) if hasattr(request, "body") else 0
+        # Get request size from Content-Length header (safer than reading body)
+        # Reading body consumes it and can cause ClientDisconnect errors
+        request_size = 0
+        try:
+            content_length = request.headers.get("content-length")
+            if content_length:
+                request_size = int(content_length)
+        except (ValueError, TypeError):
+            # Invalid content-length header - ignore
+            request_size = 0
         
         # Process request
         response = await call_next(request)
         
         # Calculate metrics
         response_time_ms = (time.time() - start_time) * 1000
-        response_size = len(response.body) if hasattr(response, "body") else 0
+        # Get response size from Content-Length header if available
+        # Don't try to read response.body as it may not be available or may cause issues
+        response_size = 0
+        try:
+            if hasattr(response, "headers"):
+                content_length = response.headers.get("content-length")
+                if content_length:
+                    response_size = int(content_length)
+        except (ValueError, TypeError):
+            response_size = 0
         
         # Extract tokens used from response (if available)
         tokens_used = 0

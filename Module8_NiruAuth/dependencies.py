@@ -5,10 +5,11 @@ from typing import Optional
 from fastapi import Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
 
-from .models.auth_models import User, Integration
+from .models.auth_models import User, Integration, UserSession
 from .models.pydantic_models import AuthContext
 from .authorization.permission_checker import PermissionChecker
 from .authorization.user_role_manager import UserRoleManager
+from .providers.session_provider import SessionProvider
 from Module3_NiruDB.chat_models import create_database_engine, get_db_session
 from .config import config
 
@@ -43,9 +44,26 @@ def get_current_user(
     auth_context = get_auth_context(request)
     
     if not auth_context or not auth_context.user_id:
+        # Log for debugging
+        import logging
+        logger = logging.getLogger(__name__)
+        session_token = request.headers.get("X-Session-Token") or request.cookies.get("session_token")
+        logger.warning(f"Authentication failed for {request.url.path}: no auth_context. Has session token: {bool(session_token)}, token length: {len(session_token) if session_token else 0}")
+        
+        # Check if session token exists in database
+        if session_token:
+            token_hash = SessionProvider.hash_token(session_token)
+            session = db.query(UserSession).filter(
+                UserSession.session_token == token_hash
+            ).first()
+            if session:
+                logger.warning(f"Session found in DB but not validated: is_active={session.is_active}, expires_at={session.expires_at}, user_id={session.user_id}")
+            else:
+                logger.warning(f"No session found in DB for token hash")
+        
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authentication required"
+            detail="Authentication required. Please log in again."
         )
     
     user = db.query(User).filter(User.id == auth_context.user_id).first()

@@ -34,6 +34,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         "/api/v1/auth/password/reset-request",
         "/api/v1/auth/password/reset",
         "/api/v1/auth/email/verify",
+        "/api/v1/auth/email/verify-request",
     ]
     
     def __init__(self, app, database_url: Optional[str] = None):
@@ -55,6 +56,10 @@ class AuthMiddleware(BaseHTTPMiddleware):
             if path.startswith(public_path):
                 return True
         
+        # Admin routes are explicitly NOT public, they are handled by AdminAuthMiddleware
+        if path.startswith("/admin"):
+            return False
+        
         return False
     
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
@@ -75,7 +80,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
             # Try to authenticate
             auth_context = await self.authenticate_request(request, db)
             
-            # Attach auth context to request state
+            # Attach auth context to request state (even if None, for optional auth endpoints)
             request.state.auth_context = auth_context
             
             # Continue with request
@@ -87,13 +92,14 @@ class AuthMiddleware(BaseHTTPMiddleware):
             db.close()
             return JSONResponse(
                 status_code=e.status_code,
-                content={"error": e.detail}
+                content={"detail": e.detail}
             )
         except Exception as e:
             db.close()
+            import traceback
             return JSONResponse(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                content={"error": "Authentication error", "detail": str(e)}
+                content={"error": "Authentication error", "detail": str(e), "traceback": traceback.format_exc()}
             )
         finally:
             db.close()
@@ -165,15 +171,42 @@ class AuthMiddleware(BaseHTTPMiddleware):
         # 3. Try session token (Cookie or X-Session-Token header)
         session_token = request.cookies.get("session_token") or request.headers.get("X-Session-Token")
         if session_token:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.debug(f"Attempting session authentication for {request.url.path}, token_length={len(session_token)}")
+            
             session = SessionProvider.validate_session(db, session_token)
             if session:
                 user = db.query(User).filter(User.id == session.user_id).first()
                 if user:
+                    logger.debug(f"Session authentication successful for user {user.id}")
                     return AuthContext(
                         auth_method="session",
                         user_id=user.id,
                         integration_id=None
                     )
+                else:
+                    # Log warning if session exists but user doesn't
+                    logger.warning(f"Session found but user not found: session.user_id={session.user_id}")
+            else:
+                # Log detailed warning if session token provided but not valid
+                from ..models.auth_models import UserSession
+                from sqlalchemy import and_
+                from datetime import datetime
+                token_hash = SessionProvider.hash_token(session_token)
+                existing_session = db.query(UserSession).filter(
+                    UserSession.session_token == token_hash
+                ).first()
+                if existing_session:
+                    logger.warning(
+                        f"Session validation failed for {request.url.path}: "
+                        f"is_active={existing_session.is_active}, "
+                        f"expires_at={existing_session.expires_at}, "
+                        f"now={datetime.utcnow()}, "
+                        f"expired={existing_session.expires_at < datetime.utcnow() if existing_session.expires_at else 'N/A'}"
+                    )
+                else:
+                    logger.warning(f"No session found in database for token (path: {request.url.path}, token_length: {len(session_token)})")
         
         # No authentication found - return None (endpoint may be optional auth)
         return None

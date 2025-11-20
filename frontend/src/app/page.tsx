@@ -23,7 +23,9 @@ import {
   MessageSquare,
   Shield,
   Zap,
-  Bell
+  Bell,
+  LogIn,
+  UserPlus
 } from "lucide-react"
 
 export default function LandingPage() {
@@ -81,6 +83,22 @@ export default function LandingPage() {
                 <span className="text-lg md:text-2xl font-bold">AmaniQuery</span>
               </div>
               <div className="flex items-center space-x-2 md:space-x-4">
+                {!isAuthenticated && (
+                  <>
+                    <Link href="/auth/signin">
+                      <Button variant="ghost" size="sm" className="hidden sm:flex">
+                        <LogIn className="w-4 h-4 mr-2" />
+                        Sign In
+                      </Button>
+                    </Link>
+                    <Link href="/auth/signup">
+                      <Button size="sm" className="hidden sm:flex">
+                        <UserPlus className="w-4 h-4 mr-2" />
+                        Get Started
+                      </Button>
+                    </Link>
+                  </>
+                )}
                 <ThemeToggle />
                 <a
                   href="https://github.com/Benaah/amaniquery"

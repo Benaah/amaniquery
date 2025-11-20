@@ -40,6 +40,7 @@ class User(Base):
     failed_login_attempts = Column(Integer, default=0, nullable=False)
     locked_until = Column(DateTime, nullable=True)
     extra_data = Column(JSON, nullable=True)  # Additional user data (renamed from metadata to avoid SQLAlchemy conflict)
+    profile_image_url = Column(String, nullable=True)  # Cloudinary URL for profile image
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 

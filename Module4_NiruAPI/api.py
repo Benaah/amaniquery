@@ -15,6 +15,7 @@ from datetime import datetime
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from fastapi import FastAPI, HTTPException, Request, Form, UploadFile, File
+from fastapi import Request as FastAPIRequest
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
@@ -1888,9 +1889,23 @@ async def share_chat_session(session_id: str, share_type: str = "link"):
 
 
 # Admin Endpoints
+# Note: Admin endpoints are protected by AuthMiddleware when ENABLE_AUTH=true
+# The middleware automatically checks for admin role on /admin/* routes
+
 @app.get("/admin/crawlers", tags=["Admin"])
-async def get_crawler_status():
-    """Get status of all crawlers"""
+async def get_crawler_status(
+    request: Request = None
+):
+    """Get status of all crawlers (admin only)"""
+    # Check admin access if auth is enabled
+    if os.getenv("ENABLE_AUTH", "false").lower() == "true":
+        from Module8_NiruAuth.dependencies import require_admin, get_db
+        from sqlalchemy.orm import Session
+        db = next(get_db())
+        try:
+            require_admin(request, db)
+        finally:
+            db.close()
     if crawler_manager is None:
         raise HTTPException(status_code=503, detail="Crawler manager not initialized")
     
@@ -2107,6 +2122,26 @@ async def set_config(config: ConfigSetRequest):
         return {"message": f"Config {config.key} set successfully"}
     except Exception as e:
         logger.error(f"Error setting config {config.key}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/admin/config/{key}", tags=["Admin"])
+async def update_config_entry(key: str, request: FastAPIRequest):
+    """Update a configuration value"""
+    if config_manager is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Config manager not initialized - PostgreSQL database connection required",
+        )
+
+    try:
+        body = await request.json()
+        value = body.get("value", "")
+        description = body.get("description", "")
+        config_manager.set_config(key, value, description)
+        return {"message": f"Config {key} updated successfully"}
+    except Exception as e:
+        logger.error(f"Error updating config {key}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

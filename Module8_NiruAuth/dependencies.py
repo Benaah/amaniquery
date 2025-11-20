@@ -43,9 +43,28 @@ def get_current_user(
     auth_context = get_auth_context(request)
     
     if not auth_context or not auth_context.user_id:
+        # Log for debugging
+        import logging
+        logger = logging.getLogger(__name__)
+        session_token = request.headers.get("X-Session-Token") or request.cookies.get("session_token")
+        logger.warning(f"Authentication failed for {request.url.path}: no auth_context. Has session token: {bool(session_token)}, token length: {len(session_token) if session_token else 0}")
+        
+        # Check if session token exists in database
+        if session_token:
+            from ..providers.session_provider import SessionProvider
+            from ..models.auth_models import UserSession
+            token_hash = SessionProvider.hash_token(session_token)
+            session = db.query(UserSession).filter(
+                UserSession.session_token == token_hash
+            ).first()
+            if session:
+                logger.warning(f"Session found in DB but not validated: is_active={session.is_active}, expires_at={session.expires_at}, user_id={session.user_id}")
+            else:
+                logger.warning(f"No session found in DB for token hash")
+        
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authentication required"
+            detail="Authentication required. Please log in again."
         )
     
     user = db.query(User).filter(User.id == auth_context.user_id).first()

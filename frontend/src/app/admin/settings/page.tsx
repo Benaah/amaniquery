@@ -55,14 +55,19 @@ export default function AdminSettingsPage() {
   const fetchConfigs = async () => {
     setLoadingConfigs(true)
     try {
-      const response = await fetch(`${API_URL}/admin/config`)
+      const sessionToken = localStorage.getItem("session_token")
+      const response = await fetch(`${API_URL}/admin/config`, {
+        headers: {
+          "X-Session-Token": sessionToken || "",
+        },
+      })
       if (response.ok) {
         const data = await response.json()
         setConfigs(data.configs || {})
       } else {
         toast.error("Failed to fetch settings")
       }
-    } catch (error) {
+    } catch {
       toast.error("Failed to fetch settings")
     } finally {
       setLoadingConfigs(false)
@@ -71,10 +76,12 @@ export default function AdminSettingsPage() {
 
   const handleSaveConfig = async (key: string, value: string) => {
     try {
+      const sessionToken = localStorage.getItem("session_token")
       const response = await fetch(`${API_URL}/admin/config/${key}`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
+          "X-Session-Token": sessionToken || "",
         },
         body: JSON.stringify({ value }),
       })
@@ -85,7 +92,7 @@ export default function AdminSettingsPage() {
       } else {
         toast.error("Failed to update setting")
       }
-    } catch (error) {
+    } catch {
       toast.error("Failed to update setting")
     }
   }
@@ -98,10 +105,12 @@ export default function AdminSettingsPage() {
 
     setSaving(true)
     try {
+      const sessionToken = localStorage.getItem("session_token")
       const response = await fetch(`${API_URL}/admin/config/${newConfig.key}`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
+          "X-Session-Token": sessionToken || "",
         },
         body: JSON.stringify({
           value: newConfig.value,
@@ -116,7 +125,7 @@ export default function AdminSettingsPage() {
       } else {
         toast.error("Failed to add setting")
       }
-    } catch (error) {
+    } catch {
       toast.error("Failed to add setting")
     } finally {
       setSaving(false)
@@ -129,8 +138,12 @@ export default function AdminSettingsPage() {
     }
 
     try {
+      const sessionToken = localStorage.getItem("session_token")
       const response = await fetch(`${API_URL}/admin/config/${key}`, {
         method: "DELETE",
+        headers: {
+          "X-Session-Token": sessionToken || "",
+        },
       })
 
       if (response.ok) {
@@ -139,7 +152,7 @@ export default function AdminSettingsPage() {
       } else {
         toast.error("Failed to delete setting")
       }
-    } catch (error) {
+    } catch {
       toast.error("Failed to delete setting")
     }
   }

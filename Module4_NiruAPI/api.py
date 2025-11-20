@@ -1893,8 +1893,19 @@ async def share_chat_session(session_id: str, share_type: str = "link"):
 # The middleware automatically checks for admin role on /admin/* routes
 
 @app.get("/admin/crawlers", tags=["Admin"])
-async def get_crawler_status():
-    """Get status of all crawlers"""
+async def get_crawler_status(
+    request: Request = None
+):
+    """Get status of all crawlers (admin only)"""
+    # Check admin access if auth is enabled
+    if os.getenv("ENABLE_AUTH", "false").lower() == "true":
+        from Module8_NiruAuth.dependencies import require_admin, get_db
+        from sqlalchemy.orm import Session
+        db = next(get_db())
+        try:
+            require_admin(request, db)
+        finally:
+            db.close()
     if crawler_manager is None:
         raise HTTPException(status_code=503, detail="Crawler manager not initialized")
     

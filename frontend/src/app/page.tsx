@@ -133,29 +133,12 @@ export default function LandingPage() {
             </div>
 
             <div className="flex flex-col sm:flex-row gap-3 md:gap-4 justify-center mb-12 md:mb-16 px-4">
-              {isAuthenticated ? (
-                <Link href="/chat">
-                  <Button size="lg" className="text-base md:text-lg px-6 md:px-8 py-3 md:py-3 w-full sm:w-auto min-h-[44px]">
-                    <MessageSquare className="w-4 h-4 md:w-5 md:h-5 mr-2" />
-                    Start Chatting
-                  </Button>
-                </Link>
-              ) : (
-                <>
-                  <Link href="/auth/signup">
-                    <Button size="lg" className="text-base md:text-lg px-6 md:px-8 py-3 md:py-3 w-full sm:w-auto min-h-[44px]">
-                      <UserPlus className="w-4 h-4 md:w-5 md:h-5 mr-2" />
-                      Get Started
-                    </Button>
-                  </Link>
-                  <Link href="/auth/signin">
-                    <Button variant="outline" size="lg" className="text-base md:text-lg px-6 md:px-8 py-3 md:py-3 w-full sm:w-auto min-h-[44px]">
-                      <LogIn className="w-4 h-4 md:w-5 md:h-5 mr-2" />
-                      Sign In
-                    </Button>
-                  </Link>
-                </>
-              )}
+              <Link href="/chat">
+                <Button size="lg" className="text-base md:text-lg px-6 md:px-8 py-3 md:py-3 w-full sm:w-auto min-h-[44px]">
+                  <MessageSquare className="w-4 h-4 md:w-5 md:h-5 mr-2" />
+                  Start Chatting
+                </Button>
+              </Link>
               <a
                 href="https://github.com/Benaah/amaniquery"
                 target="_blank"

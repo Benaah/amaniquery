@@ -34,6 +34,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         "/api/v1/auth/password/reset-request",
         "/api/v1/auth/password/reset",
         "/api/v1/auth/email/verify",
+        "/api/v1/auth/email/verify-request",
     ]
     
     def __init__(self, app, database_url: Optional[str] = None):
@@ -55,6 +56,10 @@ class AuthMiddleware(BaseHTTPMiddleware):
             if path.startswith(public_path):
                 return True
         
+        # Admin routes are explicitly NOT public, they are handled by AdminAuthMiddleware
+        if path.startswith("/admin"):
+            return False
+        
         return False
     
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
@@ -75,7 +80,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
             # Try to authenticate
             auth_context = await self.authenticate_request(request, db)
             
-            # Attach auth context to request state
+            # Attach auth context to request state (even if None, for optional auth endpoints)
             request.state.auth_context = auth_context
             
             # Continue with request
@@ -87,13 +92,14 @@ class AuthMiddleware(BaseHTTPMiddleware):
             db.close()
             return JSONResponse(
                 status_code=e.status_code,
-                content={"error": e.detail}
+                content={"detail": e.detail}
             )
         except Exception as e:
             db.close()
+            import traceback
             return JSONResponse(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                content={"error": "Authentication error", "detail": str(e)}
+                content={"error": "Authentication error", "detail": str(e), "traceback": traceback.format_exc()}
             )
         finally:
             db.close()
@@ -174,6 +180,16 @@ class AuthMiddleware(BaseHTTPMiddleware):
                         user_id=user.id,
                         integration_id=None
                     )
+                else:
+                    # Log warning if session exists but user doesn't
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.warning(f"Session found but user not found: session.user_id={session.user_id}")
+            else:
+                # Log warning if session token provided but not valid
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.debug(f"Session token provided but validation failed: token_length={len(session_token)}")
         
         # No authentication found - return None (endpoint may be optional auth)
         return None

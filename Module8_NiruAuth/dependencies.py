@@ -5,10 +5,11 @@ from typing import Optional
 from fastapi import Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
 
-from .models.auth_models import User, Integration
+from .models.auth_models import User, Integration, UserSession
 from .models.pydantic_models import AuthContext
 from .authorization.permission_checker import PermissionChecker
 from .authorization.user_role_manager import UserRoleManager
+from .providers.session_provider import SessionProvider
 from Module3_NiruDB.chat_models import create_database_engine, get_db_session
 from .config import config
 
@@ -51,8 +52,6 @@ def get_current_user(
         
         # Check if session token exists in database
         if session_token:
-            from ..providers.session_provider import SessionProvider
-            from ..models.auth_models import UserSession
             token_hash = SessionProvider.hash_token(session_token)
             session = db.query(UserSession).filter(
                 UserSession.session_token == token_hash

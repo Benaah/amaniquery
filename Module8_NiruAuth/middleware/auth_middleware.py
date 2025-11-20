@@ -171,10 +171,15 @@ class AuthMiddleware(BaseHTTPMiddleware):
         # 3. Try session token (Cookie or X-Session-Token header)
         session_token = request.cookies.get("session_token") or request.headers.get("X-Session-Token")
         if session_token:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.debug(f"Attempting session authentication for {request.url.path}, token_length={len(session_token)}")
+            
             session = SessionProvider.validate_session(db, session_token)
             if session:
                 user = db.query(User).filter(User.id == session.user_id).first()
                 if user:
+                    logger.debug(f"Session authentication successful for user {user.id}")
                     return AuthContext(
                         auth_method="session",
                         user_id=user.id,
@@ -182,14 +187,26 @@ class AuthMiddleware(BaseHTTPMiddleware):
                     )
                 else:
                     # Log warning if session exists but user doesn't
-                    import logging
-                    logger = logging.getLogger(__name__)
                     logger.warning(f"Session found but user not found: session.user_id={session.user_id}")
             else:
-                # Log warning if session token provided but not valid
-                import logging
-                logger = logging.getLogger(__name__)
-                logger.debug(f"Session token provided but validation failed: token_length={len(session_token)}")
+                # Log detailed warning if session token provided but not valid
+                from ..models.auth_models import UserSession
+                from sqlalchemy import and_
+                from datetime import datetime
+                token_hash = SessionProvider.hash_token(session_token)
+                existing_session = db.query(UserSession).filter(
+                    UserSession.session_token == token_hash
+                ).first()
+                if existing_session:
+                    logger.warning(
+                        f"Session validation failed for {request.url.path}: "
+                        f"is_active={existing_session.is_active}, "
+                        f"expires_at={existing_session.expires_at}, "
+                        f"now={datetime.utcnow()}, "
+                        f"expired={existing_session.expires_at < datetime.utcnow() if existing_session.expires_at else 'N/A'}"
+                    )
+                else:
+                    logger.warning(f"No session found in database for token (path: {request.url.path}, token_length: {len(session_token)})")
         
         # No authentication found - return None (endpoint may be optional auth)
         return None

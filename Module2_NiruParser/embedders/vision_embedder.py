@@ -156,7 +156,7 @@ class VisionEmbedder:
                 response = self.client.embed(
                     images=[data_uri],
                     model=self.model,
-                    input_type="search_document",
+                    input_type="image",
                 )
                 embedding = np.array(response.embeddings[0])
                 return embedding
@@ -170,7 +170,7 @@ class VisionEmbedder:
                         response = self.client.embed(
                             images=[data_uri],
                             model="embed-multilingual-v3.0",
-                            input_type="search_document",
+                            input_type="image",
                         )
                         embedding = np.array(response.embeddings[0])
                         self.model = "embed-multilingual-v3.0"  # Update model for future calls
@@ -231,7 +231,7 @@ class VisionEmbedder:
             response = self.client.embed(
                 images=data_uri_list,
                 model=self.model,
-                input_type="search_document",
+                input_type="image",
             )
             
             embeddings = np.array(response.embeddings)

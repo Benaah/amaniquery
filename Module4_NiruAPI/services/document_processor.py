@@ -34,6 +34,14 @@ from Module2_NiruParser.embedders import TextEmbedder, VisionEmbedder
 from Module2_NiruParser.config import Config
 from Module4_NiruAPI.services.pdf_page_extractor import PDFPageExtractor
 
+try:
+    from Module4_NiruAPI.services.cloudinary_service import CloudinaryService
+    CLOUDINARY_AVAILABLE = True
+except (ImportError, ValueError) as e:
+    CLOUDINARY_AVAILABLE = False
+    CloudinaryService = None
+    logger.warning(f"Cloudinary service not available: {e}")
+
 
 class DocumentProcessor:
     """Process uploaded documents for chat attachments"""
@@ -50,6 +58,16 @@ class DocumentProcessor:
         )
         self.upload_dir = Path(tempfile.gettempdir()) / "amaniquery_uploads"
         self.upload_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Initialize Cloudinary service if available
+        self.cloudinary_service = None
+        if CLOUDINARY_AVAILABLE:
+            try:
+                self.cloudinary_service = CloudinaryService()
+                logger.info("Cloudinary service initialized")
+            except Exception as e:
+                logger.warning(f"Failed to initialize Cloudinary service: {e}. Files will not be uploaded to Cloudinary.")
+                self.cloudinary_service = None
         
         # Initialize vision components if enabled
         self.enable_vision = enable_vision
@@ -172,7 +190,30 @@ class DocumentProcessor:
                     result["vision_data"] = None
                     # If no text was extracted and vision failed, that's OK - at least we tried
             
-            # Clean up temporary file after vision processing
+            # Upload to Cloudinary if service is available
+            cloudinary_url = None
+            if self.cloudinary_service:
+                try:
+                    cloudinary_result = self.cloudinary_service.upload_file(
+                        file_path=file_path,
+                        filename=filename,
+                        session_id=session_id
+                    )
+                    cloudinary_url = cloudinary_result.get("secure_url") or cloudinary_result.get("url")
+                    logger.info(f"Uploaded {filename} to Cloudinary: {cloudinary_url}")
+                except Exception as e:
+                    # Don't fail the entire file processing if Cloudinary upload fails
+                    logger.warning(f"Failed to upload {filename} to Cloudinary: {e}. File processing will continue.")
+                    cloudinary_url = None
+            
+            # Add Cloudinary URL to attachment metadata
+            if cloudinary_url:
+                attachment_metadata["cloudinary_url"] = cloudinary_url
+            
+            # Update result with modified attachment metadata
+            result["attachment"] = attachment_metadata
+            
+            # Clean up temporary file after all processing
             try:
                 file_path.unlink()
             except Exception as e:

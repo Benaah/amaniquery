@@ -93,20 +93,31 @@ async def login(
             user_agent=request.headers.get("user-agent")
         )
         
+        # Get user roles
+        from ..authorization.role_manager import RoleManager
+        user_roles = RoleManager.get_user_roles(db, user.id)
+        role_names = [role.name for role in user_roles]
+        
+        # Create user response with roles
+        user_response = UserResponse(
+            id=user.id,
+            email=user.email,
+            name=user.name,
+            status=user.status,
+            email_verified=user.email_verified,
+            last_login=user.last_login,
+            created_at=user.created_at,
+            updated_at=user.updated_at
+        )
+        # Add roles to response
+        user_response_dict = user_response.model_dump()
+        user_response_dict["roles"] = role_names
+        
         return SessionResponse(
             session_token=session_token,
             refresh_token=None,  # Session-based, no separate refresh token
             expires_at=session.expires_at,
-            user=UserResponse(
-                id=user.id,
-                email=user.email,
-                name=user.name,
-                status=user.status,
-                email_verified=user.email_verified,
-                last_login=user.last_login,
-                created_at=user.created_at,
-                updated_at=user.updated_at
-            )
+            user=user_response_dict
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
@@ -128,10 +139,16 @@ async def logout(
 
 @router.get("/me", response_model=UserResponse)
 async def get_current_user_profile(
-    user: User = Depends(get_current_user)
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ):
     """Get current user profile"""
-    return UserResponse(
+    from ..authorization.role_manager import RoleManager
+    user_roles = RoleManager.get_user_roles(db, user.id)
+    role_names = [role.name for role in user_roles]
+    
+    # Create response with roles
+    response = UserResponse(
         id=user.id,
         email=user.email,
         name=user.name,
@@ -141,6 +158,10 @@ async def get_current_user_profile(
         created_at=user.created_at,
         updated_at=user.updated_at
     )
+    # Add roles to response (using model_dump and update since roles might not be in model)
+    response_dict = response.model_dump()
+    response_dict["roles"] = role_names
+    return response_dict
 
 
 @router.put("/me", response_model=UserResponse)

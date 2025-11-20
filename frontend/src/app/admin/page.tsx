@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Input } from "@/components/ui/input"
-import { Sidebar } from "@/components/sidebar"
+import { AdminSidebar } from "@/components/admin-sidebar"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { useAuth } from "@/lib/auth-context"
 import { 
@@ -384,7 +384,7 @@ export default function AdminDashboard() {
 
   return (
     <div className="min-h-screen bg-background flex">
-      <Sidebar />
+      <AdminSidebar />
       <div className="flex-1 ml-0 md:ml-[20px] p-4 md:p-6">
         <div className="absolute top-4 right-4 z-10">
           <ThemeToggle />

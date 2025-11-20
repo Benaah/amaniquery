@@ -80,6 +80,7 @@ class ChatAttachment(BaseModel):
     file_size: int  # in bytes
     uploaded_at: datetime
     processed: bool = False
+    cloudinary_url: Optional[str] = None  # Cloudinary URL for persistent storage
 
 class ChatMessageCreate(BaseModel):
     content: str

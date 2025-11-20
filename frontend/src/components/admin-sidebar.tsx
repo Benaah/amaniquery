@@ -12,11 +12,19 @@ import {
   LogOut,
   Menu,
   X,
+  Settings,
+  Database,
+  BarChart3,
+  Users,
+  Shield,
+  FileText,
+  Globe,
+  Activity,
 } from "lucide-react"
 import { Button } from "./ui/button"
 import { cn } from "@/lib/utils"
 
-export function Sidebar() {
+export function AdminSidebar() {
   const [isOpen, setIsOpen] = useState(false)
   const [isHovered, setIsHovered] = useState(false)
   const pathname = usePathname()
@@ -39,11 +47,17 @@ export function Sidebar() {
     await logout()
   }
 
-  const navItems = [
+  const adminNavItems = [
+    { href: "/admin", icon: BarChart3, label: "Dashboard" },
+    { href: "/admin/users", icon: Users, label: "Users" },
+    { href: "/admin/analytics", icon: Activity, label: "Analytics" },
+    { href: "/admin/settings", icon: Settings, label: "Settings" },
+  ]
+
+  const generalNavItems = [
     { href: "/", icon: Home, label: "Home" },
     { href: "/chat", icon: MessageSquare, label: "Chat" },
     { href: "/voice", icon: Mic, label: "Voice" },
-    { href: "/profile", icon: User, label: "Profile" },
   ]
 
   // Desktop: Show on hover at left edge
@@ -91,44 +105,83 @@ export function Sidebar() {
         <div className="flex flex-col h-full p-4">
           {/* Logo/Header */}
           <div className="mb-6">
-            <h2 className="text-xl font-bold">AmaniQuery</h2>
+            <div className="flex items-center gap-2">
+              <Shield className="w-6 h-6 text-primary" />
+              <h2 className="text-xl font-bold">AmaniQuery</h2>
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">Admin Panel</p>
           </div>
 
-          {/* Navigation */}
-          <nav className="flex-1 space-y-2">
-            {navItems.map((item) => {
-              const Icon = item.icon
-              const isActive = pathname === item.href
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  onClick={() => isMobile && setIsOpen(false)}
-                  className={cn(
-                    "flex items-center gap-3 px-4 py-3 rounded-lg transition-colors",
-                    isActive
-                      ? "bg-primary text-primary-foreground"
-                      : "hover:bg-accent"
-                  )}
-                >
-                  <Icon className="w-5 h-5" />
-                  <span>{item.label}</span>
-                </Link>
-              )
-            })}
-          </nav>
+          {/* Admin Navigation Section */}
+          <div className="mb-4">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 px-4">
+              Administration
+            </p>
+            <nav className="space-y-1">
+              {adminNavItems.map((item) => {
+                const Icon = item.icon
+                const isActive = pathname === item.href || (item.href !== "/admin" && pathname?.startsWith(item.href))
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    onClick={() => isMobile && setIsOpen(false)}
+                    className={cn(
+                      "flex items-center gap-3 px-4 py-2.5 rounded-lg transition-colors text-sm",
+                      isActive
+                        ? "bg-primary text-primary-foreground"
+                        : "hover:bg-accent"
+                    )}
+                  >
+                    <Icon className="w-4 h-4" />
+                    <span>{item.label}</span>
+                  </Link>
+                )
+              })}
+            </nav>
+          </div>
+
+          {/* General Navigation Section */}
+          <div className="mb-4">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 px-4">
+              General
+            </p>
+            <nav className="space-y-1">
+              {generalNavItems.map((item) => {
+                const Icon = item.icon
+                const isActive = pathname === item.href
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    onClick={() => isMobile && setIsOpen(false)}
+                    className={cn(
+                      "flex items-center gap-3 px-4 py-2.5 rounded-lg transition-colors text-sm",
+                      isActive
+                        ? "bg-primary text-primary-foreground"
+                        : "hover:bg-accent"
+                    )}
+                  >
+                    <Icon className="w-4 h-4" />
+                    <span>{item.label}</span>
+                  </Link>
+                )
+              })}
+            </nav>
+          </div>
 
           {/* User Profile Section */}
-          <div className="border-t pt-4 mt-4">
+          <div className="border-t pt-4 mt-auto">
             {user && (
               <div className="mb-4">
                 <div className="flex items-center gap-3 px-4 py-2">
                   <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-                    <User className="w-5 h-5 text-primary" />
+                    <Shield className="w-5 h-5 text-primary" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="font-medium truncate">{user.name || user.email}</p>
-                    <p className="text-sm text-muted-foreground truncate">{user.email}</p>
+                    <p className="font-medium truncate text-sm">{user.name || user.email}</p>
+                    <p className="text-xs text-muted-foreground truncate">{user.email}</p>
+                    <p className="text-xs text-primary font-medium mt-0.5">Admin</p>
                   </div>
                 </div>
               </div>

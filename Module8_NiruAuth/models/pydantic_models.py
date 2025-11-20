@@ -49,6 +49,7 @@ class UserResponse(BaseModel):
     profile_image_url: Optional[str] = None
     created_at: datetime
     updated_at: datetime
+    roles: Optional[List[str]] = None  # Add roles field
 
     class Config:
         from_attributes = True
@@ -106,7 +107,7 @@ class SessionResponse(BaseModel):
     session_token: str
     refresh_token: Optional[str] = None
     expires_at: datetime
-    user: UserResponse
+    user: UserResponse  # UserResponse now includes roles field
 
 
 # ==================== Role Models ====================

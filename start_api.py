@@ -126,11 +126,23 @@ def start_api():
         logger.info("   Run 'python migrate_auth_db.py' if auth tables don't exist")
 
     try:
+        # Exclude setup.py and other non-source files from reload watch
+        reload_excludes = [
+            "setup.py",
+            "*.pyc",
+            "__pycache__",
+            "*.log",
+            ".env",
+            "venv/**",
+            "node_modules/**",
+        ] if reload_enabled else None
+        
         uvicorn.run(
             "Module4_NiruAPI.api:app",
             host=host,
             port=port,
             reload=reload_enabled,
+            reload_excludes=reload_excludes,
         )
     except KeyboardInterrupt:
         logger.info("\n👋 API server stopped")

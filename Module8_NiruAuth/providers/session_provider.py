@@ -60,20 +60,64 @@ class SessionProvider:
     @staticmethod
     def validate_session(db: Session, session_token: str) -> Optional[UserSession]:
         """Validate session token and return session"""
-        token_hash = SessionProvider.hash_token(session_token)
+        from datetime import datetime
+        from sqlalchemy import and_
+        import logging
         
+        logger = logging.getLogger(__name__)
+        token_hash = SessionProvider.hash_token(session_token)
+        now = datetime.utcnow()
+        
+        logger.info(f"Validating session: token_length={len(session_token)}, token_hash={token_hash[:16]}...")
+        
+        # Refresh database session to ensure we see latest data
+        db.expire_all()
+        
+        # First check if session exists with matching token hash
         session = db.query(UserSession).filter(
-            and_(
-                UserSession.session_token == token_hash,
-                UserSession.is_active == True,
-                UserSession.expires_at > datetime.utcnow()
-            )
+            UserSession.session_token == token_hash
         ).first()
         
-        if session:
-            # Update last activity
-            session.last_activity = datetime.utcnow()
+        if not session:
+            logger.warning(f"Session not found for token hash: {token_hash[:16]}...")
+            # Try one more time with explicit refresh
+            db.commit()  # Commit any pending transactions
+            db.expire_all()
+            session = db.query(UserSession).filter(
+                UserSession.session_token == token_hash
+            ).first()
+            if not session:
+                logger.warning(f"Session still not found after refresh")
+                return None
+        
+        logger.info(f"Session found: id={session.id}, is_active={session.is_active}, expires_at={session.expires_at}, now={now}")
+        
+        # Check if session is active
+        if not session.is_active:
+            logger.warning(f"Session found but not active: session_id={session.id}")
+            return None
+        
+        # Check if session is expired
+        if session.expires_at:
+            is_expired = session.expires_at <= now
+            time_diff = (session.expires_at - now).total_seconds()
+            logger.info(f"Session expiration check: expires_at={session.expires_at}, now={now}, expired={is_expired}, time_diff={time_diff} seconds")
+            if is_expired:
+                logger.warning(f"Session expired: expires_at={session.expires_at}, now={now}, time_diff={time_diff} seconds")
+                return None
+        else:
+            logger.warning(f"Session has no expires_at: session_id={session.id}")
+            return None
+        
+        # Session is valid - update last activity
+        try:
+            session.last_activity = now
             db.commit()
+            logger.info(f"Session validated successfully: session_id={session.id}, user_id={session.user_id}")
+        except Exception as e:
+            logger.error(f"Error updating session last_activity: {e}")
+            db.rollback()
+            # Still return the session even if update fails
         
         return session
     

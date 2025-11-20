@@ -70,6 +70,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
         
         # Skip if no database connection
         if not self.engine:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning("AuthMiddleware: No database engine available, skipping authentication")
             return await call_next(request)
         
         # Get database session
@@ -77,6 +80,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
         auth_context = None
         
         try:
+            # Ensure we have a fresh database session
+            db.expire_all()
+            
             # Try to authenticate
             auth_context = await self.authenticate_request(request, db)
             
@@ -89,20 +95,28 @@ class AuthMiddleware(BaseHTTPMiddleware):
             return response
             
         except HTTPException as e:
+            db.rollback()
             db.close()
             return JSONResponse(
                 status_code=e.status_code,
                 content={"detail": e.detail}
             )
         except Exception as e:
+            db.rollback()
             db.close()
             import traceback
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"AuthMiddleware error: {str(e)}\n{traceback.format_exc()}")
             return JSONResponse(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 content={"error": "Authentication error", "detail": str(e), "traceback": traceback.format_exc()}
             )
         finally:
-            db.close()
+            try:
+                db.close()
+            except:
+                pass
     
     async def authenticate_request(self, request: Request, db: Session) -> Optional[AuthContext]:
         """Authenticate request and return auth context"""
@@ -173,13 +187,18 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if session_token:
             import logging
             logger = logging.getLogger(__name__)
-            logger.debug(f"Attempting session authentication for {request.url.path}, token_length={len(session_token)}")
+            logger.info(f"Attempting session authentication for {request.url.path}, token_length={len(session_token)}, header={bool(request.headers.get('X-Session-Token'))}, cookie={bool(request.cookies.get('session_token'))}")
+            
+            # Refresh the database session to ensure we see latest data
+            db.expire_all()
             
             session = SessionProvider.validate_session(db, session_token)
             if session:
+                # Refresh to get user
+                db.expire_all()
                 user = db.query(User).filter(User.id == session.user_id).first()
                 if user:
-                    logger.debug(f"Session authentication successful for user {user.id}")
+                    logger.info(f"Session authentication successful for user {user.id} on {request.url.path}")
                     return AuthContext(
                         auth_method="session",
                         user_id=user.id,
@@ -198,12 +217,16 @@ class AuthMiddleware(BaseHTTPMiddleware):
                     UserSession.session_token == token_hash
                 ).first()
                 if existing_session:
+                    now = datetime.utcnow()
+                    is_expired = existing_session.expires_at < now if existing_session.expires_at else None
                     logger.warning(
                         f"Session validation failed for {request.url.path}: "
                         f"is_active={existing_session.is_active}, "
                         f"expires_at={existing_session.expires_at}, "
-                        f"now={datetime.utcnow()}, "
-                        f"expired={existing_session.expires_at < datetime.utcnow() if existing_session.expires_at else 'N/A'}"
+                        f"now={now}, "
+                        f"expired={is_expired}, "
+                        f"user_id={existing_session.user_id}, "
+                        f"time_diff={(existing_session.expires_at - now).total_seconds() if existing_session.expires_at and not is_expired else 'N/A'} seconds"
                     )
                 else:
                     logger.warning(f"No session found in database for token (path: {request.url.path}, token_length: {len(session_token)})")

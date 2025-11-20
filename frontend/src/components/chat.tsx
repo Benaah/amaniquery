@@ -457,9 +457,13 @@ export function Chat() {
       let response;
       if (isResearchMode) {
         // Use research endpoints for research mode (non-streaming)
+        const headers: Record<string, string> = {
+          "Content-Type": "application/x-www-form-urlencoded",
+          ...getAuthHeaders()
+        }
         response = await fetch(`${API_BASE_URL}/research/analyze-legal-query`, {
           method: "POST",
-          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          headers,
           body: new URLSearchParams({
             query: content.trim()
           })

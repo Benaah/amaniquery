@@ -379,10 +379,12 @@ if os.getenv("ENABLE_AUTH", "false").lower() == "true":
     from Module8_NiruAuth.middleware.rate_limit_middleware import RateLimitMiddleware
     from Module8_NiruAuth.middleware.usage_tracking_middleware import UsageTrackingMiddleware
     
-    # Add middleware in order (auth first, then rate limit, then usage tracking)
+    # Add middleware in order (FastAPI executes in reverse order)
+    # So we add: UsageTracking -> RateLimit -> Auth
+    # They execute: Auth -> RateLimit -> UsageTracking
     app.add_middleware(UsageTrackingMiddleware)
     app.add_middleware(RateLimitMiddleware)
-    app.add_middleware(AuthMiddleware)
+    app.add_middleware(AuthMiddleware)  # This executes first
     
     # Include auth routers
     from Module8_NiruAuth.routers import (
@@ -3451,9 +3453,21 @@ if __name__ == "__main__":
         print("⚠️  Warning: Reload enabled on Windows may cause import issues")
     print("=" * 60)
     
+    # Exclude setup.py and other non-source files from reload watch
+    reload_excludes = [
+        "setup.py",
+        "*.pyc",
+        "__pycache__",
+        "*.log",
+        ".env",
+        "venv/**",
+        "node_modules/**",
+    ] if reload else None
+    
     uvicorn.run(
         "api:app",
         host=host,
         port=port,
         reload=reload,
+        reload_excludes=reload_excludes,
     )

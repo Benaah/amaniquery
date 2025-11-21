@@ -48,7 +48,7 @@ stdout_logfile=/dev/stdout
 stdout_logfile_maxbytes=0
 stderr_logfile=/dev/stderr
 stderr_logfile_maxbytes=0
-environment=PYTHONPATH=/app,CORS_ORIGINS=http://localhost:3000,API_HOST=0.0.0.0,API_PORT=${PORT:-8000},https://amaniquery.vercel.app,https://www.amaniquery.vercel.app
+environment=PYTHONPATH="/app",CORS_ORIGINS="https://amaniquery.vercel.app,https://www.amaniquery.vercel.app",API_HOST="0.0.0.0",API_PORT="%(ENV_PORT)s"
 EOF
 
 CMD ["/usr/bin/supervisord","-c","/etc/supervisor/conf.d/app.conf"]

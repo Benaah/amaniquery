@@ -12,15 +12,13 @@ const nextConfig: NextConfig = {
       },
     ],
   },
-  // Disable Turbopack due to path alias resolution issues
-  // Use Webpack instead which handles path aliases correctly
-  experimental: {
-    turbo: false,
-  },
+  // Configure path aliases for webpack
   webpack: (config) => {
+    // Use process.cwd() which works reliably in Next.js builds
+    const srcPath = path.join(process.cwd(), 'src');
     config.resolve.alias = {
-      ...config.resolve.alias,
-      '@': path.resolve(__dirname, 'src'),
+      ...(config.resolve.alias || {}),
+      '@': srcPath,
     };
     return config;
   },

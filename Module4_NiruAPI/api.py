@@ -53,6 +53,8 @@ from Module4_NiruAPI.research_module import ResearchModule  # Legacy fallback
 from Module4_NiruAPI.research_module_agentic import AgenticResearchModule
 from Module4_NiruAPI.config_manager import ConfigManager
 from Module4_NiruAPI.report_generator import ReportGenerator
+from Module4_NiruAPI.cache import get_cache_manager, CacheManager
+from Module4_NiruAPI.crawler_models import CrawlerDatabaseManager
 from Module5_NiruShare.api import router as share_router
 from Module4_NiruAPI.routers.news_router import router as news_router
 from Module4_NiruAPI.routers.websocket_router import router as websocket_router, broadcast_new_article
@@ -67,7 +69,7 @@ load_dotenv()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Handle application startup and shutdown"""
-    global vector_store, rag_pipeline, alignment_pipeline, sms_pipeline, sms_service, metadata_manager, chat_manager, crawler_manager, research_module, agentic_research_module, report_generator, config_manager, notification_service, hybrid_rag_pipeline, autocomplete_tool, vision_storage, vision_rag_service, database_storage
+    global vector_store, rag_pipeline, alignment_pipeline, sms_pipeline, sms_service, metadata_manager, chat_manager, crawler_manager, research_module, agentic_research_module, report_generator, config_manager, notification_service, hybrid_rag_pipeline, autocomplete_tool, vision_storage, vision_rag_service, database_storage, cache_manager
     
     logger.info("Starting AmaniQuery API")
     
@@ -196,6 +198,14 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Failed to initialize chat manager: {e}")
         chat_manager = None
+    
+    # Initialize cache manager
+    try:
+        cache_manager = get_cache_manager(config_manager)
+        logger.info("Cache manager initialized")
+    except Exception as e:
+        logger.warning(f"Failed to initialize cache manager: {e}")
+        cache_manager = None
     
     # Initialize crawler manager
     try:
@@ -441,9 +451,17 @@ async def root():
 
 @app.get("/health", response_model=HealthResponse, tags=["General"])
 async def health_check():
-    """Health check endpoint"""
+    """Health check endpoint - cached for 30 seconds"""
     if vector_store is None:
         raise HTTPException(status_code=503, detail="Service not initialized")
+    
+    # Try to get from cache
+    cache_key = "cache:health"
+    if cache_manager:
+        cached_result = cache_manager.get(cache_key)
+        if cached_result is not None:
+            logger.debug("Cache hit for health check")
+            return HealthResponse(**cached_result)
     
     stats = vector_store.get_stats()
     
@@ -454,12 +472,18 @@ async def health_check():
     elif not isinstance(total_chunks, int):
         total_chunks = 0
     
-    return HealthResponse(
+    result = HealthResponse(
         status="healthy",
         database_chunks=total_chunks,
         embedding_model=os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2"),
         llm_provider=os.getenv("LLM_PROVIDER", "moonshot"),
     )
+    
+    # Cache for 30 seconds
+    if cache_manager:
+        cache_manager.set(cache_key, result.dict(), ttl=30)
+    
+    return result
 
 
 @app.get("/api/autocomplete", tags=["Query"])
@@ -542,10 +566,18 @@ async def news_crawler_stats():
 
 @app.get("/stats", response_model=StatsResponse, tags=["General"])
 async def get_stats():
-    """Get database statistics"""
+    """Get database statistics - cached for 60 seconds"""
     try:
         if vector_store is None:
             raise HTTPException(status_code=503, detail="Service not initialized")
+        
+        # Try to get from cache
+        cache_key = "cache:stats"
+        if cache_manager:
+            cached_result = cache_manager.get(cache_key)
+            if cached_result is not None:
+                logger.debug("Cache hit for stats")
+                return StatsResponse(**cached_result)
         
         # Run blocking operations in thread pool to avoid blocking event loop
         import asyncio
@@ -592,11 +624,17 @@ async def get_stats():
         elif not isinstance(total_chunks, int):
             total_chunks = 0
         
-        return StatsResponse(
+        result = StatsResponse(
             total_chunks=total_chunks,
             categories=categories_dict,
             sources=sources_list,
         )
+        
+        # Cache for 60 seconds
+        if cache_manager:
+            cache_manager.set(cache_key, result.dict(), ttl=60)
+        
+        return result
     except HTTPException:
         raise
     except Exception as e:
@@ -826,6 +864,7 @@ async def query_stream(request: QueryRequest):
 
 
 # Global variables (initialized in lifespan)
+cache_manager = None
 vector_store = None
 rag_pipeline = None
 alignment_pipeline = None
@@ -2031,13 +2070,27 @@ async def get_crawler_status(
     request: Request,
     admin = Depends(_admin_dependency)
 ):
-    """Get status of all crawlers (admin only)"""
+    """Get status of all crawlers (admin only) - cached for 5 seconds"""
     if crawler_manager is None:
         raise HTTPException(status_code=503, detail="Crawler manager not initialized")
     
+    # Try to get from cache
+    cache_key = "cache:admin:crawlers"
+    if cache_manager:
+        cached_result = cache_manager.get(cache_key)
+        if cached_result is not None:
+            logger.debug("Cache hit for crawler status")
+            return cached_result
+    
     try:
         crawlers = crawler_manager.get_crawler_status()
-        return {"crawlers": crawlers}
+        result = {"crawlers": crawlers}
+        
+        # Cache for 5 seconds (crawler status changes frequently)
+        if cache_manager:
+            cache_manager.set(cache_key, result, ttl=5)
+        
+        return result
     except Exception as e:
         logger.error(f"Error getting crawler status: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -2054,7 +2107,13 @@ async def start_crawler(
         raise HTTPException(status_code=503, detail="Crawler manager not initialized")
     
     try:
-        return crawler_manager.start_crawler(crawler_name)
+        result = crawler_manager.start_crawler(crawler_name)
+        
+        # Invalidate cache when crawler starts
+        if cache_manager:
+            cache_manager.invalidate_crawler_cache()
+        
+        return result
     except HTTPException:
         raise
     except Exception as e:
@@ -2073,7 +2132,13 @@ async def stop_crawler(
         raise HTTPException(status_code=503, detail="Crawler manager not initialized")
     
     try:
-        return crawler_manager.stop_crawler(crawler_name)
+        result = crawler_manager.stop_crawler(crawler_name)
+        
+        # Invalidate cache when crawler stops
+        if cache_manager:
+            cache_manager.invalidate_crawler_cache()
+        
+        return result
     except HTTPException:
         raise
     except Exception as e:
@@ -2235,7 +2300,7 @@ async def get_config_list(
     request: Request,
     admin = Depends(_admin_dependency)
 ):
-    """Get list of all configuration keys"""
+    """Get list of all configuration keys - cached for 300 seconds"""
     if config_manager is None:
         return {
             "error": "Config manager not initialized",
@@ -2243,8 +2308,22 @@ async def get_config_list(
             "status": "unavailable"
         }
     
+    # Try to get from cache
+    cache_key = "cache:admin:config"
+    if cache_manager:
+        cached_result = cache_manager.get(cache_key)
+        if cached_result is not None:
+            logger.debug("Cache hit for config list")
+            return cached_result
+    
     try:
-        return config_manager.list_configs()
+        result = config_manager.list_configs()
+        
+        # Cache for 5 minutes (configs don't change often)
+        if cache_manager:
+            cache_manager.set(cache_key, result, ttl=300)
+        
+        return result
     except Exception as e:
         logger.error(f"Error getting config list: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -2271,6 +2350,11 @@ async def set_config(
 
     try:
         config_manager.set_config(config.key, config.value, config.description or "")
+        
+        # Invalidate config cache
+        if cache_manager:
+            cache_manager.delete("cache:admin:config")
+        
         return {"message": f"Config {config.key} set successfully"}
     except Exception as e:
         logger.error(f"Error setting config {config.key}: {e}")
@@ -2295,6 +2379,11 @@ async def update_config_entry(
         value = body.get("value", "")
         description = body.get("description", "")
         config_manager.set_config(key, value, description)
+        
+        # Invalidate config cache
+        if cache_manager:
+            cache_manager.delete("cache:admin:config")
+        
         return {"message": f"Config {key} updated successfully"}
     except Exception as e:
         logger.error(f"Error updating config {key}: {e}")
@@ -2316,6 +2405,11 @@ async def delete_config_entry(
 
     try:
         config_manager.delete_config(key)
+        
+        # Invalidate config cache
+        if cache_manager:
+            cache_manager.delete("cache:admin:config")
+        
         return {"message": f"Config {key} deleted successfully"}
     except Exception as e:
         logger.error(f"Error deleting config {key}: {e}")
@@ -2327,9 +2421,17 @@ async def get_database_stats(
     request: Request,
     admin = Depends(_admin_dependency)
 ):
-    """Get statistics for all vector database backends"""
+    """Get statistics for all vector database backends - cached for 60 seconds"""
     if vector_store is None:
         raise HTTPException(status_code=503, detail="Vector store not initialized")
+    
+    # Try to get from cache
+    cache_key = "cache:admin:databases"
+    if cache_manager:
+        cached_result = cache_manager.get(cache_key)
+        if cached_result is not None:
+            logger.debug("Cache hit for database stats")
+            return cached_result
     
     try:
         # Run blocking operations in thread pool to avoid blocking event loop
@@ -2378,11 +2480,17 @@ async def get_database_stats(
                 databases.append(db_info)
                 used_names.add(backend_name)
         
-        return {
+        result = {
             "databases": databases,
             "total_databases": len(databases),
             "active_databases": len([db for db in databases if db["status"] == "active"])
         }
+        
+        # Cache for 60 seconds
+        if cache_manager:
+            cache_manager.set(cache_key, result, ttl=60)
+        
+        return result
         
     except Exception as e:
         logger.error(f"Error getting database stats: {e}")
@@ -2414,15 +2522,28 @@ async def get_database_storage_stats(
     request: Request,
     admin = Depends(_admin_dependency)
 ):
-    """Get database storage statistics"""
+    """Get database storage statistics - cached for 60 seconds"""
     try:
         if database_storage is None:
             raise HTTPException(status_code=503, detail="Database storage not initialized")
+        
+        # Try to get from cache
+        cache_key = "cache:admin:database-storage"
+        if cache_manager:
+            cached_result = cache_manager.get(cache_key)
+            if cached_result is not None:
+                logger.debug("Cache hit for database storage stats")
+                return cached_result
         
         # Run blocking operation in thread pool to avoid blocking event loop
         import asyncio
         loop = asyncio.get_event_loop()
         stats = await loop.run_in_executor(None, database_storage.get_stats)
+        
+        # Cache for 60 seconds
+        if cache_manager:
+            cache_manager.set(cache_key, stats, ttl=60)
+        
         return stats
     except Exception as e:
         logger.error(f"Error getting database storage stats: {e}")
@@ -3195,6 +3316,19 @@ class CrawlerManager:
         self.processes = {}
         self.logs = {}
         self.status_file = Path(__file__).parent / "crawler_status.json"
+        
+        # Initialize database manager
+        try:
+            self.db_manager = CrawlerDatabaseManager()
+            if self.db_manager._initialized:
+                logger.info("Using PostgreSQL for crawler status storage")
+            else:
+                logger.warning("PostgreSQL not available, using in-memory storage")
+        except Exception as e:
+            logger.warning(f"Failed to initialize crawler database manager: {e}")
+            self.db_manager = None
+        
+        # Load status from database or migrate from file
         self.load_status()
         
         # Start background status checker
@@ -3202,29 +3336,178 @@ class CrawlerManager:
         self.status_thread.start()
     
     def load_status(self):
-        """Load crawler status from file"""
+        """Load crawler status from database or migrate from file"""
+        # Initialize default crawlers
+        default_crawlers = {
+            "kenya_law": {"status": "idle", "last_run": None},
+            "parliament": {"status": "idle", "last_run": None},
+            "news_rss": {"status": "idle", "last_run": None},
+            "global_trends": {"status": "idle", "last_run": None}
+        }
+        
+        if self.db_manager and self.db_manager._initialized:
+            # Load from database
+            try:
+                db_statuses = self.db_manager.get_crawler_status()
+                for name, default_status in default_crawlers.items():
+                    if name in db_statuses:
+                        self.crawlers[name] = db_statuses[name]
+                    else:
+                        # Initialize new crawler in database
+                        self.crawlers[name] = default_status
+                        self.db_manager.update_crawler_status(
+                            name,
+                            default_status["status"],
+                            last_run=None
+                        )
+                
+                # Load logs from database
+                for name in self.crawlers.keys():
+                    self.logs[name] = self.db_manager.get_logs(name, limit=100)
+                
+                logger.info("Loaded crawler status from PostgreSQL database")
+                
+                # Migrate from file if it exists (one-time migration)
+                if self.status_file.exists():
+                    self._migrate_from_file()
+                    
+            except Exception as e:
+                logger.error(f"Error loading crawler status from database: {e}")
+                self.crawlers = default_crawlers.copy()
+                self.logs = {name: [] for name in default_crawlers.keys()}
+        else:
+            # Fallback to file-based storage
+            try:
+                if self.status_file.exists():
+                    with open(self.status_file, 'r') as f:
+                        data = json.load(f)
+                        self.crawlers = data.get('crawlers', default_crawlers)
+                        self.logs = data.get('logs', {name: [] for name in default_crawlers.keys()})
+                else:
+                    self.crawlers = default_crawlers.copy()
+                    self.logs = {name: [] for name in default_crawlers.keys()}
+            except Exception as e:
+                logger.error(f"Error loading crawler status from file: {e}")
+                self.crawlers = default_crawlers.copy()
+                self.logs = {name: [] for name in default_crawlers.keys()}
+    
+    def _migrate_from_file(self):
+        """Migrate data from JSON file to database (one-time operation)"""
         try:
-            if self.status_file.exists():
-                with open(self.status_file, 'r') as f:
-                    data = json.load(f)
-                    self.crawlers = data.get('crawlers', {})
-                    self.logs = data.get('logs', {})
+            if not self.status_file.exists():
+                return
+            
+            logger.info("Migrating crawler status from JSON file to database...")
+            with open(self.status_file, 'r') as f:
+                data = json.load(f)
+                file_crawlers = data.get('crawlers', {})
+                file_logs = data.get('logs', {})
+            
+            # Migrate crawler statuses
+            for name, status in file_crawlers.items():
+                last_run = None
+                if status.get('last_run'):
+                    try:
+                        # Try parsing ISO format datetime string
+                        last_run_str = status['last_run']
+                        if isinstance(last_run_str, str):
+                            # Remove 'Z' suffix if present and parse
+                            if last_run_str.endswith('Z'):
+                                last_run_str = last_run_str[:-1] + '+00:00'
+                            last_run = datetime.fromisoformat(last_run_str.replace('Z', ''))
+                    except Exception:
+                        pass
+                
+                self.db_manager.update_crawler_status(
+                    name,
+                    status.get('status', 'idle'),
+                    last_run=last_run,
+                    pid=status.get('pid'),
+                    start_time=None
+                )
+            
+            # Migrate logs
+            for name, logs in file_logs.items():
+                for log_entry in logs:
+                    # Parse timestamp from log entry
+                    try:
+                        if log_entry.startswith('['):
+                            timestamp_str = log_entry.split(']')[0][1:]
+                            message = log_entry.split(']', 1)[1].strip()
+                            try:
+                                # Try parsing ISO format
+                                if timestamp_str.endswith('Z'):
+                                    timestamp_str = timestamp_str[:-1] + '+00:00'
+                                timestamp = datetime.fromisoformat(timestamp_str.replace('Z', ''))
+                            except Exception:
+                                # Fallback to current time if parsing fails
+                                timestamp = datetime.utcnow()
+                            self.db_manager.add_log(name, message, timestamp)
+                        else:
+                            self.db_manager.add_log(name, log_entry)
+                    except Exception as e:
+                        logger.warning(f"Error migrating log entry: {e}")
+                        self.db_manager.add_log(name, log_entry)
+            
+            # Backup and remove old file
+            backup_file = self.status_file.with_suffix('.json.backup')
+            if not backup_file.exists():
+                import shutil
+                shutil.copy2(self.status_file, backup_file)
+                logger.info(f"Backed up old status file to {backup_file}")
+            
+            logger.info("Migration completed successfully")
         except Exception as e:
-            logger.error(f"Error loading crawler status: {e}")
-            self.crawlers = {}
-            self.logs = {}
+            logger.error(f"Error migrating from file to database: {e}")
     
     def save_status(self):
-        """Save crawler status to file"""
-        try:
-            data = {
-                'crawlers': self.crawlers,
-                'logs': self.logs
-            }
-            with open(self.status_file, 'w') as f:
-                json.dump(data, f, indent=2)
-        except Exception as e:
-            logger.error(f"Error saving crawler status: {e}")
+        """Save crawler status to database"""
+        if self.db_manager and self.db_manager._initialized:
+            # Save to database
+            try:
+                for name, status in self.crawlers.items():
+                    last_run = None
+                    if status.get('last_run'):
+                        try:
+                            last_run_str = status['last_run']
+                            if isinstance(last_run_str, str):
+                                if last_run_str.endswith('Z'):
+                                    last_run_str = last_run_str[:-1] + '+00:00'
+                                last_run = datetime.fromisoformat(last_run_str.replace('Z', ''))
+                        except Exception:
+                            pass
+                    
+                    start_time = None
+                    if status.get('start_time'):
+                        try:
+                            start_time_str = status['start_time']
+                            if isinstance(start_time_str, str):
+                                if start_time_str.endswith('Z'):
+                                    start_time_str = start_time_str[:-1] + '+00:00'
+                                start_time = datetime.fromisoformat(start_time_str.replace('Z', ''))
+                        except Exception:
+                            pass
+                    
+                    self.db_manager.update_crawler_status(
+                        name,
+                        status.get('status', 'idle'),
+                        last_run=last_run,
+                        pid=status.get('pid'),
+                        start_time=start_time
+                    )
+            except Exception as e:
+                logger.error(f"Error saving crawler status to database: {e}")
+        else:
+            # Fallback to file
+            try:
+                data = {
+                    'crawlers': self.crawlers,
+                    'logs': self.logs
+                }
+                with open(self.status_file, 'w') as f:
+                    json.dump(data, f, indent=2)
+            except Exception as e:
+                logger.error(f"Error saving crawler status to file: {e}")
     
     def _status_checker(self):
         """Background thread to check process status"""
@@ -3238,6 +3521,7 @@ class CrawlerManager:
                         if process.poll() is not None:
                             # Process finished
                             exit_code = process.returncode
+                            last_run_time = datetime.utcnow()
                             if exit_code == 0:
                                 self.crawlers[crawler_name]['status'] = 'idle'
                                 self._add_log(crawler_name, f"Process completed successfully (PID: {pid})")
@@ -3247,14 +3531,19 @@ class CrawlerManager:
                             
                             # Clean up
                             del self.processes[crawler_name]
-                            self.crawlers[crawler_name]['last_run'] = datetime.utcnow().isoformat() + 'Z'
+                            self.crawlers[crawler_name]['last_run'] = last_run_time.isoformat() + 'Z'
+                            self.crawlers[crawler_name]['pid'] = None
+                            self.crawlers[crawler_name]['start_time'] = None
                             self.save_status()
                         else:
                             # Process still running
                             self.crawlers[crawler_name]['status'] = 'running'
+                            self.save_status()  # Update status periodically
                     except Exception as e:
                         logger.error(f"Error checking process {pid}: {e}")
                         self.crawlers[crawler_name]['status'] = 'failed'
+                        self.crawlers[crawler_name]['pid'] = None
+                        self.crawlers[crawler_name]['start_time'] = None
                         self._add_log(crawler_name, f"Error monitoring process: {e}")
                         if crawler_name in self.processes:
                             del self.processes[crawler_name]
@@ -3267,15 +3556,34 @@ class CrawlerManager:
     
     def _add_log(self, crawler_name: str, message: str):
         """Add a log entry for a crawler"""
-        if crawler_name not in self.logs:
-            self.logs[crawler_name] = []
+        timestamp = datetime.utcnow()
+        timestamp_str = timestamp.isoformat() + 'Z'
         
-        timestamp = datetime.utcnow().isoformat() + 'Z'
-        self.logs[crawler_name].append(f"[{timestamp}] {message}")
-        
-        # Keep only last 100 logs
-        if len(self.logs[crawler_name]) > 100:
-            self.logs[crawler_name] = self.logs[crawler_name][-100:]
+        if self.db_manager and self.db_manager._initialized:
+            # Save to database
+            try:
+                self.db_manager.add_log(crawler_name, message, timestamp)
+                # Update in-memory cache (last 100)
+                if crawler_name not in self.logs:
+                    self.logs[crawler_name] = []
+                self.logs[crawler_name].append(f"[{timestamp_str}] {message}")
+                if len(self.logs[crawler_name]) > 100:
+                    self.logs[crawler_name] = self.logs[crawler_name][-100:]
+            except Exception as e:
+                logger.error(f"Error adding log to database: {e}")
+                # Fallback to in-memory
+                if crawler_name not in self.logs:
+                    self.logs[crawler_name] = []
+                self.logs[crawler_name].append(f"[{timestamp_str}] {message}")
+                if len(self.logs[crawler_name]) > 100:
+                    self.logs[crawler_name] = self.logs[crawler_name][-100:]
+        else:
+            # Fallback to in-memory
+            if crawler_name not in self.logs:
+                self.logs[crawler_name] = []
+            self.logs[crawler_name].append(f"[{timestamp_str}] {message}")
+            if len(self.logs[crawler_name]) > 100:
+                self.logs[crawler_name] = self.logs[crawler_name][-100:]
     
     def get_crawler_status(self):
         """Get status of all crawlers"""
@@ -3287,11 +3595,32 @@ class CrawlerManager:
             "global_trends": {"status": "idle", "last_run": None}
         }
         
-        # Merge with saved status
-        for name, default_status in default_crawlers.items():
-            if name not in self.crawlers:
-                self.crawlers[name] = default_status
-                self.logs[name] = []
+        # Load from database if available
+        if self.db_manager and self.db_manager._initialized:
+            try:
+                db_statuses = self.db_manager.get_crawler_status()
+                for name, default_status in default_crawlers.items():
+                    if name in db_statuses:
+                        self.crawlers[name] = db_statuses[name]
+                    else:
+                        self.crawlers[name] = default_status
+                
+                # Load logs from database
+                for name in self.crawlers.keys():
+                    self.logs[name] = self.db_manager.get_logs(name, limit=100)
+            except Exception as e:
+                logger.error(f"Error loading crawler status from database: {e}")
+                # Fallback to in-memory
+                for name, default_status in default_crawlers.items():
+                    if name not in self.crawlers:
+                        self.crawlers[name] = default_status
+                        self.logs[name] = []
+        else:
+            # Merge with saved status (in-memory)
+            for name, default_status in default_crawlers.items():
+                if name not in self.crawlers:
+                    self.crawlers[name] = default_status
+                    self.logs[name] = []
         
         # Try to get actual last run times from database
         self._update_last_run_times()
@@ -3397,7 +3726,10 @@ class CrawlerManager:
             }
             
             # Update status
+            start_time = datetime.utcnow()
             self.crawlers[crawler_name]['status'] = 'running'
+            self.crawlers[crawler_name]['pid'] = process.pid
+            self.crawlers[crawler_name]['start_time'] = start_time.isoformat() + 'Z'
             self._add_log(crawler_name, f"Started crawler process (PID: {process.pid})")
             self.save_status()
             
@@ -3463,6 +3795,8 @@ class CrawlerManager:
             # Clean up
             del self.processes[crawler_name]
             self.crawlers[crawler_name]['status'] = 'idle'
+            self.crawlers[crawler_name]['pid'] = None
+            self.crawlers[crawler_name]['start_time'] = None
             self.crawlers[crawler_name]['last_run'] = datetime.utcnow().isoformat() + 'Z'
             self._add_log(crawler_name, f"Process stopped (PID: {process_info['pid']})")
             self.save_status()

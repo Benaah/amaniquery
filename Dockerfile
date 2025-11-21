@@ -1,5 +1,5 @@
 # Multi-stage Dockerfile for AmaniQuery (Frontend + Backend)
-FROM node:20-alpine AS frontend-builder
+FROM node:25-alpine AS frontend-builder
 
 # Build Frontend
 WORKDIR /frontend
@@ -10,7 +10,7 @@ COPY frontend/ ./
 RUN npm run build
 
 # Python Backend Stage
-FROM python:3.11-slim AS backend-builder
+FROM python:3.14-slim AS backend-builder
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1
@@ -31,7 +31,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Final Production Stage
-FROM python:3.11-slim
+FROM python:3.14-slim
 
 # Install runtime dependencies
 RUN apt-get update \

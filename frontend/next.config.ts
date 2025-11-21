@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import path from "path";
 
 const nextConfig: NextConfig = {
   output: 'standalone',
@@ -11,11 +12,9 @@ const nextConfig: NextConfig = {
       },
     ],
   },
-  experimental: {
-    turbo: {
-      resolveAlias: {
-        '@': './src',
-      },
+  turbopack: {
+    resolveAlias: {
+      '@': path.resolve(__dirname, 'src'),
     },
   },
 };

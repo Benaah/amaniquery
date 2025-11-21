@@ -169,7 +169,17 @@ def main():
     print("=" * 60)
     
     # Check if voice agent should be started
-    enable_voice = os.getenv("ENABLE_VOICE_AGENT", "true").lower() == "true"
+    # Auto-disable voice agent on Render (unless explicitly enabled) to avoid CLI issues
+    is_render = os.getenv("RENDER") is not None
+    if is_render:
+        # On Render, default to disabled unless explicitly set to true
+        enable_voice = os.getenv("ENABLE_VOICE_AGENT", "false").lower() == "true"
+        if not os.getenv("ENABLE_VOICE_AGENT"):
+            print("ℹ️  Running on Render - voice agent disabled by default")
+            print("   Set ENABLE_VOICE_AGENT=true in environment to enable")
+    else:
+        # On other platforms, default to enabled
+        enable_voice = os.getenv("ENABLE_VOICE_AGENT", "true").lower() == "true"
     livekit_url = os.getenv("LIVEKIT_URL", "").strip()
     livekit_api_key = os.getenv("LIVEKIT_API_KEY", "").strip()
     livekit_api_secret = os.getenv("LIVEKIT_API_SECRET", "").strip()

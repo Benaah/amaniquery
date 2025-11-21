@@ -547,7 +547,12 @@ async def get_stats():
         if vector_store is None:
             raise HTTPException(status_code=503, detail="Service not initialized")
         
-        stats = vector_store.get_stats()
+        # Run blocking operations in thread pool to avoid blocking event loop
+        import asyncio
+        loop = asyncio.get_event_loop()
+        
+        # Run vector_store.get_stats() in thread pool
+        stats = await loop.run_in_executor(None, vector_store.get_stats)
         
         # Ensure stats is a dict and has expected keys
         if not isinstance(stats, dict):
@@ -560,13 +565,17 @@ async def get_stats():
         if "total_chunks" not in stats:
             stats["total_chunks"] = 0
         
-        # Get categories and sources
+        # Get categories and sources - also run in thread pool
         try:
             from Module3_NiruDB.metadata_manager import MetadataManager
-            meta_manager = MetadataManager(vector_store)
             
-            categories_list = meta_manager.get_categories()
-            sources_list = meta_manager.get_sources()
+            def get_metadata():
+                meta_manager = MetadataManager(vector_store)
+                categories_list = meta_manager.get_categories()
+                sources_list = meta_manager.get_sources()
+                return categories_list, sources_list
+            
+            categories_list, sources_list = await loop.run_in_executor(None, get_metadata)
         except Exception as e:
             logger.error(f"Error getting metadata: {e}")
             categories_list = ["Unknown"]
@@ -2323,7 +2332,12 @@ async def get_database_stats(
         raise HTTPException(status_code=503, detail="Vector store not initialized")
     
     try:
-        stats = vector_store.get_stats()
+        # Run blocking operations in thread pool to avoid blocking event loop
+        import asyncio
+        loop = asyncio.get_event_loop()
+        
+        # Run vector_store.get_stats() in thread pool
+        stats = await loop.run_in_executor(None, vector_store.get_stats)
         
         # Format the response with detailed backend information
         databases = []
@@ -2349,8 +2363,8 @@ async def get_database_stats(
         cloud_backends = stats.get("cloud_backends", [])
         for backend_name in cloud_backends:
             if backend_name not in used_names:
-                # Get individual stats for each cloud backend
-                backend_stats = get_individual_backend_stats(backend_name)
+                # Get individual stats for each cloud backend - also run in thread pool
+                backend_stats = await loop.run_in_executor(None, get_individual_backend_stats, backend_name)
                 db_info = {
                     "name": backend_name,
                     "type": "cloud",
@@ -2404,11 +2418,22 @@ async def get_database_storage_stats(
     try:
         if database_storage is None:
             raise HTTPException(status_code=503, detail="Database storage not initialized")
-        stats = database_storage.get_stats()
+        
+        # Run blocking operation in thread pool to avoid blocking event loop
+        import asyncio
+        loop = asyncio.get_event_loop()
+        stats = await loop.run_in_executor(None, database_storage.get_stats)
         return stats
     except Exception as e:
         logger.error(f"Error getting database storage stats: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/admin/system-info", tags=["Admin"])
+async def get_system_info(
+    request: Request,
+    admin = Depends(_admin_dependency)
+):
     """Get system information"""
     try:
         # Get basic system info

@@ -40,10 +40,12 @@ For production, set the `NEXT_PUBLIC_API_URL` environment variable to point to y
 
 1. Connect your GitHub repository to Vercel
 2. Set the following environment variable in Vercel:
-   - `NEXT_PUBLIC_API_URL`: Your production API URL (e.g., `https://your-api-domain.com`)
+   - `NEXT_PUBLIC_API_URL`: Your production API URL (e.g., `https://api-amaniquery.onrender.com`)
 3. Deploy!
 
-The app will be available at `amaniquery.vercel.app` once deployed.
+The app will be available at `https://amaniquery.vercel.app` once deployed.
+
+**Note:** The frontend is deployed on Vercel, while the backend API is deployed on Render. Make sure to set the `NEXT_PUBLIC_API_URL` environment variable in Vercel to point to your Render API URL.
 
 ## Build Commands
 

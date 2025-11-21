@@ -58,12 +58,26 @@ docker-compose --profile db-only up
 - `CHROMA_HOST/CHROMA_PORT`: ChromaDB connection
 - `API_PORT`: API port (default: 8000)
 
+## Deployment Architecture
+
+### Frontend (Vercel)
+- **URL**: `https://amaniquery.vercel.app`
+- **Platform**: Vercel
+- **Framework**: Next.js
+- **Configuration**: See `frontend/vercel.json`
+
+### Backend API (Render)
+- **URL**: `https://api-amaniquery.onrender.com`
+- **Platform**: Render
+- **Framework**: FastAPI (Python)
+- **Configuration**: See `render.yaml`
+
 ## CORS Configuration
 
 CORS is automatically configured to allow:
-- Local development: `http://localhost:3000`
+- Local development: `http://localhost:3000`, `http://localhost:3001`
 - Docker networking: `http://frontend:3000`
-- Render deployment: `https://amaniquery.onrender.com`
+- Production frontend: `https://amaniquery.vercel.app`, `https://www.amaniquery.vercel.app`
 
 ## File Structure
 
@@ -84,7 +98,10 @@ CORS is automatically configured to allow:
 1. Push code to GitHub
 2. Connect repository to Render
 3. Render will automatically create services based on `render.yaml`
-4. Services will have proper networking and CORS configured
+4. The service name `api-amaniquery` will automatically be assigned the URL `https://api-amaniquery.onrender.com`
+5. Services will have proper networking and CORS configured
+
+**Note:** Render automatically assigns URLs based on service names. The service named `api-amaniquery` will be accessible at `https://api-amaniquery.onrender.com`.
 
 ### Manual Docker Deployment
 

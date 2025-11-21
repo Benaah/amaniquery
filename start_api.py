@@ -113,9 +113,15 @@ def start_api():
     else:
         logger.info(f"🔌 Using default port: {port}")
 
-    # On Windows, disable reload by default to avoid multiprocessing issues
+    # Disable reload on production platforms (Render) and Windows to avoid issues
+    is_render = os.getenv("RENDER") is not None
     is_windows = platform.system() == "Windows"
-    if is_windows:
+    
+    if is_render:
+        # Always disable reload on Render for reliable port binding
+        reload_enabled = False
+        logger.info("🔧 Running on Render - reload disabled for reliable port binding")
+    elif is_windows:
         reload_enabled = os.getenv("API_RELOAD", "False").lower() == "true"
         if reload_enabled:
             logger.warning("⚠️  Reload enabled on Windows may cause import issues")
@@ -147,12 +153,15 @@ def start_api():
             "node_modules/**",
         ] if reload_enabled else None
         
+        logger.info(f"🚀 Starting uvicorn server on {host}:{port}")
         uvicorn.run(
             "Module4_NiruAPI.api:app",
             host=host,
             port=port,
             reload=reload_enabled,
             reload_excludes=reload_excludes,
+            log_level="info",
+            access_log=True,
         )
     except KeyboardInterrupt:
         logger.info("\n👋 API server stopped")

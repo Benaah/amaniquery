@@ -67,7 +67,7 @@ load_dotenv()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Handle application startup and shutdown"""
-    global vector_store, rag_pipeline, alignment_pipeline, sms_pipeline, sms_service, metadata_manager, chat_manager, crawler_manager, research_module, agentic_research_module, report_generator, config_manager, notification_service, hybrid_rag_pipeline, autocomplete_tool, vision_storage, vision_rag_service
+    global vector_store, rag_pipeline, alignment_pipeline, sms_pipeline, sms_service, metadata_manager, chat_manager, crawler_manager, research_module, agentic_research_module, report_generator, config_manager, notification_service, hybrid_rag_pipeline, autocomplete_tool, vision_storage, vision_rag_service, database_storage
     
     logger.info("Starting AmaniQuery API")
     
@@ -345,6 +345,15 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Vision RAG service not available: {e}. Vision RAG features will be disabled.")
         vision_rag_service = None
+    
+    # Initialize DatabaseStorage (reused across requests to avoid blocking)
+    try:
+        from Module3_NiruDB.database_storage import DatabaseStorage
+        database_storage = DatabaseStorage()
+        logger.info("Database storage initialized")
+    except Exception as e:
+        logger.warning(f"Database storage not available: {e}")
+        database_storage = None
     
     logger.info("AmaniQuery API ready")
     
@@ -825,6 +834,7 @@ config_manager = None
 notification_service = None
 hybrid_rag_pipeline = None
 autocomplete_tool = None
+database_storage = None
 
 @app.post("/query/hybrid", response_model=QueryResponse, tags=["Hybrid RAG"])
 async def query_hybrid(request: QueryRequest):
@@ -2392,9 +2402,9 @@ async def get_database_storage_stats(
 ):
     """Get database storage statistics"""
     try:
-        from Module3_NiruDB.database_storage import DatabaseStorage
-        db_storage = DatabaseStorage()
-        stats = db_storage.get_stats()
+        if database_storage is None:
+            raise HTTPException(status_code=503, detail="Database storage not initialized")
+        stats = database_storage.get_stats()
         return stats
     except Exception as e:
         logger.error(f"Error getting database storage stats: {e}")
@@ -3274,8 +3284,9 @@ class CrawlerManager:
     def _update_last_run_times(self):
         """Update last run times from database"""
         try:
-            from Module3_NiruDB.database_storage import DatabaseStorage
-            db_storage = DatabaseStorage()
+            if database_storage is None:
+                logger.warning("Database storage not available, skipping last run times update")
+                return
             
             # Map crawler names to database categories/sources
             crawler_mapping = {
@@ -3285,7 +3296,7 @@ class CrawlerManager:
                 "global_trends": {"category": "Global Trend"}
             }
             
-            with db_storage.get_db_session() as db:
+            with database_storage.get_db_session() as db:
                 for crawler_name, filters in crawler_mapping.items():
                     try:
                         # Query the most recent crawl_date for this crawler type

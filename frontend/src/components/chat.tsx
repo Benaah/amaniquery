@@ -9,7 +9,7 @@ import rehypeHighlight from "rehype-highlight"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -44,7 +44,8 @@ import {
   Edit,
   RotateCw,
   Image as ImageIcon,
-  Eye
+  Eye,
+  Check
 } from "lucide-react"
 import { FileUpload } from "./chat/FileUpload"
 import { ImagePreview } from "./chat/ImagePreview"
@@ -77,6 +78,8 @@ interface Message {
   saved?: boolean
   failed?: boolean
   originalQuery?: string
+  isEditing?: boolean
+  isRegenerating?: boolean
 }
 
 interface Source {
@@ -178,10 +181,14 @@ export function Chat() {
   const [showAutocomplete, setShowAutocomplete] = useState(false)
   const [selectedFiles, setSelectedFiles] = useState<File[]>([])
   const [uploadingFiles, setUploadingFiles] = useState(false)
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
+  const [editingContent, setEditingContent] = useState("")
+  const [regeneratingMessageId, setRegeneratingMessageId] = useState<string | null>(null)
   const autocompleteTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const messagesContainerRef = useRef<HTMLDivElement | null>(null)
   const messagesEndRef = useRef<HTMLDivElement | null>(null)
-  const inputRef = useRef<HTMLInputElement | null>(null)
+  const inputRef = useRef<HTMLTextAreaElement | null>(null)
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null)
 
   const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
   const ENABLE_AUTOCOMPLETE = process.env.NEXT_PUBLIC_ENABLE_AUTOCOMPLETE !== "false" // Default to true if not set
@@ -210,6 +217,16 @@ export function Chat() {
   useEffect(() => {
     scrollMessagesToBottom(messages.length < 3 ? "instant" : "smooth")
   }, [messages, isLoading, scrollMessagesToBottom])
+
+
+  // Auto-resize textarea
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "auto"
+      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 200)}px`
+    }
+  }, [input])
+
 
   const findPreviousUserPrompt = useCallback(
     (messageId: string) => {
@@ -389,7 +406,7 @@ export function Chat() {
     return attachmentIds
   }
 
-  const sendMessage = async (content: string) => {
+  const sendMessage = useCallback(async (content: string) => {
     if (!content.trim() && selectedFiles.length === 0) return
 
     let sessionId = currentSessionId
@@ -786,7 +803,7 @@ ${researchProcess.tools_used && researchProcess.tools_used.length > 0
     } finally {
       setIsLoading(false)
     }
-  }
+  }, [currentSessionId, selectedFiles, isResearchMode, useHybrid, getAuthHeaders, API_BASE_URL, loadChatHistory, createNewSession, uploadFiles])
 
   const submitFeedback = async (messageId: string, feedbackType: "like" | "dislike") => {
     console.log("Submitting feedback for message:", messageId, "type:", feedbackType)
@@ -862,6 +879,58 @@ ${researchProcess.tools_used && researchProcess.tools_used.length > 0
     
     // Resend the query
     await sendMessage(query)
+  }
+
+  const startEditingMessage = (message: Message) => {
+    if (message.role !== "user") return
+    setEditingMessageId(message.id)
+    setEditingContent(message.content)
+  }
+
+  const cancelEditing = () => {
+    setEditingMessageId(null)
+    setEditingContent("")
+  }
+
+  const saveEditedMessage = async (messageId: string) => {
+    if (!editingContent.trim()) return
+    
+    const messageIndex = messages.findIndex(m => m.id === messageId)
+    if (messageIndex === -1) return
+
+    // Remove the edited message and all following messages
+    setMessages(prev => prev.slice(0, messageIndex))
+    
+    // Resend with edited content
+    setEditingMessageId(null)
+    setEditingContent("")
+    await sendMessage(editingContent)
+  }
+
+  const regenerateMessage = async (messageId: string) => {
+    const messageIndex = messages.findIndex(m => m.id === messageId)
+    if (messageIndex === -1 || messages[messageIndex].role !== "assistant") return
+
+    // Find the user message that prompted this response
+    let userMessageIndex = -1
+    let userMessageContent = ""
+    for (let i = messageIndex - 1; i >= 0; i--) {
+      if (messages[i].role === "user") {
+        userMessageIndex = i
+        userMessageContent = messages[i].content
+        break
+      }
+    }
+
+    if (userMessageIndex === -1) return
+
+    // Remove the user message and all following messages
+    setMessages(prev => prev.slice(0, userMessageIndex))
+    
+    // Resend the query
+    setRegeneratingMessageId(messageId)
+    await sendMessage(userMessageContent)
+    setRegeneratingMessageId(null)
   }
 
   const deleteSession = async (sessionId: string) => {
@@ -1515,20 +1584,39 @@ ${researchProcess.tools_used && researchProcess.tools_used.length > 0
             className="flex-1 overflow-y-auto px-3 md:px-8 py-6 space-y-4 scrollbar-thin scrollbar-thumb-white/10 min-h-0"
           >
             {messages.length === 0 && (
-              <div className="text-center py-10 md:py-20">
-                <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-white/10">
-                  <Bot className="h-7 w-7 text-primary" />
+              <div className="text-center py-10 md:py-20 animate-in fade-in duration-500">
+                <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-3xl bg-gradient-to-br from-primary/20 to-primary/10 border border-primary/20 backdrop-blur-xl">
+                  <Bot className="h-8 w-8 text-primary animate-pulse" />
                 </div>
-                <h2 className="text-lg md:text-2xl font-semibold">
-                  Welcome to AmaniQuery {isResearchMode && "(Research Mode)"} {useHybrid && !isResearchMode && "(Hybrid Mode)"}
+                <h2 className="text-2xl md:text-3xl font-bold mb-3 bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text text-transparent">
+                  Welcome to AmaniQuery
                 </h2>
-                <p className="text-muted-foreground mt-2 text-sm md:text-base max-w-xl mx-auto">
+                {isResearchMode && (
+                  <Badge variant="default" className="mb-4 bg-blue-600/90 text-xs py-1 px-3">
+                    <Search className="w-3 h-3 mr-1" />
+                    Research Mode
+                  </Badge>
+                )}
+                {useHybrid && !isResearchMode && (
+                  <Badge variant="default" className="mb-4 bg-purple-600/90 text-xs py-1 px-3">
+                    <Sparkles className="w-3 h-3 mr-1" />
+                    Hybrid Mode
+                  </Badge>
+                )}
+                <p className="text-muted-foreground mt-4 text-sm md:text-base max-w-2xl mx-auto leading-relaxed">
                   {isResearchMode
                     ? "Submit a detailed Kenyan legal question and receive structured analysis built for citations and downstream reporting."
                     : useHybrid
                     ? "Enhanced RAG with hybrid encoder and adaptive retrieval. Ask about Kenyan law, parliament, or current affairs with improved accuracy."
                     : "Ask about Kenyan law, parliament, or current affairs. Answers stream in real time with sources you can trust."}
                 </p>
+                <div className="mt-6 flex items-center justify-center gap-2 text-xs text-muted-foreground">
+                  <kbd className="px-2 py-1 rounded border border-white/10 bg-white/5">⌘K</kbd>
+                  <span>to focus input</span>
+                  <span className="mx-2">•</span>
+                  <kbd className="px-2 py-1 rounded border border-white/10 bg-white/5">⌘↵</kbd>
+                  <span>to send</span>
+                </div>
                 <div className="mt-8 grid gap-3 md:grid-cols-2 max-w-3xl mx-auto">
                   {(isResearchMode ? researchSuggestedQuestions : suggestedQuestions).map((question) => (
                     <button
@@ -1553,28 +1641,95 @@ ${researchProcess.tools_used && researchProcess.tools_used.length > 0
               </div>
             )}
 
-            {messages.map((message) => (
-              <div
-                key={message.id}
-                className={`flex ${message.role === "user" ? "justify-end" : "justify-start"} animate-in fade-in slide-in-from-bottom-3`}
-              >
-                <div
-                  className={`flex w-full max-w-3xl ${message.role === "user" ? "flex-row-reverse text-right" : "flex-row"} gap-3`}
-                >
+            {messages.map((message, index) => {
+              const prevMessage = index > 0 ? messages[index - 1] : null
+              const showDateSeparator = !prevMessage || 
+                new Date(message.created_at).toDateString() !== new Date(prevMessage.created_at).toDateString()
+              const showAvatar = !prevMessage || prevMessage.role !== message.role || 
+                (new Date(message.created_at).getTime() - new Date(prevMessage.created_at).getTime()) > 300000 // 5 minutes
+              
+              return (
+                <div key={message.id}>
+                  {showDateSeparator && (
+                    <div className="flex items-center justify-center my-6">
+                      <div className="text-xs text-muted-foreground bg-background/80 px-4 py-1.5 rounded-full border border-white/10">
+                        {new Date(message.created_at).toLocaleDateString(undefined, { 
+                          weekday: 'long', 
+                          year: 'numeric', 
+                          month: 'long', 
+                          day: 'numeric' 
+                        })}
+                      </div>
+                    </div>
+                  )}
                   <div
-                    className={`flex-shrink-0 h-10 w-10 rounded-2xl border border-white/10 backdrop-blur flex items-center justify-center ${
-                      message.role === "user" ? "bg-primary/90 text-primary-foreground" : "bg-white/5 text-white"
-                    }`}
+                    className={`flex ${message.role === "user" ? "justify-end" : "justify-start"} group animate-in fade-in slide-in-from-bottom-2 duration-300`}
                   >
-                    {message.role === "user" ? <User className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
-                  </div>
-                  <div className="flex-1 space-y-3">
-                    <Card
-                      className={`rounded-3xl border border-white/5 bg-white/5 text-sm md:text-base shadow-xl ${
-                        message.role === "user" ? "bg-primary/90 text-primary-foreground" : "backdrop-blur-xl"
-                      } ${message.failed ? "border-red-500/50 bg-red-500/10" : ""}`}
+                    <div
+                      className={`flex w-full max-w-3xl ${message.role === "user" ? "flex-row-reverse text-right" : "flex-row"} gap-3`}
                     >
-                      <CardContent className="p-4 md:p-6 space-y-3">
+                  {showAvatar && (
+                    <div
+                      className={`flex-shrink-0 h-10 w-10 rounded-2xl border border-white/10 backdrop-blur flex items-center justify-center transition-all duration-200 ${
+                        message.role === "user" ? "bg-primary/90 text-primary-foreground" : "bg-white/5 text-white"
+                      }`}
+                    >
+                      {message.role === "user" ? <User className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
+                    </div>
+                  )}
+                  {!showAvatar && <div className="flex-shrink-0 w-10" />}
+                  <div className="flex-1 space-y-3">
+                    {editingMessageId === message.id && message.role === "user" ? (
+                      <Card className="rounded-3xl border border-primary/50 bg-primary/10 backdrop-blur-xl">
+                        <CardContent className="p-4 md:p-6 space-y-3">
+                          <Textarea
+                            value={editingContent}
+                            onChange={(e) => setEditingContent(e.target.value)}
+                            className="w-full min-h-[100px] bg-background/50 border-white/20"
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                                e.preventDefault()
+                                saveEditedMessage(message.id)
+                              }
+                              if (e.key === "Escape") {
+                                cancelEditing()
+                              }
+                            }}
+                            autoFocus
+                          />
+                          <div className="flex items-center gap-2">
+                            <Button
+                              size="sm"
+                              onClick={() => saveEditedMessage(message.id)}
+                              className="h-8 rounded-full"
+                            >
+                              <Check className="w-4 h-4 mr-1" />
+                              Save
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={cancelEditing}
+                              className="h-8 rounded-full"
+                            >
+                              <X className="w-4 h-4 mr-1" />
+                              Cancel
+                            </Button>
+                            <span className="text-xs text-muted-foreground ml-auto">
+                              Press Cmd/Ctrl+Enter to save, Esc to cancel
+                            </span>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ) : (
+                      <Card
+                        className={`rounded-3xl border border-white/5 bg-white/5 text-sm md:text-base shadow-xl transition-all duration-200 ${
+                          message.role === "user" ? "bg-primary/90 text-primary-foreground" : "backdrop-blur-xl"
+                        } ${message.failed ? "border-red-500/50 bg-red-500/10" : ""} ${
+                          regeneratingMessageId === message.id ? "animate-pulse" : ""
+                        }`}
+                      >
+                        <CardContent className="p-4 md:p-6 space-y-3">
                         <div className="flex flex-wrap items-center gap-2 text-xs uppercase tracking-wider text-muted-foreground">
                           <span>{message.role === "user" ? "You" : "AmaniQuery"}</span>
                           <span className="h-1 w-1 rounded-full bg-muted-foreground/50" />
@@ -1706,6 +1861,21 @@ ${researchProcess.tools_used && researchProcess.tools_used.length > 0
                         </div>
                       </CardContent>
                     </Card>
+                    )}
+
+                    {message.role === "user" && !message.failed && editingMessageId !== message.id && (
+                      <div className="flex flex-wrap items-center gap-2 justify-end">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => startEditingMessage(message)}
+                          className="h-9 rounded-full px-3 text-xs text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          <Edit className="w-4 h-4 mr-1" />
+                          Edit
+                        </Button>
+                      </div>
+                    )}
 
                     {message.failed && (
                       <div className="flex flex-wrap items-center gap-2 justify-start">
@@ -1742,6 +1912,25 @@ ${researchProcess.tools_used && researchProcess.tools_used.length > 0
 
                     {message.role === "assistant" && !message.failed && (
                       <div className="flex flex-wrap items-center gap-2 justify-start">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => regenerateMessage(message.id)}
+                          disabled={!message.saved || isLoading || regeneratingMessageId === message.id}
+                          className="h-9 rounded-full px-3 text-xs text-muted-foreground hover:text-primary"
+                        >
+                          {regeneratingMessageId === message.id ? (
+                            <>
+                              <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                              Regenerating...
+                            </>
+                          ) : (
+                            <>
+                              <RotateCw className="w-4 h-4 mr-1" />
+                              Regenerate
+                            </>
+                          )}
+                        </Button>
                         <Button
                           variant="ghost"
                           size="sm"
@@ -1900,18 +2089,25 @@ ${researchProcess.tools_used && researchProcess.tools_used.length > 0
                   </div>
                 </div>
               </div>
-            ))}
+                </div>
+              )
+            })}
 
             {isLoading && (
-              <div className="flex justify-start">
+              <div className="flex justify-start animate-in fade-in slide-in-from-bottom-2">
                 <div className="flex w-full max-w-3xl items-start gap-3">
-                  <div className="flex-shrink-0 h-10 w-10 rounded-2xl border border-white/10 bg-white/5 flex items-center justify-center">
-                    <Bot className="w-4 h-4" />
+                  <div className="flex-shrink-0 h-10 w-10 rounded-2xl border border-white/10 bg-white/5 flex items-center justify-center animate-pulse">
+                    <Bot className="w-4 h-4 text-primary" />
                   </div>
-                  <Card className="rounded-3xl border border-white/5 bg-white/5 px-5 py-4">
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      Thinking...
+                  <Card className="rounded-3xl border border-white/5 bg-white/5 px-5 py-4 backdrop-blur-xl">
+                    <div className="flex items-center gap-3 text-sm text-muted-foreground">
+                      <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                      <div className="flex items-center gap-1">
+                        <span className="animate-pulse">Thinking</span>
+                        <span className="animate-bounce delay-75">.</span>
+                        <span className="animate-bounce delay-150">.</span>
+                        <span className="animate-bounce delay-300">.</span>
+                      </div>
                     </div>
                   </Card>
                 </div>
@@ -1972,9 +2168,9 @@ ${researchProcess.tools_used && researchProcess.tools_used.length > 0
 
         <div className="border-t border-white/5 bg-background/80 p-2 md:p-3 flex-shrink-0">
           <form onSubmit={handleSubmit} className="space-y-1.5">
-            <div className="flex items-center justify-between text-[10px] md:text-xs text-muted-foreground px-1">
+            <div className="flex items-center justify-between text-[10px] md:text-xs text-muted-foreground px-1 mb-1">
               <div className="flex items-center gap-1.5">
-                <Sparkles className="w-3 h-3 text-primary" />
+                <Sparkles className="w-3 h-3 text-primary animate-pulse" />
                 <span className="hidden sm:inline">
                   {isResearchMode
                     ? "Agentic research mode with multi-stage reasoning & tool use"
@@ -1998,7 +2194,9 @@ ${researchProcess.tools_used && researchProcess.tools_used.length > 0
                     Hybrid
                   </Badge>
                 )}
-                <span className="text-[10px]">{isLoading ? "Streaming..." : "Ready"}</span>
+                <span className={`text-[10px] transition-colors ${isLoading ? "text-primary animate-pulse" : ""}`}>
+                  {isLoading ? "Streaming..." : "Ready"}
+                </span>
               </div>
             </div>
             {selectedFiles.length > 0 && (
@@ -2040,13 +2238,25 @@ ${researchProcess.tools_used && researchProcess.tools_used.length > 0
                   </Button>
                 </div>
                 <div className="relative flex-1">
-                  <Input
-                    ref={inputRef}
+                  <Textarea
+                    ref={(el) => {
+                      inputRef.current = el
+                      textareaRef.current = el
+                    }}
                     value={input}
                     onChange={(e) => {
                       setInput(e.target.value)
                       if (ENABLE_AUTOCOMPLETE) {
                         setShowAutocomplete(true)
+                      }
+                    }}
+                    onKeyDown={(e) => {
+                      // Enter to send, Shift+Enter for new line
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault()
+                        if (input.trim() && !isLoading) {
+                          sendMessage(input)
+                        }
                       }
                     }}
                     onFocus={() => {
@@ -2063,8 +2273,9 @@ ${researchProcess.tools_used && researchProcess.tools_used.length > 0
                         ? "Ask detailed legal research questions about Kenyan laws..."
                         : "Ask about Kenyan law, parliament, or news..."
                     }
-                    className="w-full border-0 bg-transparent text-sm md:text-base focus-visible:ring-0 py-2"
+                    className="w-full border-0 bg-transparent text-sm md:text-base focus-visible:ring-0 py-2 resize-none min-h-[44px] max-h-[200px] overflow-y-auto"
                     disabled={isLoading}
+                    rows={1}
                   />
                   {ENABLE_AUTOCOMPLETE && showAutocomplete && autocompleteSuggestions.length > 0 && (
                     <div className="absolute bottom-full left-0 right-0 mb-1 rounded-xl border border-white/10 bg-white/95 dark:bg-gray-900/95 backdrop-blur-lg shadow-xl z-[100] max-h-60 overflow-y-auto">

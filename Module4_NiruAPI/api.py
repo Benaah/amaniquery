@@ -545,6 +545,12 @@ async def get_stats():
             logger.warning(f"vector_store.get_stats() returned non-dict type: {type(stats)}, defaulting to empty stats")
             stats = {"sample_categories": {}, "total_chunks": 0}
         
+        # Ensure stats has required keys with defaults
+        if "sample_categories" not in stats:
+            stats["sample_categories"] = {}
+        if "total_chunks" not in stats:
+            stats["total_chunks"] = 0
+        
         # Get categories and sources
         try:
             from Module3_NiruDB.metadata_manager import MetadataManager
@@ -557,8 +563,9 @@ async def get_stats():
             categories_list = ["Unknown"]
             sources_list = ["Unknown"]
         
-        # Convert to dict with counts
-        categories_dict = {cat: stats["sample_categories"].get(cat, 0) for cat in categories_list}
+        # Convert to dict with counts - safely access sample_categories
+        sample_categories = stats.get("sample_categories", {})
+        categories_dict = {cat: sample_categories.get(cat, 0) for cat in categories_list}
         
         # Handle case where total_chunks might be "unknown" string
         total_chunks = stats["total_chunks"]

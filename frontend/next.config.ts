@@ -12,13 +12,16 @@ const nextConfig: NextConfig = {
       },
     ],
   },
-  // Configure path aliases - Turbopack reads from tsconfig.json automatically
-  // Webpack fallback for compatibility
+  // Configure path aliases for webpack
   webpack: (config) => {
-    config.resolve.alias = {
-      ...config.resolve.alias,
-      '@': path.resolve(__dirname, 'src'),
-    };
+    if (!config.resolve) {
+      config.resolve = {};
+    }
+    if (!config.resolve.alias) {
+      config.resolve.alias = {};
+    }
+    // Set the alias to point to src directory
+    config.resolve.alias['@'] = path.resolve(__dirname, 'src');
     return config;
   },
 };

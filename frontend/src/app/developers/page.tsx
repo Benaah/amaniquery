@@ -20,6 +20,8 @@ import {
   Check,
   ArrowLeft,
 } from "lucide-react"
+import { AnimatedIDE } from "@/components/animated-ide"
+import { ChatStreamDemo } from "@/components/chat-stream-demo"
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
@@ -198,6 +200,12 @@ export default function DevelopersPage() {
               </a>
             </div>
           </div>
+        </div>
+
+        {/* Interactive Demos */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+          <AnimatedIDE />
+          <ChatStreamDemo />
         </div>
 
         {/* Quick Start */}

@@ -14,14 +14,12 @@ const nextConfig: NextConfig = {
   },
   // Configure path aliases for webpack
   webpack: (config) => {
-    if (!config.resolve) {
-      config.resolve = {};
-    }
-    if (!config.resolve.alias) {
-      config.resolve.alias = {};
-    }
-    // Set the alias to point to src directory
-    config.resolve.alias['@'] = path.resolve(__dirname, 'src');
+    // Use process.cwd() which works reliably in Next.js builds
+    const srcPath = path.join(process.cwd(), 'src');
+    config.resolve.alias = {
+      ...(config.resolve.alias || {}),
+      '@': srcPath,
+    };
     return config;
   },
 };

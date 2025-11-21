@@ -12,16 +12,8 @@ const nextConfig: NextConfig = {
       },
     ],
   },
-  // Configure path aliases for Turbopack
-  experimental: {
-    // @ts-expect-error - turbo.resolveAlias is available but types may not be updated
-    turbo: {
-      resolveAlias: {
-        '@': path.resolve(__dirname, 'src'),
-      },
-    },
-  },
-  // Fallback webpack config for non-Turbopack builds
+  // Configure path aliases - Turbopack reads from tsconfig.json automatically
+  // Webpack fallback for compatibility
   webpack: (config) => {
     config.resolve.alias = {
       ...config.resolve.alias,

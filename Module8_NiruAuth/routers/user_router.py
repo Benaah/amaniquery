@@ -87,12 +87,22 @@ async def login(
             )
         
         # Create session
-        session_token, session = SessionProvider.create_session(
-            db=db,
-            user=user,
-            ip_address=request.client.host if request.client else None,
-            user_agent=request.headers.get("user-agent")
-        )
+        try:
+            session_token, session = SessionProvider.create_session(
+                db=db,
+                user=user,
+                ip_address=request.client.host if request.client else None,
+                user_agent=request.headers.get("user-agent")
+            )
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Failed to create session for user {user.id}: {e}", exc_info=True)
+            db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to create session. Please try again."
+            )
         
         # Get user roles
         from ..authorization.role_manager import RoleManager

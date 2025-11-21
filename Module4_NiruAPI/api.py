@@ -389,7 +389,7 @@ if os.getenv("ENABLE_AUTH", "false").lower() == "true":
     # Include auth routers
     from Module8_NiruAuth.routers import (
         user_router, admin_router, integration_router,
-        api_key_router, oauth_router, analytics_router
+        api_key_router, oauth_router, analytics_router, blog_router
     )
     from Module8_NiruAuth.routers.phone_verification_router import router as phone_verification_router
     
@@ -399,6 +399,7 @@ if os.getenv("ENABLE_AUTH", "false").lower() == "true":
     app.include_router(api_key_router)
     app.include_router(oauth_router)
     app.include_router(analytics_router)
+    app.include_router(blog_router)
     app.include_router(phone_verification_router)
 
 app.include_router(share_router)

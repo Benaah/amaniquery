@@ -189,47 +189,67 @@ class AuthMiddleware(BaseHTTPMiddleware):
             logger = logging.getLogger(__name__)
             logger.info(f"Attempting session authentication for {request.url.path}, token_length={len(session_token)}, header={bool(request.headers.get('X-Session-Token'))}, cookie={bool(request.cookies.get('session_token'))}")
             
-            # Refresh the database session to ensure we see latest data
-            db.expire_all()
-            
-            session = SessionProvider.validate_session(db, session_token)
-            if session:
-                # Refresh to get user
+            try:
+                # Refresh the database session to ensure we see latest data
+                # First, ensure any pending transactions are committed
+                try:
+                    db.commit()
+                except:
+                    pass
                 db.expire_all()
-                user = db.query(User).filter(User.id == session.user_id).first()
-                if user:
-                    logger.info(f"Session authentication successful for user {user.id} on {request.url.path}")
-                    return AuthContext(
-                        auth_method="session",
-                        user_id=user.id,
-                        integration_id=None
-                    )
-                else:
-                    # Log warning if session exists but user doesn't
-                    logger.warning(f"Session found but user not found: session.user_id={session.user_id}")
-            else:
-                # Log detailed warning if session token provided but not valid
+                
+                # Verify we can see the session before validation
                 from ..models.auth_models import UserSession
-                from sqlalchemy import and_
-                from datetime import datetime
                 token_hash = SessionProvider.hash_token(session_token)
-                existing_session = db.query(UserSession).filter(
+                test_session = db.query(UserSession).filter(
                     UserSession.session_token == token_hash
                 ).first()
-                if existing_session:
-                    now = datetime.utcnow()
-                    is_expired = existing_session.expires_at < now if existing_session.expires_at else None
-                    logger.warning(
-                        f"Session validation failed for {request.url.path}: "
-                        f"is_active={existing_session.is_active}, "
-                        f"expires_at={existing_session.expires_at}, "
-                        f"now={now}, "
-                        f"expired={is_expired}, "
-                        f"user_id={existing_session.user_id}, "
-                        f"time_diff={(existing_session.expires_at - now).total_seconds() if existing_session.expires_at and not is_expired else 'N/A'} seconds"
-                    )
+                if test_session:
+                    logger.debug(f"Session visible in middleware DB session: id={test_session.id}, is_active={test_session.is_active}")
                 else:
-                    logger.warning(f"No session found in database for token (path: {request.url.path}, token_length: {len(session_token)})")
+                    logger.warning(f"Session NOT visible in middleware DB session before validation: token_hash={token_hash[:16]}...")
+                
+                session = SessionProvider.validate_session(db, session_token)
+                if session:
+                    # Refresh to get user
+                    db.expire_all()
+                    user = db.query(User).filter(User.id == session.user_id).first()
+                    if user:
+                        logger.info(f"Session authentication successful for user {user.id} on {request.url.path}")
+                        return AuthContext(
+                            auth_method="session",
+                            user_id=user.id,
+                            integration_id=None
+                        )
+                    else:
+                        # Log warning if session exists but user doesn't
+                        logger.warning(f"Session found but user not found: session.user_id={session.user_id}")
+                else:
+                    # Log detailed warning if session token provided but not valid
+                    from ..models.auth_models import UserSession
+                    from sqlalchemy import and_
+                    from datetime import datetime
+                    token_hash = SessionProvider.hash_token(session_token)
+                    existing_session = db.query(UserSession).filter(
+                        UserSession.session_token == token_hash
+                    ).first()
+                    if existing_session:
+                        now = datetime.utcnow()
+                        is_expired = existing_session.expires_at < now if existing_session.expires_at else None
+                        logger.warning(
+                            f"Session validation failed for {request.url.path}: "
+                            f"is_active={existing_session.is_active}, "
+                            f"expires_at={existing_session.expires_at}, "
+                            f"now={now}, "
+                            f"expired={is_expired}, "
+                            f"user_id={existing_session.user_id}, "
+                            f"time_diff={(existing_session.expires_at - now).total_seconds() if existing_session.expires_at and not is_expired else 'N/A'} seconds"
+                        )
+                    else:
+                        logger.warning(f"No session found in database for token (path: {request.url.path}, token_length: {len(session_token)})")
+            except Exception as e:
+                logger.error(f"Error during session authentication for {request.url.path}: {e}", exc_info=True)
+                # Continue to try other auth methods or return None
         
         # No authentication found - return None (endpoint may be optional auth)
         return None

@@ -7,6 +7,7 @@ from .integration_router import router as integration_router
 from .api_key_router import router as api_key_router
 from .oauth_router import router as oauth_router
 from .analytics_router import router as analytics_router
+from .blog_router import router as blog_router
 
 __all__ = [
     "user_router",
@@ -15,5 +16,6 @@ __all__ = [
     "api_key_router",
     "oauth_router",
     "analytics_router",
+    "blog_router",
 ]
 

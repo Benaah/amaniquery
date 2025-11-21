@@ -139,9 +139,10 @@ class SessionProvider:
             if session.expires_at:
                 # Ensure both datetimes are timezone-naive for comparison
                 expires_at = session.expires_at
-                if hasattr(expires_at, 'replace') and expires_at.tzinfo is not None:
+                if hasattr(expires_at, 'tzinfo') and expires_at.tzinfo is not None:
                     # Convert timezone-aware to naive UTC
-                    expires_at = expires_at.replace(tzinfo=None)
+                    from datetime import timezone
+                    expires_at = expires_at.astimezone(timezone.utc).replace(tzinfo=None)
                 
                 is_expired = expires_at <= now
                 time_diff = (expires_at - now).total_seconds()

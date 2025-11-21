@@ -1387,7 +1387,7 @@ ${researchProcess.tools_used && researchProcess.tools_used.length > 0
         <div className="absolute bottom-0 right-0 h-80 w-80 rounded-full bg-blue-500/10 blur-[120px]" />
       </div>
 
-      <div className="hidden md:flex w-72 border-r border-white/5 bg-black/20 backdrop-blur-xl overflow-y-auto flex-col transition-all duration-300 ease-in-out h-full">
+      <div className="hidden md:flex w-72 border-r border-white/5 bg-black/20 backdrop-blur-xl overflow-y-auto flex-col transition-all duration-300 ease-in-out h-full [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
         <div className="p-4 border-b border-white/5">
           <div className="flex items-center justify-between">
             <div>
@@ -1404,21 +1404,24 @@ ${researchProcess.tools_used && researchProcess.tools_used.length > 0
         </div>
         <div className="p-3 space-y-2 flex-1">
           {chatHistory.map((session) => (
-            <div key={session.id} className="flex items-center space-x-2 p-1 group">
+            <div key={session.id} className="flex items-center space-x-2 p-1 group min-w-0">
               <Button
                 variant={currentSessionId === session.id ? "secondary" : "ghost"}
-                className="flex-1 justify-between text-left h-auto px-3 py-2 text-xs transition-all duration-200 rounded-2xl border border-transparent group-hover:border-white/10"
+                className="flex-1 justify-between text-left h-auto px-3 py-2 text-xs transition-all duration-200 rounded-2xl border border-transparent group-hover:border-white/10 min-w-0"
                 onClick={() => loadSession(session.id)}
               >
-                <div className="flex items-center w-full">
-                  <div className="flex h-7 w-7 items-center justify-center rounded-xl bg-white/10 mr-3">
+                <div className="flex items-center w-full min-w-0">
+                  <div className="flex h-7 w-7 items-center justify-center rounded-xl bg-white/10 mr-3 flex-shrink-0">
                     <MessageSquare className="w-3.5 h-3.5" />
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="font-medium truncate text-xs">
+                  <div className="flex-1 min-w-0 overflow-hidden">
+                    <div 
+                      className="font-medium truncate text-xs block"
+                      title={session.title || `Chat ${session.id.slice(-6)}`}
+                    >
                       {session.title || `Chat ${session.id.slice(-6)}`}
                     </div>
-                    <div className="text-[11px] text-muted-foreground">{session.message_count} messages</div>
+                    <div className="text-[11px] text-muted-foreground truncate">{session.message_count} messages</div>
                   </div>
                 </div>
               </Button>
@@ -1458,21 +1461,26 @@ ${researchProcess.tools_used && researchProcess.tools_used.length > 0
                 New Chat
               </Button>
             </div>
-            <div className="p-2 space-y-1 flex-1 overflow-y-auto">
+            <div className="p-2 space-y-1 flex-1 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
               {chatHistory.map((session) => (
-                <div key={session.id} className="flex items-center space-x-2 p-1">
+                <div key={session.id} className="flex items-center space-x-2 p-1 group min-w-0">
                   <Button
                     variant={currentSessionId === session.id ? "secondary" : "ghost"}
-                    className="flex-1 justify-start text-left h-auto p-3"
+                    className="flex-1 justify-start text-left h-auto p-3 min-w-0"
                     onClick={() => {
                       loadSession(session.id)
                       setShowHistory(false)
                     }}
                   >
                     <MessageSquare className="w-4 h-4 mr-2 flex-shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <div className="font-medium truncate">{session.title || `Chat ${session.id.slice(-8)}`}</div>
-                      <div className="text-xs text-muted-foreground">{session.message_count} messages</div>
+                    <div className="flex-1 min-w-0 overflow-hidden">
+                      <div 
+                        className="font-medium truncate block"
+                        title={session.title || `Chat ${session.id.slice(-8)}`}
+                      >
+                        {session.title || `Chat ${session.id.slice(-8)}`}
+                      </div>
+                      <div className="text-xs text-muted-foreground truncate">{session.message_count} messages</div>
                     </div>
                   </Button>
                   <Button
@@ -1581,7 +1589,7 @@ ${researchProcess.tools_used && researchProcess.tools_used.length > 0
         <div className="flex-1 overflow-hidden flex flex-col min-h-0">
           <div
             ref={messagesContainerRef}
-            className="flex-1 overflow-y-auto px-3 md:px-8 py-6 space-y-4 scrollbar-thin scrollbar-thumb-white/10 min-h-0"
+            className="flex-1 overflow-y-auto px-3 md:px-8 py-6 space-y-4 min-h-0 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
           >
             {messages.length === 0 && (
               <div className="text-center py-10 md:py-20 animate-in fade-in duration-500">
@@ -1724,13 +1732,19 @@ ${researchProcess.tools_used && researchProcess.tools_used.length > 0
                     ) : (
                       <Card
                         className={`rounded-3xl border border-white/5 bg-white/5 text-sm md:text-base shadow-xl transition-all duration-200 ${
-                          message.role === "user" ? "bg-primary/90 text-primary-foreground" : "backdrop-blur-xl"
+                          message.role === "user" 
+                            ? "bg-primary text-primary-foreground dark:bg-primary/90 dark:text-primary-foreground" 
+                            : "backdrop-blur-xl"
                         } ${message.failed ? "border-red-500/50 bg-red-500/10" : ""} ${
                           regeneratingMessageId === message.id ? "animate-pulse" : ""
                         }`}
                       >
                         <CardContent className="p-4 md:p-6 space-y-3">
-                        <div className="flex flex-wrap items-center gap-2 text-xs uppercase tracking-wider text-muted-foreground">
+                        <div className={`flex flex-wrap items-center gap-2 text-xs uppercase tracking-wider ${
+                          message.role === "user" 
+                            ? "text-primary-foreground/80 dark:text-primary-foreground/80" 
+                            : "text-muted-foreground"
+                        }`}>
                           <span>{message.role === "user" ? "You" : "AmaniQuery"}</span>
                           <span className="h-1 w-1 rounded-full bg-muted-foreground/50" />
                           <span>{formatTimestamp(message.created_at)}</span>
@@ -1854,7 +1868,11 @@ ${researchProcess.tools_used && researchProcess.tools_used.length > 0
                           </div>
                         )}
 
-                        <div className="prose prose-sm md:prose-base max-w-none dark:prose-invert text-sm md:text-base">
+                        <div className={`prose prose-sm md:prose-base max-w-none dark:prose-invert text-sm md:text-base ${
+                          message.role === "user" 
+                            ? "prose-headings:text-primary-foreground prose-p:text-primary-foreground prose-strong:text-primary-foreground prose-em:text-primary-foreground prose-code:text-primary-foreground prose-pre:text-primary-foreground prose-a:text-primary-foreground/90 hover:prose-a:text-primary-foreground prose-li:text-primary-foreground" 
+                            : ""
+                        }`}>
                           <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw, rehypeHighlight]}>
                             {formatMessageWithCitations(message.content, message.sources)}
                           </ReactMarkdown>
@@ -2038,7 +2056,7 @@ ${researchProcess.tools_used && researchProcess.tools_used.length > 0
                           {!shareSheet.isLoading && shareSheet.preview && (
                             <div className="space-y-2">
                               <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Preview</p>
-                              <div className="rounded-xl bg-background/80 border border-white/10 p-3 max-h-64 overflow-auto text-xs md:text-sm whitespace-pre-wrap">
+                              <div className="rounded-xl bg-background/80 border border-white/10 p-3 max-h-64 overflow-auto text-xs md:text-sm whitespace-pre-wrap [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
                                 {Array.isArray(shareSheet.preview.content)
                                   ? shareSheet.preview.content.join("\n\n")
                                   : shareSheet.preview.content}
@@ -2273,12 +2291,12 @@ ${researchProcess.tools_used && researchProcess.tools_used.length > 0
                         ? "Ask detailed legal research questions about Kenyan laws..."
                         : "Ask about Kenyan law, parliament, or news..."
                     }
-                    className="w-full border-0 bg-transparent text-sm md:text-base focus-visible:ring-0 py-2 resize-none min-h-[44px] max-h-[200px] overflow-y-auto"
+                    className="w-full border-0 bg-transparent text-sm md:text-base focus-visible:ring-0 py-2 resize-none min-h-[44px] max-h-[200px] overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
                     disabled={isLoading}
                     rows={1}
                   />
                   {ENABLE_AUTOCOMPLETE && showAutocomplete && autocompleteSuggestions.length > 0 && (
-                    <div className="absolute bottom-full left-0 right-0 mb-1 rounded-xl border border-white/10 bg-white/95 dark:bg-gray-900/95 backdrop-blur-lg shadow-xl z-[100] max-h-60 overflow-y-auto">
+                    <div className="absolute bottom-full left-0 right-0 mb-1 rounded-xl border border-white/10 bg-white/95 dark:bg-gray-900/95 backdrop-blur-lg shadow-xl z-[100] max-h-60 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
                       {autocompleteSuggestions.map((suggestion, idx) => (
                         <button
                           key={idx}

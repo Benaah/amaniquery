@@ -131,9 +131,7 @@ export const FilePicker: React.FC<FilePickerProps> = ({
                 <Text style={styles.fileName} numberOfLines={1}>
                   {file.name}
                 </Text>
-                <Text style={styles.fileSize}>
-                  {formatFileSize(file.size)}
-                </Text>
+                <Text style={styles.fileSize}>{formatFileSize(file.size)}</Text>
               </View>
               <TouchableOpacity
                 onPress={() => removeFile(index)}

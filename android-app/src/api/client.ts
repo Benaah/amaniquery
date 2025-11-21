@@ -8,15 +8,26 @@ class APIClient {
     this.baseURL = baseURL.replace(/\/$/, ''); // Remove trailing slash
   }
 
+  private async getSessionToken(): Promise<string | null> {
+    try {
+      const {storage} = await import('../utils/storage');
+      return storage.getSessionToken();
+    } catch {
+      return null;
+    }
+  }
+
   private async request<T>(
     endpoint: string,
     options: RequestInit = {},
   ): Promise<T> {
     const url = `${this.baseURL}${endpoint}`;
+    const sessionToken = await this.getSessionToken();
     const config: RequestInit = {
       ...options,
       headers: {
         'Content-Type': 'application/json',
+        ...(sessionToken && {'X-Session-Token': sessionToken}),
         ...options.headers,
       },
     };
@@ -33,7 +44,9 @@ class APIClient {
             error: `HTTP ${response.status}: ${response.statusText}`,
           };
         }
-        throw new Error(errorData.error || errorData.detail || 'Request failed');
+        throw new Error(
+          errorData.error || errorData.detail || 'Request failed',
+        );
       }
 
       // Handle empty responses
@@ -54,7 +67,11 @@ class APIClient {
     return this.request<T>(endpoint, {...options, method: 'GET'});
   }
 
-  async post<T>(endpoint: string, data?: any, options?: RequestInit): Promise<T> {
+  async post<T>(
+    endpoint: string,
+    data?: any,
+    options?: RequestInit,
+  ): Promise<T> {
     return this.request<T>(endpoint, {
       ...options,
       method: 'POST',
@@ -62,7 +79,11 @@ class APIClient {
     });
   }
 
-  async put<T>(endpoint: string, data?: any, options?: RequestInit): Promise<T> {
+  async put<T>(
+    endpoint: string,
+    data?: any,
+    options?: RequestInit,
+  ): Promise<T> {
     return this.request<T>(endpoint, {
       ...options,
       method: 'PUT',
@@ -76,7 +97,7 @@ class APIClient {
 
   async postForm<T>(endpoint: string, formData: FormData): Promise<T> {
     const url = `${this.baseURL}${endpoint}`;
-    
+
     try {
       const response = await fetch(url, {
         method: 'POST',
@@ -95,7 +116,9 @@ class APIClient {
             error: `HTTP ${response.status}: ${response.statusText}`,
           };
         }
-        throw new Error(errorData.error || errorData.detail || 'Request failed');
+        throw new Error(
+          errorData.error || errorData.detail || 'Request failed',
+        );
       }
 
       const contentType = response.headers.get('content-type');
@@ -119,7 +142,7 @@ class APIClient {
     onComplete?: (metadata?: any) => void,
   ): Promise<void> {
     const url = `${this.baseURL}${endpoint}`;
-    
+
     try {
       const response = await fetch(url, {
         method: 'POST',
@@ -190,4 +213,3 @@ class APIClient {
 }
 
 export const apiClient = new APIClient();
-

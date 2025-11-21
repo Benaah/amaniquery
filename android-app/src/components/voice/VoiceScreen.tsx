@@ -7,7 +7,12 @@ import {
   TextInput,
   Alert,
 } from 'react-native';
-import {Room, RoomEvent, RemoteParticipant, DataPacket_Kind} from '@livekit/react-native';
+import {
+  Room,
+  RoomEvent,
+  RemoteParticipant,
+  DataPacket_Kind,
+} from '@livekit/react-native';
 import {voiceAPI} from '../../api/voice';
 import {LIVEKIT_URL} from '../../utils/config';
 import {TranscriptView, TranscriptMessage} from './TranscriptView';
@@ -241,4 +246,3 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 });
-

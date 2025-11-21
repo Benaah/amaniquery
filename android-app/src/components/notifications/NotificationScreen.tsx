@@ -32,7 +32,9 @@ export const NotificationScreen: React.FC = () => {
       const data = await notificationsAPI.getSubscriptions();
       setSubscriptions(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load subscriptions');
+      setError(
+        err instanceof Error ? err.message : 'Failed to load subscriptions',
+      );
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -49,7 +51,9 @@ export const NotificationScreen: React.FC = () => {
       await notificationsAPI.deleteSubscription(id);
       await loadSubscriptions();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete subscription');
+      setError(
+        err instanceof Error ? err.message : 'Failed to delete subscription',
+      );
     }
   };
 
@@ -120,11 +124,12 @@ export const NotificationScreen: React.FC = () => {
                 <Text style={styles.subscriptionMethod}>
                   Delivery: {subscription.delivery_method.toUpperCase()}
                 </Text>
-                {subscription.categories && subscription.categories.length > 0 && (
-                  <Text style={styles.subscriptionInfo}>
-                    Categories: {subscription.categories.join(', ')}
-                  </Text>
-                )}
+                {subscription.categories &&
+                  subscription.categories.length > 0 && (
+                    <Text style={styles.subscriptionInfo}>
+                      Categories: {subscription.categories.join(', ')}
+                    </Text>
+                  )}
                 {subscription.sources && subscription.sources.length > 0 && (
                   <Text style={styles.subscriptionInfo}>
                     Sources: {subscription.sources.length} selected
@@ -267,4 +272,3 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 });
-

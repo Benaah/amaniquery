@@ -41,7 +41,8 @@ export const notificationsAPI = {
     // Map to backend format
     const payload = {
       phone_number: data.phone_number,
-      notification_type: data.delivery_method === 'both' ? 'both' : data.delivery_method,
+      notification_type:
+        data.delivery_method === 'both' ? 'both' : data.delivery_method,
       schedule_type: 'immediate' as const,
       categories: data.categories.length > 0 ? data.categories : null,
       sources: data.sources.length > 0 ? data.sources : null,
@@ -54,14 +55,18 @@ export const notificationsAPI = {
 
   async getSubscriptions(): Promise<SubscriptionResponse[]> {
     try {
-      return apiClient.get<SubscriptionResponse[]>('/api/v1/notifications/subscriptions');
+      return apiClient.get<SubscriptionResponse[]>(
+        '/api/v1/notifications/subscriptions',
+      );
     } catch {
       return [];
     }
   },
 
   async getSubscription(id: string): Promise<SubscriptionResponse> {
-    return apiClient.get<SubscriptionResponse>(`/api/v1/notifications/subscriptions/${id}`);
+    return apiClient.get<SubscriptionResponse>(
+      `/api/v1/notifications/subscriptions/${id}`,
+    );
   },
 
   async updateSubscription(
@@ -83,4 +88,3 @@ export const notificationsAPI = {
     return apiClient.delete(`/api/v1/notifications/subscriptions/${id}`);
   },
 };
-

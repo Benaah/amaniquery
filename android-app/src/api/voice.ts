@@ -24,4 +24,3 @@ export const voiceAPI = {
     return response.token;
   },
 };
-

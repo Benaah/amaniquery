@@ -17,9 +17,13 @@ interface SubscriptionFormProps {
   onSubmit: () => void;
 }
 
-export const SubscriptionForm: React.FC<SubscriptionFormProps> = ({onSubmit}) => {
+export const SubscriptionForm: React.FC<SubscriptionFormProps> = ({
+  onSubmit,
+}) => {
   const [phoneNumber, setPhoneNumber] = useState('');
-  const [deliveryMethod, setDeliveryMethod] = useState<'sms' | 'whatsapp'>('whatsapp');
+  const [deliveryMethod, setDeliveryMethod] = useState<'sms' | 'whatsapp'>(
+    'whatsapp',
+  );
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [selectedSources, setSelectedSources] = useState<string[]>([]);
   const [sources, setSources] = useState<NotificationSource[]>([]);
@@ -80,8 +84,12 @@ export const SubscriptionForm: React.FC<SubscriptionFormProps> = ({onSubmit}) =>
       await notificationsAPI.createSubscription({
         phone_number: phoneNumber.trim(),
         delivery_method: deliveryMethod,
-        categories: selectedCategories.length > 0 ? selectedCategories : categories,
-        sources: selectedSources.length > 0 ? selectedSources : sources.map(s => s.name),
+        categories:
+          selectedCategories.length > 0 ? selectedCategories : categories,
+        sources:
+          selectedSources.length > 0
+            ? selectedSources
+            : sources.map(s => s.name),
       });
 
       setSuccess('Successfully subscribed to notifications!');
@@ -99,8 +107,8 @@ export const SubscriptionForm: React.FC<SubscriptionFormProps> = ({onSubmit}) =>
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <Text style={styles.title}>Subscribe to News Notifications</Text>
       <Text style={styles.description}>
-        Get instant updates about Kenyan legal news, parliamentary proceedings, and more
-        via SMS or WhatsApp.
+        Get instant updates about Kenyan legal news, parliamentary proceedings,
+        and more via SMS or WhatsApp.
       </Text>
 
       {error && <ErrorMessage message={error} />}
@@ -175,7 +183,8 @@ export const SubscriptionForm: React.FC<SubscriptionFormProps> = ({onSubmit}) =>
               <Text
                 style={[
                   styles.chipText,
-                  selectedCategories.includes(category) && styles.chipTextActive,
+                  selectedCategories.includes(category) &&
+                    styles.chipTextActive,
                 ]}>
                 {category}
               </Text>
@@ -185,7 +194,9 @@ export const SubscriptionForm: React.FC<SubscriptionFormProps> = ({onSubmit}) =>
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.label}>Sources (Optional - leave empty for all)</Text>
+        <Text style={styles.label}>
+          Sources (Optional - leave empty for all)
+        </Text>
         {loading ? (
           <LoadingSpinner />
         ) : (
@@ -202,7 +213,8 @@ export const SubscriptionForm: React.FC<SubscriptionFormProps> = ({onSubmit}) =>
                 <Text
                   style={[
                     styles.chipText,
-                    selectedSources.includes(source.name) && styles.chipTextActive,
+                    selectedSources.includes(source.name) &&
+                      styles.chipTextActive,
                   ]}>
                   {source.name} ({source.article_count})
                 </Text>
@@ -339,4 +351,3 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
 });
-

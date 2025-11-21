@@ -22,7 +22,7 @@ export function useChat() {
       }
     };
     loadSession();
-  }, []);
+  }, [loadMessages]);
 
   const loadSessions = useCallback(async () => {
     try {
@@ -43,19 +43,24 @@ export function useChat() {
     }
   }, []);
 
-  const createNewSession = useCallback(async (title?: string): Promise<string | null> => {
-    try {
-      const session = await chatAPI.createSession(title);
-      setCurrentSessionId(session.id);
-      await storage.setCurrentSessionId(session.id);
-      setMessages([]);
-      await loadSessions();
-      return session.id;
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create session');
-      return null;
-    }
-  }, [loadSessions]);
+  const createNewSession = useCallback(
+    async (title?: string): Promise<string | null> => {
+      try {
+        const session = await chatAPI.createSession(title);
+        setCurrentSessionId(session.id);
+        await storage.setCurrentSessionId(session.id);
+        setMessages([]);
+        await loadSessions();
+        return session.id;
+      } catch (err) {
+        setError(
+          err instanceof Error ? err.message : 'Failed to create session',
+        );
+        return null;
+      }
+    },
+    [loadSessions],
+  );
 
   const sendMessage = useCallback(
     async (
@@ -63,21 +68,26 @@ export function useChat() {
       useStreaming: boolean = true,
       attachmentIds?: string[],
     ) => {
-      if (!content.trim() && !attachmentIds?.length) return;
+      if (!content.trim() && !attachmentIds?.length) {
+        return;
+      }
 
       let sessionId = currentSessionId;
       if (!sessionId) {
         sessionId = await createNewSession(
           content.trim().substring(0, 50) || 'File upload',
         );
-        if (!sessionId) return;
+        if (!sessionId) {
+          return;
+        }
       }
 
       const userMessage: Message = {
         id: Date.now().toString(),
         session_id: sessionId,
         role: 'user',
-        content: content.trim() || `Uploaded ${attachmentIds?.length || 0} file(s)`,
+        content:
+          content.trim() || `Uploaded ${attachmentIds?.length || 0} file(s)`,
         created_at: new Date().toISOString(),
         saved: false,
         attachments: attachmentIds?.map(id => ({
@@ -112,7 +122,7 @@ export function useChat() {
           await chatAPI.sendMessage(
             sessionId,
             content.trim() || `Uploaded ${attachmentIds?.length || 0} file(s)`,
-            (chunk) => {
+            chunk => {
               streamResponse.appendChunk(chunk);
               setMessages(prev =>
                 prev.map(msg =>
@@ -122,7 +132,7 @@ export function useChat() {
                 ),
               );
             },
-            (metadata) => {
+            metadata => {
               streamResponse.completeStream(metadata);
               setMessages(prev =>
                 prev.map(msg =>
@@ -171,9 +181,7 @@ export function useChat() {
         await chatAPI.submitFeedback(messageId, feedbackType);
         setMessages(prev =>
           prev.map(msg =>
-            msg.id === messageId
-              ? {...msg, feedback_type: feedbackType}
-              : msg,
+            msg.id === messageId ? {...msg, feedback_type: feedbackType} : msg,
           ),
         );
       } catch (err) {
@@ -181,6 +189,53 @@ export function useChat() {
       }
     },
     [],
+  );
+
+  const editMessage = useCallback(
+    async (messageId: string, newContent: string) => {
+      const messageIndex = messages.findIndex(m => m.id === messageId);
+      if (messageIndex === -1 || messages[messageIndex].role !== 'user') {
+        return;
+      }
+
+      // Remove the edited message and all following messages
+      setMessages(prev => prev.slice(0, messageIndex));
+
+      // Resend with edited content
+      await sendMessage(newContent, true, undefined);
+    },
+    [messages, sendMessage],
+  );
+
+  const regenerateMessage = useCallback(
+    async (messageId: string) => {
+      const messageIndex = messages.findIndex(m => m.id === messageId);
+      if (messageIndex === -1 || messages[messageIndex].role !== 'assistant') {
+        return;
+      }
+
+      // Find the user message that prompted this response
+      let userMessageIndex = -1;
+      let userMessageContent = '';
+      for (let i = messageIndex - 1; i >= 0; i--) {
+        if (messages[i].role === 'user') {
+          userMessageIndex = i;
+          userMessageContent = messages[i].content;
+          break;
+        }
+      }
+
+      if (userMessageIndex === -1) {
+        return;
+      }
+
+      // Remove the user message and all following messages
+      setMessages(prev => prev.slice(0, userMessageIndex));
+
+      // Resend the query
+      await sendMessage(userMessageContent, true, undefined);
+    },
+    [messages, sendMessage],
   );
 
   return {
@@ -194,6 +249,7 @@ export function useChat() {
     loadSessions,
     loadMessages,
     submitFeedback,
+    editMessage,
+    regenerateMessage,
   };
 }
-

@@ -14,6 +14,10 @@ sys.path.insert(0, str(Path(__file__).parent))
 from dotenv import load_dotenv
 from Module3_NiruDB.chat_models import create_database_engine
 from Module8_NiruAuth.models.auth_models import Base
+from Module8_NiruAuth.models.blog_models import (
+    BlogPost, BlogCategory, BlogTag,
+    BlogPostCategory, BlogPostTag
+)
 from loguru import logger
 
 def column_exists(conn, table_name: str, column_name: str) -> bool:
@@ -74,6 +78,11 @@ def run_migrations():
         Base.metadata.create_all(engine)
         logger.info("✅ Authentication tables created/verified successfully!")
         
+        # Create blog tables (they use the same Base)
+        logger.info("Creating blog tables...")
+        Base.metadata.create_all(engine)
+        logger.info("✅ Blog tables created/verified successfully!")
+        
         # Verify tables were created
         with engine.connect() as conn:
             inspector = inspect(conn)
@@ -82,7 +91,9 @@ def run_migrations():
             required_tables = [
                 "users", "roles", "user_roles", "integrations", "integration_roles",
                 "api_keys", "oauth_clients", "oauth_tokens", "user_sessions",
-                "permissions", "usage_logs", "rate_limits"
+                "permissions", "usage_logs", "rate_limits",
+                "blog_posts", "blog_categories", "blog_tags",
+                "blog_post_categories", "blog_post_tags"
             ]
             
             for table in required_tables:

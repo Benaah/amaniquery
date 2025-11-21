@@ -28,6 +28,16 @@ import Link from "next/link"
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
+// Helper function to get auth headers
+const getAuthHeaders = (): Record<string, string> => {
+  const token = localStorage.getItem("session_token")
+  const headers: Record<string, string> = {}
+  if (token) {
+    headers["X-Session-Token"] = token
+  }
+  return headers
+}
+
 interface Stats {
   total_chunks: number
   categories: Record<string, number>
@@ -163,10 +173,10 @@ export default function AdminDashboard() {
   const fetchCrawlers = async () => {
     try {
       setIsRefreshing(true)
-      const sessionToken = localStorage.getItem("session_token")
       const response = await fetch(`${API_BASE_URL}/admin/crawlers`, {
         headers: {
-          "X-Session-Token": sessionToken || "",
+          "Content-Type": "application/json",
+          ...getAuthHeaders()
         },
       })
       if (response.ok) {
@@ -186,10 +196,10 @@ export default function AdminDashboard() {
 
   const fetchConfigs = async () => {
     try {
-      const sessionToken = localStorage.getItem("session_token")
       const response = await fetch(`${API_BASE_URL}/admin/config`, {
         headers: {
-          "X-Session-Token": sessionToken || "",
+          "Content-Type": "application/json",
+          ...getAuthHeaders()
         },
       })
       if (response.ok) {
@@ -203,10 +213,10 @@ export default function AdminDashboard() {
 
   const fetchDatabaseStats = async () => {
     try {
-      const sessionToken = localStorage.getItem("session_token")
       const response = await fetch(`${API_BASE_URL}/admin/databases`, {
         headers: {
-          "X-Session-Token": sessionToken || "",
+          "Content-Type": "application/json",
+          ...getAuthHeaders()
         },
       })
       if (response.ok) {
@@ -220,10 +230,10 @@ export default function AdminDashboard() {
 
   const fetchDatabaseStorageStats = async () => {
     try {
-      const sessionToken = localStorage.getItem("session_token")
       const response = await fetch(`${API_BASE_URL}/admin/database-storage`, {
         headers: {
-          "X-Session-Token": sessionToken || "",
+          "Content-Type": "application/json",
+          ...getAuthHeaders()
         },
       })
       if (response.ok) {
@@ -237,14 +247,14 @@ export default function AdminDashboard() {
 
   const searchDocuments = async () => {
     try {
-      const sessionToken = localStorage.getItem("session_token")
       const params = new URLSearchParams()
       if (searchQuery) params.append("query", searchQuery)
       params.append("limit", "100")
 
       const response = await fetch(`${API_BASE_URL}/admin/documents?${params}`, {
         headers: {
-          "X-Session-Token": sessionToken || "",
+          "Content-Type": "application/json",
+          ...getAuthHeaders()
         },
       })
       if (response.ok) {
@@ -261,12 +271,11 @@ export default function AdminDashboard() {
 
     setIsExecuting(true)
     try {
-      const sessionToken = localStorage.getItem("session_token")
       const response = await fetch(`${API_BASE_URL}/admin/execute`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "X-Session-Token": sessionToken || "",
+          ...getAuthHeaders()
         },
         body: JSON.stringify({ command }),
       })
@@ -301,11 +310,11 @@ export default function AdminDashboard() {
 
   const runCrawler = async (crawlerName: string) => {
     try {
-      const sessionToken = localStorage.getItem("session_token")
       const response = await fetch(`${API_BASE_URL}/admin/crawlers/${crawlerName}/start`, {
         method: "POST",
         headers: {
-          "X-Session-Token": sessionToken || "",
+          "Content-Type": "application/json",
+          ...getAuthHeaders()
         },
       })
       if (response.ok) {
@@ -325,11 +334,11 @@ export default function AdminDashboard() {
 
   const stopCrawler = async (crawlerName: string) => {
     try {
-      const sessionToken = localStorage.getItem("session_token")
       const response = await fetch(`${API_BASE_URL}/admin/crawlers/${crawlerName}/stop`, {
         method: "POST",
         headers: {
-          "X-Session-Token": sessionToken || "",
+          "Content-Type": "application/json",
+          ...getAuthHeaders()
         },
       })
       if (response.ok) {
@@ -351,12 +360,11 @@ export default function AdminDashboard() {
     if (!newConfigKey.trim() || !newConfigValue.trim()) return
 
     try {
-      const sessionToken = localStorage.getItem("session_token")
       const response = await fetch(`${API_BASE_URL}/admin/config`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "X-Session-Token": sessionToken || "",
+          ...getAuthHeaders()
         },
         body: JSON.stringify({
           key: newConfigKey,
@@ -377,11 +385,11 @@ export default function AdminDashboard() {
 
   const deleteConfig = async (key: string) => {
     try {
-      const sessionToken = localStorage.getItem("session_token")
       const response = await fetch(`${API_BASE_URL}/admin/config/${key}`, {
         method: "DELETE",
         headers: {
-          "X-Session-Token": sessionToken || "",
+          "Content-Type": "application/json",
+          ...getAuthHeaders()
         },
       })
       if (response.ok) {

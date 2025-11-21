@@ -87,12 +87,22 @@ async def login(
             )
         
         # Create session
-        session_token, session = SessionProvider.create_session(
-            db=db,
-            user=user,
-            ip_address=request.client.host if request.client else None,
-            user_agent=request.headers.get("user-agent")
-        )
+        try:
+            session_token, session = SessionProvider.create_session(
+                db=db,
+                user=user,
+                ip_address=request.client.host if request.client else None,
+                user_agent=request.headers.get("user-agent")
+            )
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Failed to create session for user {user.id}: {e}", exc_info=True)
+            db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to create session. Please try again."
+            )
         
         # Get user roles
         from ..authorization.role_manager import RoleManager
@@ -109,17 +119,15 @@ async def login(
             last_login=user.last_login,
             profile_image_url=user.profile_image_url,
             created_at=user.created_at,
-            updated_at=user.updated_at
+            updated_at=user.updated_at,
+            roles=role_names  # Include roles directly in the model
         )
-        # Add roles to response
-        user_response_dict = user_response.model_dump()
-        user_response_dict["roles"] = role_names
         
         return SessionResponse(
             session_token=session_token,
             refresh_token=None,  # Session-based, no separate refresh token
             expires_at=session.expires_at,
-            user=user_response_dict
+            user=user_response  # UserResponse now includes roles
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
@@ -159,12 +167,10 @@ async def get_current_user_profile(
         last_login=user.last_login,
         profile_image_url=user.profile_image_url,
         created_at=user.created_at,
-        updated_at=user.updated_at
+        updated_at=user.updated_at,
+        roles=role_names  # Include roles directly
     )
-    # Add roles to response (using model_dump and update since roles might not be in model)
-    response_dict = response.model_dump()
-    response_dict["roles"] = role_names
-    return response_dict
+    return response.model_dump()
 
 
 @router.put("/me", response_model=UserResponse)

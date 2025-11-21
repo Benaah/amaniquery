@@ -18,7 +18,10 @@ export const VoiceControls: React.FC<VoiceControlsProps> = ({
   return (
     <View style={styles.container}>
       <TouchableOpacity
-        style={[styles.button, isMuted ? styles.mutedButton : styles.unmutedButton]}
+        style={[
+          styles.button,
+          isMuted ? styles.mutedButton : styles.unmutedButton,
+        ]}
         onPress={onToggleMute}
         disabled={!isConnected}>
         <Icon
@@ -82,4 +85,3 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 });
-

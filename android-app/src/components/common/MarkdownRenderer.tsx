@@ -72,4 +72,3 @@ const markdownStyles = StyleSheet.create({
     marginVertical: 8,
   },
 });
-

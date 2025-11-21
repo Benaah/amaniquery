@@ -34,48 +34,149 @@ class SessionProvider:
         user_agent: Optional[str] = None
     ) -> Tuple[str, UserSession]:
         """Create a new user session"""
-        # Generate tokens
-        session_token = SessionProvider.generate_session_token()
-        refresh_token = SessionProvider.generate_session_token()
+        import logging
+        logger = logging.getLogger(__name__)
         
-        # Calculate expiration
-        expires_at = datetime.utcnow() + timedelta(hours=config.SESSION_EXPIRE_HOURS)
-        
-        # Create session
-        session = UserSession(
-            user_id=user.id,
-            session_token=SessionProvider.hash_token(session_token),
-            refresh_token=SessionProvider.hash_token(refresh_token),
-            expires_at=expires_at,
-            ip_address=ip_address,
-            user_agent=user_agent,
-        )
-        
-        db.add(session)
-        db.commit()
-        db.refresh(session)
-        
-        return session_token, session
+        try:
+            # Generate tokens
+            session_token = SessionProvider.generate_session_token()
+            refresh_token = SessionProvider.generate_session_token()
+            token_hash = SessionProvider.hash_token(session_token)
+            
+            # Calculate expiration
+            expires_at = datetime.utcnow() + timedelta(hours=config.SESSION_EXPIRE_HOURS)
+            
+            logger.info(f"Creating session for user {user.id}, expires_at={expires_at}")
+            
+            # Create session
+            session = UserSession(
+                user_id=user.id,
+                session_token=token_hash,
+                refresh_token=SessionProvider.hash_token(refresh_token),
+                expires_at=expires_at,
+                ip_address=ip_address,
+                user_agent=user_agent,
+            )
+            
+            # Add session to database
+            db.add(session)
+            
+            # Flush to get the session ID before commit
+            db.flush()
+            
+            # Commit the transaction
+            db.commit()
+            
+            # Refresh to ensure we have the latest data from database
+            db.refresh(session)
+            
+            # Verify session was saved by querying it back
+            saved_session = db.query(UserSession).filter(
+                UserSession.session_token == token_hash
+            ).first()
+            
+            if not saved_session:
+                logger.error(f"Session was not saved to database! user_id={user.id}, token_hash={token_hash[:16]}...")
+                db.rollback()
+                raise Exception("Failed to save session to database")
+            
+            logger.info(f"Session created successfully: session_id={session.id}, user_id={user.id}, expires_at={session.expires_at}")
+            
+            return session_token, session
+            
+        except Exception as e:
+            logger.error(f"Error creating session for user {user.id}: {e}", exc_info=True)
+            db.rollback()
+            raise
     
     @staticmethod
     def validate_session(db: Session, session_token: str) -> Optional[UserSession]:
         """Validate session token and return session"""
+        from datetime import datetime
+        from sqlalchemy import and_
+        import logging
+        
+        logger = logging.getLogger(__name__)
         token_hash = SessionProvider.hash_token(session_token)
+        now = datetime.utcnow()
         
-        session = db.query(UserSession).filter(
-            and_(
-                UserSession.session_token == token_hash,
-                UserSession.is_active == True,
-                UserSession.expires_at > datetime.utcnow()
-            )
-        ).first()
+        logger.info(f"Validating session: token_length={len(session_token)}, token_hash={token_hash[:16]}...")
         
-        if session:
-            # Update last activity
-            session.last_activity = datetime.utcnow()
-            db.commit()
-        
-        return session
+        try:
+            # Refresh database session to ensure we see latest data
+            db.expire_all()
+            
+            # First check if session exists with matching token hash
+            session = db.query(UserSession).filter(
+                UserSession.session_token == token_hash
+            ).first()
+            
+            if not session:
+                logger.warning(f"Session not found for token hash: {token_hash[:16]}...")
+                # Try one more time with explicit refresh
+                try:
+                    db.commit()  # Commit any pending transactions
+                except:
+                    pass
+                db.expire_all()
+                session = db.query(UserSession).filter(
+                    UserSession.session_token == token_hash
+                ).first()
+                if not session:
+                    logger.warning(f"Session still not found after refresh")
+                    return None
+            
+            logger.info(f"Session found: id={session.id}, is_active={session.is_active}, expires_at={session.expires_at}, now={now}, user_id={session.user_id}")
+            
+            # Check if session is active
+            if not session.is_active:
+                logger.warning(f"Session found but not active: session_id={session.id}, is_active={session.is_active}")
+                return None
+            
+            logger.debug(f"Session is active, checking expiration...")
+            
+            # Check if session is expired
+            if session.expires_at:
+                # Ensure both datetimes are timezone-naive for comparison
+                expires_at = session.expires_at
+                if hasattr(expires_at, 'replace') and expires_at.tzinfo is not None:
+                    # Convert timezone-aware to naive UTC
+                    expires_at = expires_at.replace(tzinfo=None)
+                
+                is_expired = expires_at <= now
+                time_diff = (expires_at - now).total_seconds()
+                logger.info(f"Session expiration check: expires_at={expires_at}, now={now}, expired={is_expired}, time_diff={time_diff} seconds")
+                if is_expired:
+                    logger.warning(f"Session expired: expires_at={expires_at}, now={now}, time_diff={time_diff} seconds")
+                    return None
+            else:
+                logger.warning(f"Session has no expires_at: session_id={session.id}")
+                return None
+            
+            logger.debug(f"Session expiration check passed, updating last_activity...")
+            
+            # Session is valid - update last activity
+            try:
+                session.last_activity = now
+                db.commit()
+                logger.info(f"Session validated successfully: session_id={session.id}, user_id={session.user_id}")
+            except Exception as e:
+                logger.error(f"Error updating session last_activity: {e}", exc_info=True)
+                db.rollback()
+                # Still return the session even if update fails
+                logger.info(f"Returning session despite last_activity update failure: session_id={session.id}")
+            
+            logger.info(f"Returning validated session: session_id={session.id}, user_id={session.user_id}")
+            return session
+        except Exception as e:
+            logger.error(f"Error validating session: {e}", exc_info=True)
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
+            try:
+                db.rollback()
+            except:
+                pass
+            return None
     
     @staticmethod
     def refresh_session(db: Session, refresh_token: str) -> Optional[Tuple[str, UserSession]]:

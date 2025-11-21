@@ -21,7 +21,9 @@ export const TranscriptView: React.FC<TranscriptViewProps> = ({messages}) => {
           key={message.id}
           style={[
             styles.messageContainer,
-            message.role === 'user' ? styles.userMessage : styles.assistantMessage,
+            message.role === 'user'
+              ? styles.userMessage
+              : styles.assistantMessage,
           ]}>
           <Text style={styles.roleLabel}>
             {message.role === 'user' ? 'You' : 'Assistant'}
@@ -81,4 +83,3 @@ const styles = StyleSheet.create({
     color: '#007AFF',
   },
 });
-

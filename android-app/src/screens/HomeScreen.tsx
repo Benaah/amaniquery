@@ -5,12 +5,28 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
+  Alert,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import {useNavigation} from '@react-navigation/native';
+import {useAuth} from '../hooks/useAuth';
 
 export const HomeScreen: React.FC = () => {
   const navigation = useNavigation<any>();
+  const {user, logout} = useAuth();
+
+  const handleLogout = () => {
+    Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
+      {text: 'Cancel', style: 'cancel'},
+      {
+        text: 'Sign Out',
+        style: 'destructive',
+        onPress: async () => {
+          await logout();
+        },
+      },
+    ]);
+  };
 
   const features = [
     {
@@ -42,8 +58,24 @@ export const HomeScreen: React.FC = () => {
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <View style={styles.header}>
-        <Text style={styles.title}>AmaniQuery</Text>
-        <Text style={styles.subtitle}>Kenya's AI Legal Assistant</Text>
+        <View style={styles.headerTop}>
+          <View style={styles.headerText}>
+            <Text style={styles.title}>AmaniQuery</Text>
+            <Text style={styles.subtitle}>Kenya's AI Legal Assistant</Text>
+          </View>
+          {user && (
+            <TouchableOpacity
+              onPress={handleLogout}
+              style={styles.logoutButton}>
+              <Icon name="log-out-outline" size={24} color="#DC3545" />
+            </TouchableOpacity>
+          )}
+        </View>
+        {user && (
+          <Text style={styles.userInfo}>
+            Signed in as {user.name || user.email}
+          </Text>
+        )}
       </View>
 
       <Text style={styles.description}>
@@ -95,6 +127,15 @@ const styles = StyleSheet.create({
   },
   header: {
     marginBottom: 24,
+  },
+  headerTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 8,
+  },
+  headerText: {
+    flex: 1,
     alignItems: 'center',
   },
   title: {
@@ -106,6 +147,14 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: 18,
     color: '#6C757D',
+  },
+  userInfo: {
+    fontSize: 14,
+    color: '#6C757D',
+    textAlign: 'center',
+  },
+  logoutButton: {
+    padding: 8,
   },
   description: {
     fontSize: 14,
@@ -163,4 +212,3 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
 });
-

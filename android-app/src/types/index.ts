@@ -20,6 +20,9 @@ export interface Message {
   feedback_type?: 'like' | 'dislike';
   saved?: boolean;
   failed?: boolean;
+  isEditing?: boolean;
+  isRegenerating?: boolean;
+  originalQuery?: string;
 }
 
 export interface Source {
@@ -66,4 +69,3 @@ export interface APIError {
   error: string;
   detail?: string;
 }
-

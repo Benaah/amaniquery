@@ -83,6 +83,18 @@ export default function LandingPage() {
                 <span className="text-lg md:text-2xl font-bold">AmaniQuery</span>
               </div>
               <div className="flex items-center space-x-2 md:space-x-4">
+                <Link href="/blog">
+                  <Button variant="ghost" size="sm" className="hidden sm:flex">
+                    <Newspaper className="w-4 h-4 mr-2" />
+                    Blog
+                  </Button>
+                </Link>
+                <Link href="/developers">
+                  <Button variant="ghost" size="sm" className="hidden sm:flex">
+                    <Database className="w-4 h-4 mr-2" />
+                    Developers
+                  </Button>
+                </Link>
                 {!isAuthenticated && (
                   <>
                     <Link href="/auth/signin">
@@ -449,11 +461,14 @@ export default function LandingPage() {
               >
                 <Github className="w-4 h-4 md:w-5 md:h-5" />
               </a>
+              <Link href="/blog" className="text-muted-foreground hover:text-foreground transition-colors">
+                <Newspaper className="w-4 h-4 md:w-5 md:h-5" />
+              </Link>
+              <Link href="/developers" className="text-muted-foreground hover:text-foreground transition-colors">
+                <Database className="w-4 h-4 md:w-5 md:h-5" />
+              </Link>
               <Link href="/chat" className="text-muted-foreground hover:text-foreground transition-colors">
                 <MessageSquare className="w-4 h-4 md:w-5 md:h-5" />
-              </Link>
-              <Link href="/admin" className="text-muted-foreground hover:text-foreground transition-colors">
-                <Shield className="w-4 h-4 md:w-5 md:h-5" />
               </Link>
             </div>
             <p className="text-xs md:text-sm text-muted-foreground mt-3 md:mt-4">

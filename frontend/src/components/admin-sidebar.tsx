@@ -50,6 +50,7 @@ export function AdminSidebar() {
   const adminNavItems = [
     { href: "/admin", icon: BarChart3, label: "Dashboard" },
     { href: "/admin/users", icon: Users, label: "Users" },
+    { href: "/admin/blog", icon: FileText, label: "Blog" },
     { href: "/admin/analytics", icon: Activity, label: "Analytics" },
     { href: "/admin/settings", icon: Settings, label: "Settings" },
   ]

@@ -14,7 +14,7 @@ class ChatSession(Base):
     __tablename__ = "chat_sessions"
 
     id = Column(String, primary_key=True)
-    user_id = Column(String, nullable=True)  # For future user authentication
+    user_id = Column(String, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)  # Tied to user authentication
     title = Column(String, nullable=True)  # Auto-generated from first message
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

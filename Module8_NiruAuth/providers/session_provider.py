@@ -139,15 +139,33 @@ class SessionProvider:
             if session.expires_at:
                 # Ensure both datetimes are timezone-naive for comparison
                 expires_at = session.expires_at
-                if hasattr(expires_at, 'replace') and expires_at.tzinfo is not None:
-                    # Convert timezone-aware to naive UTC
-                    expires_at = expires_at.replace(tzinfo=None)
                 
-                is_expired = expires_at <= now
-                time_diff = (expires_at - now).total_seconds()
-                logger.info(f"Session expiration check: expires_at={expires_at}, now={now}, expired={is_expired}, time_diff={time_diff} seconds")
-                if is_expired:
-                    logger.warning(f"Session expired: expires_at={expires_at}, now={now}, time_diff={time_diff} seconds")
+                # Handle timezone-aware datetimes from PostgreSQL
+                if hasattr(expires_at, 'tzinfo') and expires_at.tzinfo is not None:
+                    # Convert timezone-aware to naive UTC
+                    from datetime import timezone as tz
+                    try:
+                        expires_at = expires_at.astimezone(tz.utc).replace(tzinfo=None)
+                    except Exception as tz_error:
+                        logger.warning(f"Error converting timezone for expires_at: {tz_error}, using as-is")
+                        # If conversion fails, try to just remove timezone info
+                        expires_at = expires_at.replace(tzinfo=None)
+                
+                # Ensure now is also naive for comparison
+                if hasattr(now, 'tzinfo') and now.tzinfo is not None:
+                    from datetime import timezone as tz
+                    now = now.astimezone(tz.utc).replace(tzinfo=None)
+                
+                try:
+                    is_expired = expires_at <= now
+                    time_diff = (expires_at - now).total_seconds()
+                    logger.info(f"Session expiration check: expires_at={expires_at} (type: {type(expires_at)}), now={now} (type: {type(now)}), expired={is_expired}, time_diff={time_diff} seconds")
+                    if is_expired:
+                        logger.warning(f"Session expired: expires_at={expires_at}, now={now}, time_diff={time_diff} seconds")
+                        return None
+                except TypeError as te:
+                    logger.error(f"TypeError comparing datetimes: expires_at type={type(expires_at)}, now type={type(now)}, error={te}")
+                    # If comparison fails, assume expired for safety
                     return None
             else:
                 logger.warning(f"Session has no expires_at: session_id={session.id}")

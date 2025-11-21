@@ -51,9 +51,18 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if path in self.PUBLIC_ENDPOINTS:
             return True
         
-        # Check prefix match (for /api/v1/auth/* endpoints)
-        for public_path in self.PUBLIC_ENDPOINTS:
-            if path.startswith(public_path):
+        # Check prefix match (only for specific auth endpoints, not all /api/v1/auth/*)
+        # Only allow exact matches or specific prefixes, not broad /api/v1/auth/ prefix
+        public_prefixes = [
+            "/api/v1/auth/register",
+            "/api/v1/auth/login",
+            "/api/v1/auth/password/reset-request",
+            "/api/v1/auth/password/reset",
+            "/api/v1/auth/email/verify",
+            "/api/v1/auth/email/verify-request",
+        ]
+        for public_path in public_prefixes:
+            if path == public_path or path.startswith(public_path + "/"):
                 return True
         
         # Admin routes are explicitly NOT public, they are handled by AdminAuthMiddleware
@@ -235,7 +244,13 @@ class AuthMiddleware(BaseHTTPMiddleware):
                     ).first()
                     if existing_session:
                         now = datetime.utcnow()
-                        is_expired = existing_session.expires_at < now if existing_session.expires_at else None
+                        expires_at = existing_session.expires_at
+                        # Handle timezone-aware datetimes from database
+                        if expires_at and hasattr(expires_at, 'tzinfo') and expires_at.tzinfo is not None:
+                            from datetime import timezone
+                            expires_at = expires_at.astimezone(timezone.utc).replace(tzinfo=None)
+                        is_expired = expires_at < now if expires_at else None
+                        time_diff = (expires_at - now).total_seconds() if expires_at and not is_expired else 'N/A'
                         logger.warning(
                             f"Session validation failed for {request.url.path}: "
                             f"is_active={existing_session.is_active}, "
@@ -243,7 +258,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
                             f"now={now}, "
                             f"expired={is_expired}, "
                             f"user_id={existing_session.user_id}, "
-                            f"time_diff={(existing_session.expires_at - now).total_seconds() if existing_session.expires_at and not is_expired else 'N/A'} seconds"
+                            f"time_diff={time_diff} seconds"
                         )
                     else:
                         logger.warning(f"No session found in database for token (path: {request.url.path}, token_length: {len(session_token)})")

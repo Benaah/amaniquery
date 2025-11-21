@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useEffect } from "react"
+import React, { useState, useEffect, useCallback, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -137,6 +137,10 @@ export default function AdminDashboard() {
   const [databaseStorageStats, setDatabaseStorageStats] = useState<DatabaseStorageStats | null>(null)
   const [selectedCrawler, setSelectedCrawler] = useState<string | null>(null)
   const [isRefreshing, setIsRefreshing] = useState(false)
+  const isRefreshingRef = useRef(false)
+  const intervalRef = useRef<NodeJS.Timeout | null>(null)
+  const fetchCrawlersRef = useRef<(() => Promise<void>) | null>(null)
+  const intervalSetupRef = useRef(false)
 
   useEffect(() => {
     if (!loading && !isAuthenticated) {
@@ -170,8 +174,29 @@ export default function AdminDashboard() {
     }
   }
 
-  const fetchCrawlers = async () => {
+  // Create a stable fetch function that uses refs for auth state
+  const isAuthenticatedRef = useRef(isAuthenticated)
+  const isAdminRef = useRef(isAdmin)
+  
+  // Update refs when values change
+  useEffect(() => {
+    isAuthenticatedRef.current = isAuthenticated
+    isAdminRef.current = isAdmin
+  }, [isAuthenticated, isAdmin])
+
+  const fetchCrawlers = useCallback(async () => {
+    // Only fetch if authenticated and admin (check refs for latest values)
+    if (!isAuthenticatedRef.current || !isAdminRef.current) {
+      return
+    }
+    
+    // Prevent concurrent fetches
+    if (isRefreshingRef.current) {
+      return
+    }
+    
     try {
+      isRefreshingRef.current = true
       setIsRefreshing(true)
       const response = await fetch(`${API_BASE_URL}/admin/crawlers`, {
         headers: {
@@ -190,9 +215,15 @@ export default function AdminDashboard() {
       console.error("Failed to fetch crawlers:", error)
       setCrawlers({})
     } finally {
+      isRefreshingRef.current = false
       setIsRefreshing(false)
     }
-  }
+  }, []) // No dependencies - uses refs for auth state
+
+  // Update the ref whenever fetchCrawlers changes (though it shouldn't change now)
+  useEffect(() => {
+    fetchCrawlersRef.current = fetchCrawlers
+  }, [fetchCrawlers])
 
   const fetchConfigs = async () => {
     try {
@@ -292,21 +323,63 @@ export default function AdminDashboard() {
     }
   }
 
+  // Initial data fetch - only runs when auth state stabilizes
   useEffect(() => {
+    // Only fetch data if authenticated and admin
+    if (!isAuthenticated || !isAdmin || loading) {
+      return
+    }
+
     fetchStats()
     fetchHealth()
-    fetchCrawlers()
+    fetchCrawlers() // Now stable, can be called directly
     fetchConfigs()
     fetchDatabaseStats()
     fetchDatabaseStorageStats()
+  }, [isAuthenticated, isAdmin, loading, fetchCrawlers])
+
+  // Separate effect for interval - only runs once when component mounts and auth is ready
+  useEffect(() => {
+    // Only set up interval if authenticated and admin
+    if (!isAuthenticated || !isAdmin || loading) {
+      // Clear interval if auth state changes
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current)
+        intervalRef.current = null
+        intervalSetupRef.current = false
+      }
+      return
+    }
+
+    // Prevent multiple interval setups
+    if (intervalSetupRef.current && intervalRef.current) {
+      return
+    }
+
+    // Clear any existing interval before creating a new one (safety check)
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current)
+      intervalRef.current = null
+    }
     
     // Auto-refresh crawler status every 10 seconds
-    const interval = setInterval(() => {
-      fetchCrawlers()
+    intervalRef.current = setInterval(() => {
+      // Use the ref to get the latest fetchCrawlers function
+      if (fetchCrawlersRef.current) {
+        fetchCrawlersRef.current()
+      }
     }, 10000)
     
-    return () => clearInterval(interval)
-  }, [])
+    intervalSetupRef.current = true
+    
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current)
+        intervalRef.current = null
+        intervalSetupRef.current = false
+      }
+    }
+  }, [isAuthenticated, isAdmin, loading])
 
   const runCrawler = async (crawlerName: string) => {
     try {
@@ -317,18 +390,29 @@ export default function AdminDashboard() {
           ...getAuthHeaders()
         },
       })
+      
       if (response.ok) {
+        const result = await response.json().catch(() => ({}))
         // Refresh crawler status after a short delay
         setTimeout(() => {
           fetchCrawlers()
         }, 1000)
+        console.log("Crawler started successfully:", result)
       } else {
-        const errorData = await response.json().catch(() => ({}))
-        alert(`Failed to start crawler: ${errorData.detail || response.statusText}`)
+        let errorMessage = `Failed to start crawler: ${response.status} ${response.statusText}`
+        try {
+          const errorData = await response.json()
+          errorMessage = errorData.detail || errorData.message || errorMessage
+        } catch {
+          // If JSON parsing fails, use the default message
+        }
+        console.error("Failed to start crawler:", errorMessage)
+        alert(errorMessage)
       }
     } catch (error) {
-      console.error("Failed to start crawler:", error)
-      alert(`Failed to start crawler: ${error}`)
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      console.error("Failed to start crawler:", errorMessage)
+      alert(`Failed to start crawler: ${errorMessage}`)
     }
   }
 
@@ -345,10 +429,21 @@ export default function AdminDashboard() {
         setTimeout(() => {
           fetchCrawlers()
         }, 1000)
+      } else {
+        let errorMessage = `Failed to stop crawler: ${response.status} ${response.statusText}`
+        try {
+          const errorData = await response.json()
+          errorMessage = errorData.detail || errorData.message || errorMessage
+        } catch {
+          // If JSON parsing fails, use the default message
+        }
+        console.error("Failed to stop crawler:", errorMessage)
+        alert(errorMessage)
       }
     } catch (error) {
-      console.error("Failed to stop crawler:", error)
-      alert(`Failed to stop crawler: ${error}`)
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      console.error("Failed to stop crawler:", errorMessage)
+      alert(`Failed to stop crawler: ${errorMessage}`)
     }
   }
 

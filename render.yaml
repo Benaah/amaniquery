@@ -1,28 +1,21 @@
 services:
-  - name: amaniquery
-    type: web
-    runtime: node
-    buildCommand: cd frontend && npm install && npm run build
-    startCommand: cd frontend && npm start
-    envVars:
-      - key: NODE_ENV
-        value: production
-      - key: NEXT_PUBLIC_API_URL
-        value: https://api-amaniquery.onrender.com
-    plan: free
-
+  # FastAPI Backend Service
+  # Frontend is deployed separately on Vercel at https://amaniquery.vercel.app
+  # Service name determines the URL: api-amaniquery -> https://api-amaniquery.onrender.com
   - name: api-amaniquery
     type: web
     runtime: python
     buildCommand: pip install -r requirements.txt
-    startCommand: python -m uvicorn Module4_NiruAPI.api:app --host 0.0.0.0 --port ${PORT:-8000}
+    startCommand: python start_api.py
     envVars:
       - key: CORS_ORIGINS
-        value: https://amaniquery.onrender.com
+        value: https://amaniquery.vercel.app,https://www.amaniquery.vercel.app,http://localhost:3000,http://localhost:3001
       - key: API_HOST
         value: 0.0.0.0
-      - key: API_PORT
-        value: 8000
+      - key: API_RELOAD
+        value: "false"
+      - key: ENABLE_VOICE_AGENT
+        value: "false"
       - key: LLM_PROVIDER
         value: moonshot
       - key: DEFAULT_MODEL
@@ -30,3 +23,6 @@ services:
       - key: EMBEDDING_MODEL
         value: all-MiniLM-L6-v2
     plan: free
+    # Render automatically assigns URL: https://api-amaniquery.onrender.com
+    # based on the service name above
+    # Uses start_api.py script which handles proper initialization and logging

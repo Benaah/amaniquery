@@ -100,8 +100,9 @@ def start_api():
         return False
 
     # Get configuration
+    # Check API_PORT first, then PORT (for Render compatibility), then default to 8000
     host = os.getenv("API_HOST", "0.0.0.0")
-    port = int(os.getenv("API_PORT", "8000"))
+    port = int(os.getenv("API_PORT") or os.getenv("PORT", "8000"))
 
     # On Windows, disable reload by default to avoid multiprocessing issues
     is_windows = platform.system() == "Windows"

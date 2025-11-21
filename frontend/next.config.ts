@@ -12,11 +12,16 @@ const nextConfig: NextConfig = {
       },
     ],
   },
-  // Disable Turbopack due to path alias resolution issues
-  // Use Webpack instead which handles path aliases correctly
+  // Configure path aliases for Turbopack
   experimental: {
-    turbo: false,
+    // @ts-expect-error - turbo.resolveAlias is available but types may not be updated
+    turbo: {
+      resolveAlias: {
+        '@': path.resolve(__dirname, 'src'),
+      },
+    },
   },
+  // Fallback webpack config for non-Turbopack builds
   webpack: (config) => {
     config.resolve.alias = {
       ...config.resolve.alias,

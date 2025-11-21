@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, Suspense } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 import { BlogPostCard } from "@/components/blog-post-card"
 import { Button } from "@/components/ui/button"
@@ -59,7 +59,7 @@ interface Tag {
   slug: string
 }
 
-export default function BlogPage() {
+function BlogList() {
   const searchParams = useSearchParams()
   const router = useRouter()
   const [posts, setPosts] = useState<BlogPost[]>([])
@@ -382,3 +382,14 @@ export default function BlogPage() {
   )
 }
 
+export default function BlogPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      </div>
+    }>
+      <BlogList />
+    </Suspense>
+  )
+}

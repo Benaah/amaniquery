@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, Suspense } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import { useAuth } from "@/lib/auth-context"
@@ -28,11 +28,10 @@ import {
   UserPlus
 } from "lucide-react"
 
-export default function LandingPage() {
-  const [isDialogOpen, setIsDialogOpen] = useState(false)
+// Component that uses useSearchParams - must be wrapped in Suspense
+function RedirectHandler() {
   const { isAuthenticated, isAdmin, loading } = useAuth()
   const router = useRouter()
-
   const searchParams = useSearchParams()
   const shouldRedirect = !searchParams.get("noredirect")
 
@@ -47,6 +46,13 @@ export default function LandingPage() {
     }
   }, [isAuthenticated, isAdmin, loading, router, shouldRedirect])
 
+  return null
+}
+
+export default function LandingPage() {
+  const [isDialogOpen, setIsDialogOpen] = useState(false)
+  const { isAuthenticated, isAdmin, loading } = useAuth()
+
   // Show loading state while checking auth
   if (loading) {
     return (
@@ -57,7 +63,11 @@ export default function LandingPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-background via-primary/5 to-accent/10 relative overflow-hidden">
+    <>
+      <Suspense fallback={null}>
+        <RedirectHandler />
+      </Suspense>
+      <div className="min-h-screen bg-gradient-to-br from-background via-primary/5 to-accent/10 relative overflow-hidden">
       {/* Animated Background Elements */}
       <div className="absolute inset-0 opacity-30">
         <div className="absolute top-20 left-10 w-72 h-72 bg-primary/10 rounded-full blur-3xl animate-pulse"></div>
@@ -487,5 +497,6 @@ export default function LandingPage() {
         onClose={() => setIsDialogOpen(false)}
       />
     </div>
+    </>
   )
 }

@@ -475,6 +475,98 @@ class VectorStore:
             logger.error(f"Elasticsearch search failed: {e}")
             return []
     
+    def get_sample_documents(self, limit: int = 100) -> List[Dict]:
+        """
+        Get sample documents without vector search (efficient for metadata)
+        
+        Args:
+            limit: Maximum number of documents to return
+            
+        Returns:
+            List of document dictionaries
+        """
+        try:
+            if self.backend == "upstash":
+                return self._get_sample_upstash(limit)
+            elif self.backend == "qdrant":
+                return self._get_sample_qdrant(limit)
+            elif self.backend == "chromadb":
+                return self._get_sample_chromadb(limit)
+            else:
+                logger.error(f"Unsupported backend for get_sample_documents: {self.backend}")
+                return []
+        except Exception as e:
+            logger.error(f"Error getting sample documents: {e}")
+            return []
+
+    def _get_sample_upstash(self, limit: int) -> List[Dict]:
+        """Get sample documents from Upstash"""
+        # Upstash doesn't support random access easily without vector, 
+        # so we'll use a dummy vector of zeros or range if available
+        # For now, falling back to a query with zero vector is still better than encoding text
+        try:
+            # Create a zero vector of appropriate dimension (384 for all-MiniLM-L6-v2)
+            zero_vector = [0.0] * 384
+            results = self.client.query(vector=zero_vector, top_k=limit, include_metadata=True, include_data=True)
+            
+            formatted_results = []
+            for hit in results:
+                metadata = {k: str(v) if not isinstance(v, str) else v for k, v in hit.metadata.items()}
+                formatted_results.append({"id": hit.id, "text": metadata.get("text", ""), "metadata": metadata})
+            return formatted_results
+        except Exception as e:
+            logger.warning(f"Upstash sample fetch failed: {e}")
+            return []
+
+    def _get_sample_qdrant(self, limit: int) -> List[Dict]:
+        """Get sample documents from QDrant using scroll"""
+        try:
+            # Use scroll API which is much more efficient than search
+            scroll_result, _ = self.client.scroll(
+                collection_name=self.collection_name,
+                limit=limit,
+                with_payload=True,
+                with_vectors=False
+            )
+            
+            formatted_results = []
+            for hit in scroll_result:
+                payload = hit.payload if hasattr(hit, 'payload') else {}
+                metadata = {k: str(v) if not isinstance(v, str) else v for k, v in payload.items()}
+                point_id = hit.id if hasattr(hit, 'id') else None
+                formatted_results.append({"id": metadata.get("chunk_id", str(point_id) if point_id else ""), "text": metadata.get("text", ""), "metadata": metadata})
+            
+            logger.info(f"QDrant scroll returned {len(formatted_results)} results")
+            return formatted_results
+        except Exception as e:
+            logger.warning(f"QDrant scroll failed: {e}")
+            return []
+
+    def _get_sample_chromadb(self, limit: int) -> List[Dict]:
+        """Get sample documents from ChromaDB using get"""
+        try:
+            # Use get API which avoids vector search
+            results = self.collection.get(limit=limit, include=["metadatas", "documents"])
+            
+            formatted_results = []
+            if results["ids"]:
+                for i in range(len(results["ids"])):
+                    metadata = results["metadatas"][i] if results["metadatas"] else {}
+                    # Ensure metadata values are strings
+                    metadata = {k: str(v) if not isinstance(v, str) else v for k, v in metadata.items()}
+                    
+                    formatted_results.append({
+                        "id": results["ids"][i], 
+                        "text": results["documents"][i] if results["documents"] else "", 
+                        "metadata": metadata
+                    })
+            
+            logger.info(f"ChromaDB get returned {len(formatted_results)} results")
+            return formatted_results
+        except Exception as e:
+            logger.warning(f"ChromaDB get failed: {e}")
+            return []
+            
     def query(self, query_text: str, n_results: int = 5, filter: Optional[Dict] = None) -> List[Dict]:
         """Query vector store for similar documents"""
         try:

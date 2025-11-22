@@ -50,8 +50,8 @@ class MetadataManager:
     def get_categories(self) -> List[str]:
         """Get list of all unique categories"""
         try:
-            # Use a sample query to get categories from any backend
-            sample_docs = self.vector_store.query("", n_results=1000)
+            # Use sample documents instead of vector search for efficiency
+            sample_docs = self.vector_store.get_sample_documents(limit=1000)
             categories = set()
             for doc in sample_docs:
                 meta = doc.get("metadata", {})
@@ -65,8 +65,8 @@ class MetadataManager:
     def get_sources(self) -> List[str]:
         """Get list of all unique sources"""
         try:
-            # Use a sample query to get sources from any backend
-            sample_docs = self.vector_store.query("", n_results=1000)
+            # Use sample documents instead of vector search for efficiency
+            sample_docs = self.vector_store.get_sample_documents(limit=1000)
             sources = set()
             for doc in sample_docs:
                 meta = doc.get("metadata", {})

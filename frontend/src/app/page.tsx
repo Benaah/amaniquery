@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import { useAuth } from "@/lib/auth-context"
 import { Button } from "@/components/ui/button"
@@ -33,8 +33,11 @@ export default function LandingPage() {
   const { isAuthenticated, isAdmin, loading } = useAuth()
   const router = useRouter()
 
+  const searchParams = useSearchParams()
+  const shouldRedirect = !searchParams.get("noredirect")
+
   useEffect(() => {
-    if (!loading && isAuthenticated) {
+    if (!loading && isAuthenticated && shouldRedirect) {
       // Redirect authenticated users based on role
       if (isAdmin) {
         router.push("/admin")
@@ -42,7 +45,7 @@ export default function LandingPage() {
         router.push("/chat")
       }
     }
-  }, [isAuthenticated, isAdmin, loading, router])
+  }, [isAuthenticated, isAdmin, loading, router, shouldRedirect])
 
   // Show loading state while checking auth
   if (loading) {

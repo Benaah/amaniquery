@@ -23,6 +23,13 @@ class BlogPostCreate(BaseModel):
     tag_ids: Optional[List[str]] = []
     published_at: Optional[datetime] = None
 
+    @validator('featured_image_url')
+    def normalize_featured_image_url(cls, v):
+        # Treat empty strings as None
+        if v == "":
+            return None
+        return v
+
     @validator('post_type')
     def validate_post_type(cls, v):
         allowed_types = ['news', 'announcement', 'update']
@@ -39,6 +46,9 @@ class BlogPostCreate(BaseModel):
 
     @validator('slug')
     def generate_slug(cls, v, values):
+        # Treat empty strings as None
+        if v == "":
+            v = None
         if not v and 'title' in values:
             # Generate slug from title
             slug = re.sub(r'[^\w\s-]', '', values['title']).strip().lower()
@@ -84,8 +94,18 @@ class BlogPostUpdate(BaseModel):
 
     @validator('slug')
     def validate_slug(cls, v):
+        # Treat empty strings as None
+        if v == "":
+            v = None
         if v is not None and not re.match(r'^[a-z0-9]+(?:-[a-z0-9]+)*$', v):
             raise ValueError('slug must contain only lowercase letters, numbers, and hyphens')
+        return v
+
+    @validator('featured_image_url')
+    def normalize_featured_image_url(cls, v):
+        # Treat empty strings as None
+        if v == "":
+            return None
         return v
 
 

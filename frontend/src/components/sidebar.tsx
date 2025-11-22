@@ -40,7 +40,7 @@ export function Sidebar() {
   }
 
   const navItems = [
-    { href: "/", icon: Home, label: "Home" },
+    { href: "/?noredirect=true", icon: Home, label: "Home" },
     { href: "/chat", icon: MessageSquare, label: "Chat" },
     { href: "/voice", icon: Mic, label: "Voice" },
     { href: "/profile", icon: User, label: "Profile" },
@@ -98,7 +98,9 @@ export function Sidebar() {
           <nav className="flex-1 space-y-2">
             {navItems.map((item) => {
               const Icon = item.icon
-              const isActive = pathname === item.href
+              const isActive = item.href === "/?noredirect=true" 
+                ? pathname === "/" 
+                : pathname === item.href
               return (
                 <Link
                   key={item.href}

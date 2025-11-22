@@ -37,6 +37,23 @@ const getAuthHeaders = (): Record<string, string> => {
   return headers
 }
 
+/**
+ * Removes keys with empty string values from the payload.
+ * This ensures optional fields like slug and featured_image_url
+ * are not sent as empty strings, which would fail backend validation.
+ */
+const cleanPostPayload = (payload: Record<string, unknown>): Record<string, unknown> => {
+  const cleaned: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(payload)) {
+    // Keep the key if it's not an empty string
+    // Arrays are always included (even if empty)
+    if (value !== "" || Array.isArray(value)) {
+      cleaned[key] = value
+    }
+  }
+  return cleaned
+}
+
 interface BlogPost {
   id: string
   title: string
@@ -83,6 +100,7 @@ export default function AdminBlogPage() {
   const [editingCategory, setEditingCategory] = useState<Category | null>(null)
   const [editingTag, setEditingTag] = useState<Tag | null>(null)
   const [showPostForm, setShowPostForm] = useState(false)
+  const [postSubmitting, setPostSubmitting] = useState(false) // loading state for create/update
 
   // Post form state
   const [postForm, setPostForm] = useState({
@@ -168,14 +186,16 @@ export default function AdminBlogPage() {
   }
 
   const handleCreatePost = async () => {
+    setPostSubmitting(true)
     try {
+      const cleanedPayload = cleanPostPayload(postForm)
       const response = await fetch(`${API_BASE_URL}/api/v1/blog/posts`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           ...getAuthHeaders(),
         },
-        body: JSON.stringify(postForm),
+        body: JSON.stringify(cleanedPayload),
       })
       if (response.ok) {
         await fetchPosts()
@@ -183,24 +203,28 @@ export default function AdminBlogPage() {
         setShowPostForm(false)
       } else {
         const error = await response.json()
+        console.error('Create post error response:', error)
         alert(`Failed to create post: ${error.detail || "Unknown error"}`)
       }
     } catch (error) {
       console.error("Failed to create post:", error)
       alert("Failed to create post")
+    } finally {
+      setPostSubmitting(false)
     }
   }
 
   const handleUpdatePost = async () => {
     if (!editingPost) return
     try {
+      const cleanedPayload = cleanPostPayload(postForm)
       const response = await fetch(`${API_BASE_URL}/api/v1/blog/posts/${editingPost.id}`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
           ...getAuthHeaders(),
         },
-        body: JSON.stringify(postForm),
+        body: JSON.stringify(cleanedPayload),
       })
       if (response.ok) {
         await fetchPosts()
@@ -733,9 +757,22 @@ export default function AdminBlogPage() {
                       </Button>
                       <Button
                         onClick={editingPost ? handleUpdatePost : handleCreatePost}
+                        disabled={postSubmitting}
                       >
-                        <Save className="w-4 h-4 mr-2" />
-                        {editingPost ? "Update" : "Create"} Post
+                        {postSubmitting ? (
+                          <span className="flex items-center">
+                            <svg className="animate-spin h-4 w-4 mr-2 text-primary" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 00-8 8z"></path>
+                            </svg>
+                            {editingPost ? "Updating..." : "Creating..."}
+                          </span>
+                        ) : (
+                          <>
+                            <Save className="w-4 h-4 mr-2" />
+                            {editingPost ? "Update" : "Create"} Post
+                          </>
+                        )}
                       </Button>
                     </div>
                   </CardContent>

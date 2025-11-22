@@ -184,6 +184,7 @@ export function Chat() {
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
   const [editingContent, setEditingContent] = useState("")
   const [regeneratingMessageId, setRegeneratingMessageId] = useState<string | null>(null)
+  const [isCreatingSession, setIsCreatingSession] = useState(false)
   const autocompleteTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const messagesContainerRef = useRef<HTMLDivElement | null>(null)
   const messagesEndRef = useRef<HTMLDivElement | null>(null)
@@ -408,53 +409,60 @@ export function Chat() {
 
   const sendMessage = useCallback(async (content: string) => {
     if (!content.trim() && selectedFiles.length === 0) return
+    if (isLoading || isCreatingSession) return // Prevent duplicate submissions
 
-    let sessionId = currentSessionId
-    if (!sessionId) {
-      sessionId = await createNewSession(content.trim() || "File upload")
-      if (!sessionId) return
-    }
-
-    // Upload files first if any
-    let attachmentIds: string[] = []
-    let attachmentMetadata: Message["attachments"] = []
-    if (selectedFiles.length > 0) {
-      try {
-        attachmentIds = await uploadFiles(sessionId, selectedFiles)
-        // Fetch attachment details to display immediately
-        try {
-          const headers: Record<string, string> = {
-            "Content-Type": "application/json",
-            ...getAuthHeaders()
-          }
-          const attachmentPromises = attachmentIds.map(id =>
-            fetch(`${API_BASE_URL}/chat/sessions/${sessionId}/attachments/${id}`, {
-              headers
-            })
-              .then(res => res.ok ? res.json() : null)
-              .catch(() => null)
-          )
-          const attachmentResults = await Promise.all(attachmentPromises)
-          attachmentMetadata = attachmentResults
-            .filter(att => att !== null)
-            .map(att => ({
-              id: att.id,
-              filename: att.filename,
-              file_type: att.file_type,
-              file_size: att.file_size,
-              uploaded_at: att.uploaded_at,
-              processed: att.processed || false,
-              cloudinary_url: att.cloudinary_url
-            }))
-        } catch (error) {
-          console.error("Failed to fetch attachment metadata:", error)
+    setIsLoading(true)
+    try {
+      let sessionId = currentSessionId
+      if (!sessionId) {
+        sessionId = await createNewSession(content.trim() || "File upload")
+        if (!sessionId) {
+          setIsLoading(false)
+          return
         }
-        setSelectedFiles([]) // Clear selected files after upload
-      } catch (error) {
-        toast.error(error instanceof Error ? error.message : "Failed to upload files")
-        return
       }
-    }
+
+      // Upload files first if any
+      let attachmentIds: string[] = []
+      let attachmentMetadata: Message["attachments"] = []
+      if (selectedFiles.length > 0) {
+        try {
+          attachmentIds = await uploadFiles(sessionId, selectedFiles)
+          // Fetch attachment details to display immediately
+          try {
+            const headers: Record<string, string> = {
+              "Content-Type": "application/json",
+              ...getAuthHeaders()
+            }
+            const attachmentPromises = attachmentIds.map(id =>
+              fetch(`${API_BASE_URL}/chat/sessions/${sessionId}/attachments/${id}`, {
+                headers
+              })
+                .then(res => res.ok ? res.json() : null)
+                .catch(() => null)
+            )
+            const attachmentResults = await Promise.all(attachmentPromises)
+            attachmentMetadata = attachmentResults
+              .filter(att => att !== null)
+              .map(att => ({
+                id: att.id,
+                filename: att.filename,
+                file_type: att.file_type,
+                file_size: att.file_size,
+                uploaded_at: att.uploaded_at,
+                processed: att.processed || false,
+                cloudinary_url: att.cloudinary_url
+              }))
+          } catch (error) {
+            console.error("Failed to fetch attachment metadata:", error)
+          }
+          setSelectedFiles([]) // Clear selected files after upload
+        } catch (error) {
+          toast.error(error instanceof Error ? error.message : "Failed to upload files")
+          setIsLoading(false)
+          return
+        }
+      }
 
     const userMessage: Message = {
       id: Date.now().toString(),

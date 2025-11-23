@@ -3,10 +3,10 @@ import { getCached, setCached, deleteCacheKey, CACHE_KEYS, CACHE_TTL } from "@/l
 
 export async function GET(
     request: NextRequest,
-    { params }: { params: { sessionId: string } }
+    { params }: { params: Promise<{ sessionId: string }> }
 ) {
     try {
-        const { sessionId } = params
+        const { sessionId } = await params
         const cacheKey = CACHE_KEYS.SESSION_MESSAGES(sessionId)
 
         // Try to get from cache first
@@ -47,10 +47,11 @@ export async function GET(
         return NextResponse.json(messages, {
             headers: { "X-Cache": "MISS" },
         })
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error("Messages cache error:", error)
+        const errorMessage = typeof error === "object" && error !== null && "message" in error ? (error as { message?: string }).message : "Internal server error";
         return NextResponse.json(
-            { error: error.message || "Internal server error" },
+            { error: errorMessage || "Internal server error" },
             { status: 500 }
         )
     }
@@ -59,18 +60,19 @@ export async function GET(
 // DELETE: Invalidate messages cache for a specific session
 export async function DELETE(
     request: NextRequest,
-    { params }: { params: { sessionId: string } }
+    { params }: { params: Promise<{ sessionId: string }> }
 ) {
     try {
-        const { sessionId } = params
+        const { sessionId } = await params
         const cacheKey = CACHE_KEYS.SESSION_MESSAGES(sessionId)
         await deleteCacheKey(cacheKey)
 
         return NextResponse.json({ success: true })
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error("Delete messages cache error:", error)
+        const errorMessage = typeof error === "object" && error !== null && "message" in error ? (error as { message?: string }).message : "Internal server error";
         return NextResponse.json(
-            { error: error.message || "Internal server error" },
+            { error: errorMessage || "Internal server error" },
             { status: 500 }
         )
     }

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react"
 import { toast } from "sonner"
+import { History as HistoryIcon } from "lucide-react"
 import {
   ChatSidebar
 } from "./chat/ChatSidebar"
@@ -92,17 +93,23 @@ export function Chat() {
         "Content-Type": "application/json",
         ...getAuthHeaders()
       }
-      const response = await fetch(`${API_BASE_URL}/chat/sessions`, {
+      // Use cache API route instead of direct backend call
+      const response = await fetch(`/api/cache/sessions`, {
         headers
       })
       if (response.ok) {
         const sessions = await response.json()
         setChatHistory(sessions)
+        // Log cache hit/miss for debugging
+        const cacheStatus = response.headers.get("X-Cache")
+        if (cacheStatus) {
+          console.log(`Sessions cache: ${cacheStatus}`)
+        }
       }
     } catch (error) {
       console.error("Failed to load chat history:", error)
     }
-  }, [API_BASE_URL, getAuthHeaders])
+  }, [getAuthHeaders])
 
   // Load chat history on component mount
   useEffect(() => {
@@ -187,6 +194,18 @@ export function Chat() {
         const session = await response.json()
         setCurrentSessionId(session.id)
         setMessages([])
+        // Invalidate sessions cache since we created a new one
+        try {
+          const invalidateHeaders: Record<string, string> = {
+            ...getAuthHeaders()
+          }
+          await fetch(`/api/cache/sessions`, {
+            method: "DELETE",
+            headers: invalidateHeaders
+          })
+        } catch (err) {
+          console.error("Failed to invalidate sessions cache:", err)
+        }
         loadChatHistory()
         return session.id
       }
@@ -202,7 +221,8 @@ export function Chat() {
         "Content-Type": "application/json",
         ...getAuthHeaders()
       }
-      const response = await fetch(`${API_BASE_URL}/chat/sessions/${sessionId}/messages`, {
+      // Use cache API route instead of direct backend call
+      const response = await fetch(`/api/cache/sessions/${sessionId}/messages`, {
         headers
       })
       if (response.ok) {
@@ -210,6 +230,11 @@ export function Chat() {
         setMessages(sessionMessages)
         setCurrentSessionId(sessionId)
         setShowHistory(false)
+        // Log cache hit/miss for debugging
+        const cacheStatus = response.headers.get("X-Cache")
+        if (cacheStatus) {
+          console.log(`Session ${sessionId} messages cache: ${cacheStatus}`)
+        }
       }
     } catch (error) {
       console.error("Failed to load session:", error)
@@ -587,6 +612,18 @@ ${researchProcess.tools_used && researchProcess.tools_used.length > 0
               }
             }
           }
+          // Invalidate session messages cache since new message was added
+          try {
+            const invalidateHeaders: Record<string, string> = {
+              ...getAuthHeaders()
+            }
+            await fetch(`/api/cache/sessions/${sessionId}/messages`, {
+              method: "DELETE",
+              headers: invalidateHeaders
+            })
+          } catch (err) {
+            console.error("Failed to invalidate messages cache:", err)
+          }
           loadChatHistory()
         } else {
           setMessages(prev => prev.map(msg => 
@@ -772,6 +809,24 @@ ${researchProcess.tools_used && researchProcess.tools_used.length > 0
         if (currentSessionId === sessionId) {
           setCurrentSessionId(null)
           setMessages([])
+        }
+        // Invalidate both sessions list and specific session messages cache
+        try {
+          const invalidateHeaders: Record<string, string> = {
+            ...getAuthHeaders()
+          }
+          await Promise.all([
+            fetch(`/api/cache/sessions`, {
+              method: "DELETE",
+              headers: invalidateHeaders
+            }),
+            fetch(`/api/cache/sessions/${sessionId}/messages`, {
+              method: "DELETE",
+              headers: invalidateHeaders
+            })
+          ])
+        } catch (err) {
+          console.error("Failed to invalidate cache:", err)
         }
       }
     } catch (error) {
@@ -1117,7 +1172,7 @@ ${researchProcess.tools_used && researchProcess.tools_used.length > 0
   }
 
   return (
-    <div className="relative flex h-screen bg-gradient-to-b from-background via-background/95 to-background text-foreground overflow-hidden">
+    <div className="relative flex h-screen max-h-screen bg-gradient-to-b from-background via-background/95 to-background text-foreground overflow-hidden">
       <div className="pointer-events-none absolute inset-0 opacity-60">
         <div className="absolute -top-32 left-1/2 h-96 w-96 -translate-x-1/2 rounded-full bg-primary/20 blur-[120px]" />
         <div className="absolute bottom-0 right-0 h-80 w-80 rounded-full bg-blue-500/10 blur-[120px]" />
@@ -1133,7 +1188,9 @@ ${researchProcess.tools_used && researchProcess.tools_used.length > 0
         onCloseHistory={() => setShowHistory(false)}
       />
 
-      <div className="flex-1 flex flex-col relative z-10 h-full overflow-hidden">
+
+
+      <div className="flex-1 flex flex-col relative z-10 h-full max-h-screen overflow-hidden min-w-0">
         <ChatHeader
           isResearchMode={isResearchMode}
           useHybrid={useHybrid}
@@ -1141,14 +1198,6 @@ ${researchProcess.tools_used && researchProcess.tools_used.length > 0
           showHistory={showHistory}
           isLoading={isLoading}
           onToggleHistory={() => setShowHistory(!showHistory)}
-          onToggleResearch={() => {
-            setIsResearchMode(!isResearchMode)
-            setUseHybrid(false)
-          }}
-          onToggleHybrid={() => {
-            setUseHybrid(!useHybrid)
-            setIsResearchMode(false)
-          }}
           onShare={() => shareChat()}
         />
 
@@ -1197,8 +1246,15 @@ ${researchProcess.tools_used && researchProcess.tools_used.length > 0
           onSendMessage={sendMessage}
           enableAutocomplete={ENABLE_AUTOCOMPLETE}
           autocompleteSuggestions={autocompleteSuggestions}
-          showAutocomplete={showAutocomplete}
           setShowAutocomplete={setShowAutocomplete}
+          onToggleResearch={() => {
+            setIsResearchMode(!isResearchMode)
+            setUseHybrid(false)
+          }}
+          onToggleHybrid={() => {
+            setUseHybrid(!useHybrid)
+            setIsResearchMode(false)
+          }}
         />
       </div>
     </div>

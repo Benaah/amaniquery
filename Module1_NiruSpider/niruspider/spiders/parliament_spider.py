@@ -22,7 +22,9 @@ class ParliamentSpider(scrapy.Spider):
         "https://www.parliament.go.ke/the-national-assembly/house-business/hansard",
         "https://www.parliament.go.ke/the-national-assembly/house-business/bills",
         "https://www.parliament.go.ke/documents-publications",
-        "https://www.parliament.go.ke/index.php/2025-2026-budget-documents",
+        "https://www.parliament.go.ke/the-national-assembly/business/budget-documents",  # Updated for 2025-2026
+        "https://www.parliament.go.ke/the-national-assembly/committees",  # Committee reports
+        "https://www.parliament.go.ke/the-senate/house-business/bills",  # Senate bills
     ]
     
     custom_settings = {

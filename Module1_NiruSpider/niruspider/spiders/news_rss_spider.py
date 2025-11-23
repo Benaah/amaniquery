@@ -17,71 +17,84 @@ class NewsRSSSpider(scrapy.Spider):
         super(NewsRSSSpider, self).__init__(*args, **kwargs)
         self.article_extractor = ArticleExtractor()
     
-    # Kenyan news RSS feeds - Expanded list
+    # Kenyan news RSS feeds - Updated with verified 2025 URLs
     rss_feeds = [
-        # Major National Newspapers
+        # Standard Media - WORKING (4 feeds verified)
         {
-            "url": "https://nation.africa/kenya/rss",
+            "url": "https://www.standardmedia.co.ke/rss/headlines.php",
+            "name": "Standard Media - Headlines",
+        },
+        {
+            "url": "https://www.standardmedia.co.ke/rss/kenya.php",
+            "name": "Standard Media - Kenya",
+        },
+        {
+            "url": "https://www.standardmedia.co.ke/rss/politics.php",
+            "name": "Standard Media - Politics",
+        },
+        {
+            "url": "https://www.standardmedia.co.ke/rss/business.php",
+            "name": "Standard Media - Business",
+        },
+        
+        # The Star - WORKING (3 feeds verified)
+        {
+            "url": "https://www.the-star.co.ke/rss/news",
+            "name": "The Star - News",
+        },
+        {
+            "url": "https://www.the-star.co.ke/rss/business",
+            "name": "The Star - Business",
+        },
+        {
+            "url": "https://www.the-star.co.ke/rss/opinion",
+            "name": "The Star - Opinion",
+        },
+        
+        # Nation Africa - Using /feed path (more reliable than /rss)
+        {
+            "url": "https://nation.africa/kenya/feed",
             "name": "Nation Africa",
         },
+        
+        # Business Daily Africa - Using main feed
         {
-            "url": "https://www.standardmedia.co.ke/rss/headlines.xml",
-            "name": "Standard Media",
-        },
-        {
-            "url": "https://www.the-star.co.ke/rss",
-            "name": "The Star",
-        },
-        {
-            "url": "https://www.businessdailyafrica.com/bd/rss",
+            "url": "https://www.businessdailyafrica.com/feed",
             "name": "Business Daily Africa",
         },
+        
+        # The East African - Using main feed
         {
-            "url": "https://www.theeastafrican.co.ke/rss",
+            "url": "https://www.theeastafrican.co.ke/feed",
             "name": "The East African",
         },
-        # TV Stations
+        
+        # NTV Kenya - WORKING
         {
-            "url": "https://citizen.digital/rss",
-            "name": "Citizen TV",
-        },
-        {
-            "url": "https://www.ktnnews.co.ke/rss",
-            "name": "KTN News",
-        },
-        {
-            "url": "https://www.ntv.co.ke/rss",
+            "url": "https://www.ntvkenya.co.ke/feed/",
             "name": "NTV Kenya",
         },
-        # Radio Stations
+        
+        # Capital FM News - WORKING
         {
-            "url": "https://www.capitalfm.co.ke/news/rss/",
-            "name": "Capital FM",
+            "url": "https://www.capitalfm.co.ke/news/feed/",
+            "name": "Capital FM News",
         },
+        
+        # Radio Citizen - Updated path
         {
-            "url": "https://www.radiocitizen.co.ke/rss",
+            "url": "https://www.radiocitizen.digital/feed/",
             "name": "Radio Citizen",
         },
-        # Online News Portals
+        
+        # Alternative sources with better reliability
         {
-            "url": "https://www.tuko.co.ke/rss",
-            "name": "Tuko.co.ke",
+            "url": "https://www.ke.undp.org/content/kenya/en/home.rss",
+            "name": "UNDP Kenya",
         },
         {
-            "url": "https://www.hivisasa.com/rss",
-            "name": "Hivisasa",
-        },
-        {
-            "url": "https://www.pulselive.co.ke/rss",
-            "name": "Pulse Live",
-        },
-        {
-            "url": "https://www.kenyans.co.ke/rss",
-            "name": "Kenyans.co.ke",
-        },
-        {
-            "url": "https://nairobinews.co.ke/rss",
-            "name": "Nairobi News",
+            "url": "https://www.worldbank.org/en/country/kenya/rss",
+            "name": "World Bank Kenya",
         },
     ]
     

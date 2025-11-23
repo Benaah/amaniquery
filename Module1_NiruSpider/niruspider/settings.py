@@ -13,29 +13,31 @@ NEWSPIDER_MODULE = "niruspider.spiders"
 ROBOTSTXT_OBEY = True
 USER_AGENT = "AmaniQuery/1.0 (+https://github.com/amaniquery; contact@amaniquery.ke)"
 
-# Performance settings
-CONCURRENT_REQUESTS = 32
-CONCURRENT_REQUESTS_PER_DOMAIN = 8
-DOWNLOAD_DELAY = 1  # Reduced from 2.5 to 1 second for faster crawling
+# Performance settings - Optimized for Kenyan sources
+CONCURRENT_REQUESTS = 64  # Increased from 32 for better throughput
+CONCURRENT_REQUESTS_PER_DOMAIN = 16  # Increased from 8 for RSS feeds
+DOWNLOAD_DELAY = 0.5  # Reduced from 1 second for faster crawling
 RANDOMIZE_DOWNLOAD_DELAY = True
 
-# AutoThrottle (dynamic delay adjustment)
+# AutoThrottle (dynamic delay adjustment) - More aggressive
 AUTOTHROTTLE_ENABLED = True
-AUTOTHROTTLE_START_DELAY = 1
-AUTOTHROTTLE_MAX_DELAY = 5
-AUTOTHROTTLE_TARGET_CONCURRENCY = 8.0
+AUTOTHROTTLE_START_DELAY = 0.5  # Start faster
+AUTOTHROTTLE_MAX_DELAY = 3  # Reduced from 5 for quicker response
+AUTOTHROTTLE_TARGET_CONCURRENCY = 16.0  # Increased from 8.0
+AUTOTHROTTLE_DEBUG = False  # Set to True for debugging
 
 # Caching (for development)
 HTTPCACHE_ENABLED = True
 HTTPCACHE_EXPIRATION_SECS = 86400  # 24 hours
 HTTPCACHE_DIR = "httpcache"
 
-# Retry settings
-RETRY_TIMES = 3
-RETRY_HTTP_CODES = [500, 502, 503, 504, 408, 429]
+# Retry settings - Enhanced for reliability
+RETRY_TIMES = 5  # Increased from 3 for better resilience
+RETRY_HTTP_CODES = [500, 502, 503, 504, 408, 429, 403]  # Added 403 (Forbidden)
+RETRY_PRIORITY_ADJUST = -1  # Lower priority for retries
 
 # Download timeout
-DOWNLOAD_TIMEOUT = 30
+DOWNLOAD_TIMEOUT = 45  # Increased from 30 for slower sources
 
 # Enable pipelines
 ITEM_PIPELINES = {

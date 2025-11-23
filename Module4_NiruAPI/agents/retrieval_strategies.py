@@ -359,21 +359,38 @@ class QdrantRetriever:
     - Vector: 768-dim
     """
     
-    def __init__(self, client: QdrantClient, collection_name: str = "amaniquery_docs"):
+    def __init__(self, client: QdrantClient, collection_name: str = "amaniquery_docs", embedder=None):
         """
         Initialize Qdrant retriever.
         
         Args:
             client: Qdrant client instance
             collection_name: Collection to search
+            embedder: Optional embedding model/function
         """
         self.client = client
         self.collection_name = collection_name
+        self.embedder = embedder
+        
+    def _get_embedding(self, text: str) -> List[float]:
+        """Generate embedding for text using the provided embedder"""
+        if not self.embedder:
+            raise ValueError("Embedder not initialized, cannot generate vector from text")
+        
+        if hasattr(self.embedder, 'encode'):
+            # SentenceTransformer style
+            return self.embedder.encode(text).tolist()
+        elif callable(self.embedder):
+            # Function style
+            return self.embedder(text)
+        else:
+            raise ValueError(f"Unsupported embedder type: {type(self.embedder)}")
     
     def retrieve_wanjiku(
         self,
-        query_vector: List[float],
-        query_text: str,
+        query: str = None,
+        query_vector: List[float] = None,
+        query_text: str = None,
         limit: int = 10,
         recency_months: int = 6
     ) -> List[Dict[str, Any]]:
@@ -384,6 +401,7 @@ class QdrantRetriever:
         This implementation uses dense vector + payload filtering.
         
         Args:
+            query: Query text (alias for query_text)
             query_vector: Dense embedding of query
             query_text: Original query text for keyword matching
             limit: Number of results
@@ -392,6 +410,15 @@ class QdrantRetriever:
         Returns:
             List of search results
         """
+        # Handle arguments
+        text_query = query or query_text
+        if not text_query and not query_vector:
+            raise ValueError("Must provide either query text or vector")
+            
+        # Generate vector if missing
+        if not query_vector and text_query:
+            query_vector = self._get_embedding(text_query)
+            
         # Calculate recency cutoff
         recency_cutoff = datetime.now() - timedelta(days=recency_months * 30)
         recency_timestamp = int(recency_cutoff.timestamp())
@@ -444,7 +471,9 @@ class QdrantRetriever:
     
     def retrieve_wakili(
         self,
-        query_vector: List[float],
+        query: str = None,
+        query_vector: List[float] = None,
+        query_text: str = None,
         limit: int = 10,
         doc_types: List[str] = ["act", "bill", "judgment", "constitution"]
     ) -> List[Dict[str, Any]]:
@@ -456,13 +485,24 @@ class QdrantRetriever:
         - Strong filter on legal document types
         
         Args:
+            query: Query text (alias for query_text)
             query_vector: Dense embedding
+            query_text: Original query text
             limit: Number of results
             doc_types: Allowed document types
             
         Returns:
             Legal document chunks
         """
+        # Handle arguments
+        text_query = query or query_text
+        if not text_query and not query_vector:
+            raise ValueError("Must provide either query text or vector")
+            
+        # Generate vector if missing
+        if not query_vector and text_query:
+            query_vector = self._get_embedding(text_query)
+            
         # Build filter for legal documents
         filter_condition = QFilter(
             must=[
@@ -505,7 +545,9 @@ class QdrantRetriever:
     
     def retrieve_mwanahabari(
         self,
-        query_vector: List[float],
+        query: str = None,
+        query_vector: List[float] = None,
+        query_text: str = None,
         limit: int = 20,
         date_from: Optional[datetime] = None,
         date_to: Optional[datetime] = None,
@@ -521,7 +563,9 @@ class QdrantRetriever:
         - Prioritize documents with tables/statistics
         
         Args:
+            query: Query text (alias for query_text)
             query_vector: Dense embedding
+            query_text: Original query text
             limit: Number of results
             date_from: Start date
             date_to: End date
@@ -532,6 +576,15 @@ class QdrantRetriever:
         Returns:
             Data-rich documents
         """
+        # Handle arguments
+        text_query = query or query_text
+        if not text_query and not query_vector:
+            raise ValueError("Must provide either query text or vector")
+            
+        # Generate vector if missing
+        if not query_vector and text_query:
+            query_vector = self._get_embedding(text_query)
+            
         # Build complex filter
         must_conditions = []
         
@@ -634,7 +687,7 @@ class UnifiedRetriever:
     Unified interface that auto-detects Weaviate or Qdrant backend.
     """
     
-    def __init__(self, backend: Literal["weaviate", "qdrant"], client, collection_name: str):
+    def __init__(self, backend: Literal["weaviate", "qdrant"], client, collection_name: str, embedder=None):
         """
         Initialize unified retriever.
         
@@ -642,11 +695,12 @@ class UnifiedRetriever:
             backend: "weaviate" or "qdrant"
             client: Weaviate or Qdrant client instance
             collection_name: Collection to search
+            embedder: Optional embedding model/function (required for Qdrant)
         """
         if backend == "weaviate":
             self.retriever = WeaviateRetriever(client, collection_name)
         elif backend == "qdrant":
-            self.retriever = QdrantRetriever(client, collection_name)
+            self.retriever = QdrantRetriever(client, collection_name, embedder=embedder)
         else:
             raise ValueError(f"Unsupported backend: {backend}")
         

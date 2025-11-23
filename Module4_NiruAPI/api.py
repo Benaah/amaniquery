@@ -401,7 +401,8 @@ async def lifespan(app: FastAPI):
                 unified_retriever = UnifiedRetriever(
                     backend=backend,
                     client=client,
-                    collection_name="amaniquery_docs"  # Correct collection name
+                    collection_name="amaniquery_docs",  # Correct collection name
+                    embedder=vector_store.embedding_model
                 )
                 
                 # Create AK-RAG graph with local agents

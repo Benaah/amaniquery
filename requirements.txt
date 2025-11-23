@@ -35,6 +35,7 @@ upstash-vector  # For vector database
 qdrant-client  # Fallback vector store
 cryptography  # For encrypting API keys
 redis  # For rate limiting and caching
+weviate-client  # Fallback vector store
 
 # Database (PostgreSQL for sessions, feedback, chat history)
 psycopg2-binary
@@ -48,6 +49,7 @@ pydantic
 python-multipart
 africastalking  # SMS gateway for Kenya
 cloudinary  # Cloud storage for chat attachments
+langgraph-checkpoint-sqlite  # LangGraph SQLite checkpointing
 
 # Module 8: NiruAuth (Authentication & Authorization)
 PyJWT>=2.8.0  # JWT token handling

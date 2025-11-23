@@ -27,7 +27,6 @@ from qdrant_client.models import (
     MatchValue,
     Range,
     SearchRequest,
-    QueryVector,
     ScoredPoint
 )
 
@@ -41,13 +40,13 @@ class WeaviateRetriever:
     Weaviate-based retrieval with persona-specific optimization.
     
     Schema Assumptions:
-    - Collection: "KenyanCivicDocs"
+    - Collection: "amaniquery_docs"
     - Properties: text, doc_type, date_published, source, mp_name, committee, 
                  has_tables, metadata_tags
     - Vector: 768-dim embeddings (e.g., sentence-transformers)
     """
     
-    def __init__(self, client: weaviate.WeaviateClient, collection_name: str = "KenyanCivicDocs"):
+    def __init__(self, client: weaviate.WeaviateClient, collection_name: str = "amaniquery_docs"):
         """
         Initialize Weaviate retriever.
         
@@ -360,7 +359,7 @@ class QdrantRetriever:
     - Vector: 768-dim
     """
     
-    def __init__(self, client: QdrantClient, collection_name: str = "kenyan_civic_docs"):
+    def __init__(self, client: QdrantClient, collection_name: str = "amaniquery_docs"):
         """
         Initialize Qdrant retriever.
         
@@ -551,12 +550,12 @@ class QdrantRetriever:
                 )
             )
         
-        # MP name (exact match - extend with fuzzy in production)
+        # MP name (case-insensitive partial match for production)
         if mp_name:
             must_conditions.append(
                 FieldCondition(
                     key="mp_name",
-                    match=MatchValue(value=mp_name)
+                    match=MatchValue(text=f"{mp_name}", operator="contains", case_sensitive=False)
                 )
             )
         
@@ -744,7 +743,7 @@ if __name__ == "__main__":
     retriever = UnifiedRetriever(
         backend="weaviate",  # or "qdrant"
         client=client,
-        collection_name="KenyanCivicDocs"
+        collection_name="amaniquery_docs"
     )
     
     # Auto-routes based on query_type

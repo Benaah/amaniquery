@@ -41,7 +41,7 @@ from datetime import datetime
 import logging
 
 # Import existing AmaniQuery agents
-from .intent_router import classify_query, INTENT_CLASSIFICATION_PROMPT
+from .intent_router import classify_query, INTENT_ROUTER_SYSTEM_PROMPT
 from .sheng_translator import (
     detect_sheng,
     full_translation_pipeline,
@@ -49,7 +49,7 @@ from .sheng_translator import (
     FORMAL_TO_SHENG_PROMPT
 )
 from .kenyanizer import (
-    generate_system_prompt,
+    get_system_prompt,
     SYSTEM_PROMPT_WANJIKU,
     SYSTEM_PROMPT_WAKILI,
     SYSTEM_PROMPT_MWANAHABARI
@@ -59,7 +59,7 @@ from .json_enforcer import (
     validate_response,
     parse_llm_response,
     retry_with_enforcement,
-    UNIFIED_JSON_SCHEMA
+    RESPONSE_SCHEMA
 )
 from .retrieval_strategies import UnifiedRetriever
 
@@ -318,9 +318,8 @@ class KenyanizerPreambleAgent:
             persona = state.get('persona_name', 'wanjiku')
             
             # Generate system prompt
-            system_prompt = generate_system_prompt(
-                query_type=persona,
-                context_summary=self._summarize_context(state['retrieved_docs'])
+            system_prompt = get_system_prompt(
+                query_type=persona
             )
             
             state['system_prompt'] = system_prompt
@@ -375,9 +374,9 @@ class SynthesisAgent:
             
             # Get enforcement prompt
             enforcement_prompt = get_json_enforcement_prompt(
-                query=state['user_query'],
-                context=context,
-                query_type=query_type_for_enforcer
+                user_query=state['user_query'],
+                retrieved_context=context,
+                persona_hint=query_type_for_enforcer
             )
             
             # Combine system prompt + enforcement
@@ -393,8 +392,11 @@ class SynthesisAgent:
             state['raw_llm_response'] = raw_response
             
             # Parse JSON
-            parsed = parse_llm_response(raw_response)
+            parsed, error = parse_llm_response(raw_response)
             state['parsed_response'] = parsed
+            
+            if error:
+                logger.warning(f"[Synthesis] Parse error: {error}")
             
             logger.info(f"[Synthesis] Generated response ({len(raw_response)} chars)")
             
@@ -441,16 +443,16 @@ class ValidationAgent:
                 return state
             
             # Validate schema
-            validation_result = validate_response(state['parsed_response'])
+            is_valid, error = validate_response(state['parsed_response'])
             
-            state['is_valid'] = validation_result['valid']
-            state['validation_errors'] = validation_result.get('errors', [])
+            state['is_valid'] = is_valid
+            state['validation_errors'] = [error] if error else []
             
-            if validation_result['valid']:
+            if is_valid:
                 state['final_response'] = state['parsed_response']
                 logger.info(f"[Validation] ✓ Response valid")
             else:
-                logger.warning(f"[Validation] ✗ Validation failed: {validation_result.get('errors', [])}")
+                logger.warning(f"[Validation] ✗ Validation failed: {error}")
             
         except Exception as e:
             logger.error(f"[Validation] Error: {e}")
@@ -465,7 +467,7 @@ class ValidationAgent:
 # CONDITIONAL EDGES
 # ============================================================================
 
-def should_retry_synthesis(state: AKRAGState) -> Literal["synthesis", "fallback"]:
+def should_retry_synthesis(state: AKRAGState) -> Literal["synthesis", "fallback", "validation"]:
     """Decide whether to retry synthesis or move to fallback"""
     max_attempts = 3
     

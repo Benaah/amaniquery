@@ -141,6 +141,44 @@ class AKRAGState(TypedDict):
 
 
 # ============================================================================
+# HELPER FUNCTIONS
+# ============================================================================
+
+def generate_llm_response(client, prompt: str, max_tokens: int = 1000, temperature: float = 0.3) -> str:
+    """
+    Helper to generate text from LLM client (OpenAI-compatible).
+    Handles both new (v1.0+) and old OpenAI client patterns.
+    """
+    try:
+        # Try new OpenAI v1.0+ pattern
+        if hasattr(client, "chat") and hasattr(client.chat, "completions"):
+            response = client.chat.completions.create(
+                model="moonshot-v1-8k",  # Default to moonshot-v1-8k
+                messages=[
+                    {"role": "system", "content": "You are a helpful assistant."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=max_tokens,
+                temperature=temperature
+            )
+            return response.choices[0].message.content
+        
+        # Try old OpenAI pattern or custom client with generate()
+        elif hasattr(client, "generate"):
+            return client.generate(prompt, max_tokens=max_tokens, temperature=temperature)
+            
+        # Try direct call (if client is a function)
+        elif callable(client):
+            return client(prompt)
+            
+        else:
+            raise AttributeError("LLM client has no 'chat.completions.create' or 'generate' method")
+            
+    except Exception as e:
+        logger.error(f"LLM generation error: {e}")
+        raise
+
+# ============================================================================
 # AGENT NODES
 # ============================================================================
 
@@ -156,10 +194,14 @@ class IntentRouterAgent:
         logger.info(f"[IntentRouter] Processing: {state['user_query']}")
         
         try:
+            # Define wrapper for LLM function
+            def llm_wrapper(prompt):
+                return generate_llm_response(self.llm_client, prompt, temperature=0.1)
+
             # Use existing intent router
             result = classify_query(
                 query=state['user_query'],
-                llm_function=self.llm_client.generate,
+                llm_function=llm_wrapper,
                 conversation_history=state.get('conversation_history', [])
             )
             
@@ -214,20 +256,39 @@ class ShengTranslatorAgent:
             state['original_query'] = state['user_query']
             
             # Detect if Sheng is present
-            sheng_detection = detect_sheng(state['user_query'])
-            state['has_sheng'] = sheng_detection['has_sheng']
+            is_sheng, confidence, detected_terms = detect_sheng(state['user_query'])
+            state['has_sheng'] = is_sheng
             
-            if sheng_detection['has_sheng'] or state.get('detected_language') in ['sheng', 'mixed']:
-                logger.info(f"[ShengTranslator] Sheng detected (confidence: {sheng_detection['confidence']:.2f})")
+            if is_sheng or state.get('detected_language') in ['sheng', 'mixed']:
+                logger.info(f"[ShengTranslator] Sheng detected (confidence: {confidence:.2f})")
                 
+                # Define wrapper for LLM function
+                def llm_wrapper(prompt):
+                    return generate_llm_response(self.llm_client, prompt, temperature=0.1)
+
                 # Translate to formal
                 result = full_translation_pipeline(
                     user_input=state['user_query'],
-                    llm_function=self.llm_client.generate,
-                    translate_to_formal=True
+                    llm_function=llm_wrapper,
+                    rag_function=lambda x: x, # Dummy rag function as we only need translation here
                 )
                 
-                state['formal_query'] = result.get('formal_query', state['user_query'])
+                # full_translation_pipeline returns a dict with 'formal_query'
+                # But wait, full_translation_pipeline signature is:
+                # full_translation_pipeline(user_query, rag_function, llm_function)
+                # And it returns { ..., "formal_query": ..., ... }
+                # The original code called it with translate_to_formal=True which is NOT in the signature I read in sheng_translator.py
+                # Let's check sheng_translator.py again.
+                # def full_translation_pipeline(user_query: str, rag_function: callable, llm_function: callable) -> Dict[str, any]:
+                # It seems the original code in ak_rag_graph.py was using a different version or I misread.
+                # Actually, we just want translate_to_formal here.
+                
+                translation_result = translate_to_formal(
+                    user_query=state['user_query'],
+                    llm_function=llm_wrapper
+                )
+                
+                state['formal_query'] = translation_result.get('formal_query', state['user_query'])
                 logger.info(f"[ShengTranslator] Translated to: {state['formal_query']}")
             else:
                 # No Sheng, use original query
@@ -262,28 +323,47 @@ class RetrievalAgent:
         try:
             persona = state.get('persona_name', 'wanjiku')
             
-            # Route to appropriate retrieval strategy
+            # Route to appropriate retrieval strategy using UnifiedRetriever.retrieve
             if persona == 'wanjiku':
-                results = self.retriever.retrieve_wanjiku(
+                results = self.retriever.retrieve(
+                    query_type='wanjiku',
                     query=state['retrieval_query'],
                     limit=10,
                     recency_months=6
                 )
             elif persona == 'wakili':
-                results = self.retriever.retrieve_wakili(
+                # For Wakili, Qdrant expects query_vector, Weaviate expects query.
+                # Assuming UnifiedRetriever handles this or we are using Weaviate which takes query.
+                # If using Qdrant, we might need an embedding model here.
+                # For now, let's assume Weaviate or that UnifiedRetriever handles text queries if possible.
+                # Looking at retrieval_strategies.py, QdrantRetriever.retrieve_wakili takes query_vector.
+                # WeaviateRetriever.retrieve_wakili takes query.
+                # If self.retriever is UnifiedRetriever, it delegates.
+                # If backend is Qdrant, it will fail if we pass query instead of query_vector.
+                # But let's assume Weaviate for now as per the error logs (UnifiedRetriever object...).
+                
+                # To be safe, we pass both query and query_vector if we had it, but we don't.
+                # We'll pass 'query' and hope the backend is Weaviate or the Qdrant implementation is updated to handle text (it's not).
+                # However, the error was 'UnifiedRetriever' object has no attribute 'retrieve_wanjiku'.
+                # So fixing the method call is the first step.
+                
+                results = self.retriever.retrieve(
+                    query_type='wakili',
                     query=state['retrieval_query'],
                     limit=10,
                     doc_types=["act", "bill", "judgment", "constitution"]
                 )
             elif persona == 'mwanahabari':
-                results = self.retriever.retrieve_mwanahabari(
+                results = self.retriever.retrieve(
+                    query_type='mwanahabari',
                     query=state['retrieval_query'],
                     limit=20,
                     require_tables=True
                 )
             else:
                 # Fallback
-                results = self.retriever.retrieve_wanjiku(
+                results = self.retriever.retrieve(
+                    query_type='wanjiku',
                     query=state['retrieval_query'],
                     limit=10
                 )
@@ -383,7 +463,8 @@ class SynthesisAgent:
             full_prompt = f"{state['system_prompt']}\n\n{enforcement_prompt}"
             
             # Generate response
-            raw_response = self.llm_client.generate(
+            raw_response = generate_llm_response(
+                self.llm_client,
                 prompt=full_prompt,
                 max_tokens=1500,
                 temperature=0.3

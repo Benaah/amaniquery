@@ -873,7 +873,7 @@ async def query(request: QueryRequest):
                         "query_time": metadata.get('total_time_seconds', 0),
                         "retrieved_chunks": metadata.get('num_docs_retrieved', 0),
                         "model_used": f"AK-RAG-{metadata.get('persona', 'wanjiku')}-local",
-                        "structured_data": response_data.get('response')
+                        "structured_data": response_data
                     }
                     
                     logger.info(f"[AK-RAG] Query completed in {metadata.get('total_time_seconds', 0):.2f}s using {metadata.get('persona')} persona")
@@ -1738,7 +1738,7 @@ async def add_chat_message(session_id: str, message: ChatMessageCreate, request:
                                 "retrieved_chunks": metadata.get('num_docs_retrieved', 0),
                                 "model_used": f"AK-RAG-{metadata.get('persona', 'wanjiku')}-local",
                                 "answer_stream": [answer],
-                                "structured_data": response_data.get('response')
+                                "structured_data": response_data
                             }
                         else:
                             # Fallback

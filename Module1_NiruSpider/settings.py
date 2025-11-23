@@ -2,6 +2,10 @@
 NiruSpider v2.0 - Scrapy Settings
 ==================================
 """
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 BOT_NAME = 'niruspider'
 SPIDER_MODULES = ['niruspider']
@@ -78,13 +82,13 @@ FEED_EXPORT_ENCODING = 'utf-8'
 FEED_EXPORT_INDENT = 2
 
 # LLM Configuration (for summary generation)
-LLM_PROVIDER = 'gemini'  # Options: 'gemini', 'openai', 'groq'
-LLM_MODEL = 'gemini-1.5-flash'
-LLM_API_KEY = 'your-api-key-here'  # Load from environment
-LLM_MAX_TOKENS = 200
+LLM_PROVIDER = os.getenv('LLM_PROVIDER', 'gemini')  # Options: 'gemini', 'openai', 'groq'
+LLM_MODEL = os.getenv('LLM_MODEL', 'gemini-2.5-flash')
+LLM_API_KEY = os.getenv('GEMINI_API_KEY')  # Load from environment
+LLM_MAX_TOKENS = int(os.getenv('LLM_MAX_TOKENS', 200))
 
 # Vector DB Configuration
-VECTOR_DB = 'qdrant'  # Options: 'weaviate', 'qdrant'
-VECTOR_DB_URL = 'http://localhost:8080'
-VECTOR_DB_COLLECTION = 'amaniquery_docs'
-EMBEDDING_MODEL = 'sentence-transformers/all-MiniLM-L6-v2'
+VECTOR_DB = os.getenv('VECTOR_DB', 'qdrant')  # Options: 'weaviate', 'qdrant'
+VECTOR_DB_URL = os.getenv('QDRANT_URL', 'http://localhost:8080')
+VECTOR_DB_COLLECTION = os.getenv('VECTOR_DB_COLLECTION', 'amaniquery_docs')
+EMBEDDING_MODEL = os.getenv('EMBEDDING_MODEL', 'sentence-transformers/all-MiniLM-L6-v2')

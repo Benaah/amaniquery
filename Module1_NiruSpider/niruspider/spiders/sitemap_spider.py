@@ -18,15 +18,19 @@ class SitemapSpider(scrapy.Spider):
         super(SitemapSpider, self).__init__(*args, **kwargs)
         self.article_extractor = ArticleExtractor()
     
-    # Sitemap URLs for Kenyan news sources
+    # Sitemap URLs for Kenyan news sources and government sites
     sitemap_urls = [
+        # News sources
         "https://nation.africa/sitemap.xml",
         "https://www.standardmedia.co.ke/sitemap.xml",
         "https://www.the-star.co.ke/sitemap.xml",
         "https://www.businessdailyafrica.com/sitemap.xml",
-        "https://citizen.digital/sitemap.xml",
-        "https://www.ktnnews.co.ke/sitemap.xml",
-        "https://www.ntv.co.ke/sitemap.xml",
+        "https://www.citizen.digital/sitemap.xml",
+        "https://www.ktnnews.com/sitemap.xml",
+        "https://www.ntvkenya.co.ke/sitemap.xml",
+        # Government sources
+        "http://www.parliament.go.ke/sitemap.xml",
+        "http://kenyalaw.org/sitemap.xml",
     ]
     
     custom_settings = {

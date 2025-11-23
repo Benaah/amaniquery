@@ -30,10 +30,10 @@ export default function ChatPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background flex">
+    <div className="min-h-screen max-h-screen bg-background flex overflow-hidden">
       <Sidebar />
-      <div className="flex-1 ml-0 md:ml-[20px]">
-        <div className="absolute top-4 right-4 z-10">
+      <div className="flex-1 ml-0 md:ml-[20px] min-w-0 overflow-hidden relative">
+        <div className="absolute top-2 right-2 md:top-4 md:right-4 z-10">
           <ThemeToggle />
         </div>
         <Chat />

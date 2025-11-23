@@ -17,10 +17,15 @@ class KenyaLawSpider(scrapy.Spider):
         self.article_extractor = ArticleExtractor()
         self.max_pages = 100  # Limit pages to crawl
     
-    # Start URLs
+    # Start URLs - Enhanced with sitemaps and more entry points
     start_urls = [
         "http://kenyalaw.org/kl/index.php?id=398",  # Constitution
         "http://kenyalaw.org/kl/index.php?id=569",  # Acts
+        "http://kenyalaw.org/kl/index.php?id=4266",  # Court decisions
+        "http://kenyalaw.org/kl/index.php?id=572",  # Gazette notices
+        "http://kenyalaw.org/kl/index.php?id=1837",  # Legal opinions
+        # Sitemaps for better coverage
+        "http://kenyalaw.org/sitemap.xml",
     ]
     
     custom_settings = {

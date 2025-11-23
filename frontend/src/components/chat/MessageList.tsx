@@ -1,4 +1,4 @@
-import { useRef, useEffect } from "react"
+import React from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -128,7 +128,7 @@ export function MessageList({
     <div className="flex-1 overflow-hidden flex flex-col min-h-0">
       <div
         ref={messagesContainerRef}
-        className="flex-1 overflow-y-auto px-3 md:px-8 py-6 space-y-4 min-h-0 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
+        className="flex-1 overflow-y-auto px-2 md:px-8 py-4 md:py-6 space-y-3 md:space-y-4 min-h-0 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
       >
         {messages.length === 0 && (
           <WelcomeScreen
@@ -163,22 +163,22 @@ export function MessageList({
                 className={`flex ${message.role === "user" ? "justify-end" : "justify-start"} group animate-in fade-in slide-in-from-bottom-2 duration-300`}
               >
                 <div
-                  className={`flex w-full max-w-3xl ${message.role === "user" ? "flex-row-reverse text-right" : "flex-row"} gap-3`}
+                  className={`flex ${message.role === "user" ? "flex-row-reverse text-right max-w-[85%] md:max-w-[70%] lg:max-w-3xl" : "flex-row w-full max-w-full md:max-w-3xl"} gap-2 md:gap-3`}
                 >
                   {showAvatar && (
                     <div
-                      className={`flex-shrink-0 h-10 w-10 rounded-2xl border border-white/10 backdrop-blur flex items-center justify-center transition-all duration-200 ${
+                      className={`flex-shrink-0 h-9 w-9 md:h-10 md:w-10 rounded-2xl border border-white/10 backdrop-blur flex items-center justify-center transition-all duration-200 ${
                         message.role === "user" ? "bg-primary/90 text-primary-foreground" : "bg-white/5 text-white"
                       }`}
                     >
                       {message.role === "user" ? <User className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
                     </div>
                   )}
-                  {!showAvatar && <div className="flex-shrink-0 w-10" />}
+                  {!showAvatar && <div className="flex-shrink-0 w-9 md:w-10" />}
                   <div className="flex-1 space-y-3">
                     {editingMessageId === message.id && message.role === "user" ? (
                       <Card className="rounded-3xl border border-primary/50 bg-primary/10 backdrop-blur-xl">
-                        <CardContent className="p-4 md:p-6 space-y-3">
+                        <CardContent className="p-3 md:p-6 space-y-2 md:space-y-3">
                           <Textarea
                             value={editingContent}
                             onChange={(e) => setEditingContent(e.target.value)}
@@ -222,14 +222,14 @@ export function MessageList({
                       <Card
                         className={`rounded-3xl border border-white/5 bg-white/5 text-sm md:text-base shadow-xl transition-all duration-200 ${
                           message.role === "user" 
-                            ? "bg-primary text-primary-foreground dark:bg-primary/90 dark:text-primary-foreground" 
+                            ? "bg-primary text-primary-foreground dark:bg-primary/90 dark:text-primary-foreground inline-block" 
                             : "backdrop-blur-xl"
                         } ${message.failed ? "border-red-500/50 bg-red-500/10" : ""} ${
                           regeneratingMessageId === message.id ? "animate-pulse" : ""
                         }`}
                       >
-                        <CardContent className="p-4 md:p-6 space-y-3">
-                        <div className={`flex flex-wrap items-center gap-2 text-xs uppercase tracking-wider ${
+                        <CardContent className={`${message.role === "user" ? "p-2.5 md:p-4" : "p-3 md:p-6"} space-y-2 md:space-y-3`}>
+                        <div className={`flex flex-wrap items-center gap-1.5 md:gap-2 text-[10px] md:text-xs uppercase tracking-wider ${
                           message.role === "user" 
                             ? "text-primary-foreground/80 dark:text-primary-foreground/80" 
                             : "text-muted-foreground"
@@ -357,7 +357,7 @@ export function MessageList({
                           </div>
                         )}
 
-                        <div className={`prose prose-sm md:prose-base max-w-none dark:prose-invert text-sm md:text-base ${
+                        <div className={`prose prose-sm md:prose-base max-w-none dark:prose-invert text-sm md:text-base break-words ${
                           message.role === "user" 
                             ? "prose-headings:text-primary-foreground prose-p:text-primary-foreground prose-strong:text-primary-foreground prose-em:text-primary-foreground prose-code:text-primary-foreground prose-pre:text-primary-foreground prose-a:text-primary-foreground/90 hover:prose-a:text-primary-foreground prose-li:text-primary-foreground" 
                             : ""
@@ -371,70 +371,70 @@ export function MessageList({
                     )}
 
                     {message.role === "user" && !message.failed && editingMessageId !== message.id && (
-                      <div className="flex flex-wrap items-center gap-2 justify-end">
+                      <div className="flex flex-wrap items-center gap-1.5 md:gap-2 justify-end mt-1">
                         <Button
                           variant="ghost"
                           size="sm"
                           onClick={() => onStartEdit(message)}
-                          className="h-9 rounded-full px-3 text-xs text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity"
+                          className="h-9 md:h-9 rounded-full px-2.5 md:px-3 text-xs text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity min-w-[44px]"
                         >
-                          <Edit className="w-4 h-4 mr-1" />
-                          Edit
+                          <Edit className="w-4 h-4 md:mr-1" />
+                          <span className="hidden sm:inline">Edit</span>
                         </Button>
                       </div>
                     )}
 
                     {message.failed && (
-                      <div className="flex flex-wrap items-center gap-2 justify-start">
+                      <div className="flex flex-wrap items-center gap-1.5 md:gap-2 justify-start mt-1">
                         <Button
                           variant="outline"
                           size="sm"
                           onClick={() => onCopyFailedQuery(message)}
-                          className="h-9 rounded-full px-3 text-xs border-red-500/50 text-red-400 hover:bg-red-500/10"
+                          className="h-9 rounded-full px-2.5 md:px-3 text-xs border-red-500/50 text-red-400 hover:bg-red-500/10 min-w-[44px]"
                         >
-                          <Copy className="w-4 h-4 mr-1" />
-                          Copy Query
+                          <Copy className="w-4 h-4 md:mr-1" />
+                          <span className="hidden sm:inline">Copy Query</span>
                         </Button>
                         <Button
                           variant="outline"
                           size="sm"
                           onClick={() => onEditFailedQuery(message)}
-                          className="h-9 rounded-full px-3 text-xs border-red-500/50 text-red-400 hover:bg-red-500/10"
+                          className="h-9 rounded-full px-2.5 md:px-3 text-xs border-red-500/50 text-red-400 hover:bg-red-500/10 min-w-[44px]"
                         >
-                          <Edit className="w-4 h-4 mr-1" />
-                          Edit
+                          <Edit className="w-4 h-4 md:mr-1" />
+                          <span className="hidden sm:inline">Edit</span>
                         </Button>
                         <Button
                           variant="default"
                           size="sm"
                           onClick={() => onResendFailedQuery(message)}
                           disabled={isLoading}
-                          className="h-9 rounded-full px-3 text-xs bg-red-600 hover:bg-red-700 text-white"
+                          className="h-9 rounded-full px-2.5 md:px-3 text-xs bg-red-600 hover:bg-red-700 text-white min-w-[44px]"
                         >
-                          <RotateCw className="w-4 h-4 mr-1" />
-                          Retry
+                          <RotateCw className="w-4 h-4 md:mr-1" />
+                          <span className="hidden sm:inline">Retry</span>
                         </Button>
                       </div>
                     )}
 
                     {message.role === "assistant" && !message.failed && (
-                      <div className="flex flex-wrap items-center gap-2 justify-start">
+                      <div className="flex flex-wrap items-center gap-1.5 md:gap-2 justify-start mt-1">
                         <Button
                           variant="ghost"
                           size="sm"
                           onClick={() => onRegenerate(message.id)}
                           disabled={!message.saved || isLoading || regeneratingMessageId === message.id}
-                          className="h-9 rounded-full px-3 text-xs text-muted-foreground hover:text-primary"
+                          className="h-9 rounded-full px-2.5 md:px-3 text-xs text-muted-foreground hover:text-primary min-w-[44px]"
                         >
                           {regeneratingMessageId === message.id ? (
                             <>
-                              <Loader2 className="w-4 h-4 mr-1 animate-spin" />
-                              Regenerating...
+                              <Loader2 className="w-4 h-4 md:mr-1 animate-spin" />
+                              <span className="hidden sm:inline">Regenerating...</span>
                             </>
                           ) : (
                             <>
-                              <RotateCw className="w-4 h-4 mr-1" />
-                              Regenerate
+                              <RotateCw className="w-4 h-4 md:mr-1" />
+                              <span className="hidden sm:inline">Regenerate</span>
                             </>
                           )}
                         </Button>
@@ -443,39 +443,39 @@ export function MessageList({
                           size="sm"
                           onClick={() => onFeedback(message.id, "like")}
                           disabled={!message.saved}
-                          className={`h-9 rounded-full px-3 text-xs ${message.feedback_type === "like" ? "text-green-500" : "text-muted-foreground"}`}
+                          className={`h-9 rounded-full px-2.5 md:px-3 text-xs min-w-[44px] ${message.feedback_type === "like" ? "text-green-500" : "text-muted-foreground"}`}
                         >
-                          <ThumbsUp className="w-4 h-4 mr-1" />
-                          Helpful
+                          <ThumbsUp className="w-4 h-4 md:mr-1" />
+                          <span className="hidden sm:inline">Helpful</span>
                         </Button>
                         <Button
                           variant="ghost"
                           size="sm"
                           onClick={() => onFeedback(message.id, "dislike")}
                           disabled={!message.saved}
-                          className={`h-9 rounded-full px-3 text-xs ${message.feedback_type === "dislike" ? "text-red-500" : "text-muted-foreground"}`}
+                          className={`h-9 rounded-full px-2.5 md:px-3 text-xs min-w-[44px] ${message.feedback_type === "dislike" ? "text-red-500" : "text-muted-foreground"}`}
                         >
-                          <ThumbsDown className="w-4 h-4 mr-1" />
-                          Refine
+                          <ThumbsDown className="w-4 h-4 md:mr-1" />
+                          <span className="hidden sm:inline">Refine</span>
                         </Button>
                         <Button
                           variant="ghost"
                           size="sm"
                           onClick={() => onCopy(message.content)}
-                          className="h-9 rounded-full px-3 text-xs text-muted-foreground"
+                          className="h-9 rounded-full px-2.5 md:px-3 text-xs text-muted-foreground min-w-[44px]"
                         >
-                          <Copy className="w-4 h-4 mr-1" />
-                          Copy
+                          <Copy className="w-4 h-4 md:mr-1" />
+                          <span className="hidden sm:inline">Copy</span>
                         </Button>
                         <Button
                           variant="ghost"
                           size="sm"
                           onClick={() => onShare(message)}
                           disabled={!message.saved}
-                          className={`h-9 rounded-full px-3 text-xs ${shareSheet?.messageId === message.id ? "bg-white/10" : "text-muted-foreground"}`}
+                          className={`h-9 rounded-full px-2.5 md:px-3 text-xs min-w-[44px] ${shareSheet?.messageId === message.id ? "bg-white/10" : "text-muted-foreground"}`}
                         >
-                          <Share2 className="w-4 h-4 mr-1" />
-                          Share
+                          <Share2 className="w-4 h-4 md:mr-1" />
+                          <span className="hidden sm:inline">Share</span>
                         </Button>
                         {message.model_used === "gemini-research" && (
                           <>
@@ -484,20 +484,20 @@ export function MessageList({
                               size="sm"
                               onClick={() => onGeneratePDF(message.id)}
                               disabled={!message.saved}
-                              className="h-9 rounded-full px-3 text-xs text-muted-foreground"
+                              className="h-9 rounded-full px-2.5 md:px-3 text-xs text-muted-foreground min-w-[44px]"
                             >
-                              <FileText className="w-4 h-4 mr-1" />
-                              PDF
+                              <FileText className="w-4 h-4 md:mr-1" />
+                              <span className="hidden sm:inline">PDF</span>
                             </Button>
                             <Button
                               variant="ghost"
                               size="sm"
                               onClick={() => onGenerateWord(message.id)}
                               disabled={!message.saved}
-                              className="h-9 rounded-full px-3 text-xs text-muted-foreground"
+                              className="h-9 rounded-full px-2.5 md:px-3 text-xs text-muted-foreground min-w-[44px]"
                             >
-                              <Download className="w-4 h-4 mr-1" />
-                              Word
+                              <Download className="w-4 h-4 md:mr-1" />
+                              <span className="hidden sm:inline">Word</span>
                             </Button>
                           </>
                         )}
@@ -505,7 +505,7 @@ export function MessageList({
                     )}
 
                     {shareSheet?.messageId === message.id && (
-                      <div className="rounded-3xl border border-white/10 bg-background/80 backdrop-blur-xl p-4 md:p-5 space-y-4">
+                      <div className="rounded-3xl border border-white/10 bg-background/80 backdrop-blur-xl p-3 md:p-5 space-y-3 md:space-y-4 mt-2">
                         <div className="flex items-center justify-between">
                           <div>
                             <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">Social share</p>
@@ -516,13 +516,13 @@ export function MessageList({
                           </Button>
                         </div>
 
-                        <div className="grid gap-2 md:grid-cols-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
                           {SHARE_PLATFORMS.map((platform) => (
                             <button
                               type="button"
                               key={platform.id}
                               onClick={() => onChangeSharePlatform(message, platform.id)}
-                              className={`group rounded-2xl border border-white/10 p-3 text-left transition hover:border-white/30 ${
+                              className={`group rounded-2xl border border-white/10 p-2.5 md:p-3 text-left transition hover:border-white/30 min-h-[60px] ${
                                 shareSheet.platform === platform.id ? "bg-white/10" : "bg-white/[0.04]"
                               }`}
                             >
@@ -565,30 +565,30 @@ export function MessageList({
                           {shareSheet.success && <p className="mt-2 text-xs text-emerald-400">{shareSheet.success}</p>}
                         </div>
 
-                        <div className="flex flex-wrap gap-2">
-                          <Button variant="outline" size="sm" className="rounded-full border-white/20 text-xs" onClick={onCopyShareContent} disabled={!shareSheet.preview}>
-                            <Copy className="w-4 h-4 mr-1" />
-                            Copy text
+                        <div className="flex flex-wrap gap-1.5 md:gap-2">
+                          <Button variant="outline" size="sm" className="rounded-full border-white/20 text-xs min-h-[44px] px-2.5 md:px-3" onClick={onCopyShareContent} disabled={!shareSheet.preview}>
+                            <Copy className="w-4 h-4 md:mr-1" />
+                            <span className="hidden sm:inline">Copy text</span>
                           </Button>
                           <Button
                             variant="default"
                             size="sm"
-                            className="rounded-full text-xs"
+                            className="rounded-full text-xs min-h-[44px] px-2.5 md:px-3"
                             onClick={() => onOpenShareIntent(message)}
                             disabled={!shareSheet.preview || shareSheet.shareLinkLoading}
                           >
-                            {shareSheet.shareLinkLoading ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <ExternalLink className="w-4 h-4 mr-1" />}
-                            Open share dialog
+                            {shareSheet.shareLinkLoading ? <Loader2 className="w-4 h-4 md:mr-1 animate-spin" /> : <ExternalLink className="w-4 h-4 md:mr-1" />}
+                            <span className="hidden sm:inline">Open share dialog</span>
                           </Button>
                           <Button
                             variant="ghost"
                             size="sm"
-                            className="rounded-full text-xs"
+                            className="rounded-full text-xs min-h-[44px] px-2.5 md:px-3"
                             onClick={() => onPostDirectly(message)}
                             disabled={!shareSheet.preview || shareSheet.posting}
                           >
-                            {shareSheet.posting ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Link2 className="w-4 h-4 mr-1" />}
-                            Direct post (beta)
+                            {shareSheet.posting ? <Loader2 className="w-4 h-4 md:mr-1 animate-spin" /> : <Link2 className="w-4 h-4 md:mr-1" />}
+                            <span className="hidden sm:inline">Direct post (beta)</span>
                           </Button>
                         </div>
                       </div>
@@ -625,43 +625,43 @@ export function MessageList({
 
       {messages.length > 0 && messages[messages.length - 1].sources && messages[messages.length - 1].sources!.length > 0 && (
         <div className="border-t border-white/5 bg-black/30 backdrop-blur flex-shrink-0">
-          <Button variant="ghost" className="w-full justify-between p-3 md:p-4 hover:bg-white/5 rounded-none" onClick={onToggleSources}>
-            <span className="font-semibold text-sm md:text-base">Sources ({messages[messages.length - 1].sources!.length})</span>
-            {showSources ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          <Button variant="ghost" className="w-full justify-between p-2.5 md:p-4 hover:bg-white/5 rounded-none min-h-[44px]" onClick={onToggleSources}>
+            <span className="font-semibold text-xs md:text-base">Sources ({messages[messages.length - 1].sources!.length})</span>
+            {showSources ? <ChevronUp className="w-4 h-4 flex-shrink-0" /> : <ChevronDown className="w-4 h-4 flex-shrink-0" />}
           </Button>
           {showSources && (
-            <div className="px-3 md:px-6 pb-5 space-y-3">
+            <div className="px-2 md:px-6 pb-4 md:pb-5 space-y-2 md:space-y-3">
               {messages[messages.length - 1].sources!.map((source, index) => {
                 const isVisionSource = source.category === "vision"
                 return (
-                  <div key={index} className="flex items-start space-x-3 p-3 rounded-2xl border border-white/10 bg-white/5">
-                    <div className={`flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold ${
+                  <div key={index} className="flex items-start space-x-2 md:space-x-3 p-2.5 md:p-3 rounded-2xl border border-white/10 bg-white/5">
+                    <div className={`flex-shrink-0 w-6 h-6 md:w-7 md:h-7 rounded-full flex items-center justify-center text-[10px] md:text-xs font-semibold ${
                       isVisionSource 
                         ? "bg-purple-500/20 text-purple-300 border border-purple-500/40" 
                         : "bg-primary text-primary-foreground"
                     }`}>
-                      {isVisionSource ? <ImageIcon className="w-4 h-4" /> : index + 1}
+                      {isVisionSource ? <ImageIcon className="w-3 h-3 md:w-4 md:h-4" /> : index + 1}
                     </div>
                     <div className="flex-1 min-w-0">
                       {source.url ? (
-                        <a href={source.url} target="_blank" rel="noopener noreferrer" className="text-sm font-medium hover:underline flex items-center gap-1">
-                          {source.title}
+                        <a href={source.url} target="_blank" rel="noopener noreferrer" className="text-xs md:text-sm font-medium hover:underline flex items-center gap-1 break-words">
+                          <span className="break-words">{source.title}</span>
                           <ExternalLink className="w-3 h-3 flex-shrink-0" />
                         </a>
                       ) : (
-                        <div className="text-sm font-medium flex items-center gap-1">
-                          {isVisionSource && <Eye className="w-3 h-3 text-purple-400" />}
-                          {source.title}
+                        <div className="text-xs md:text-sm font-medium flex items-center gap-1">
+                          {isVisionSource && <Eye className="w-3 h-3 text-purple-400 flex-shrink-0" />}
+                          <span className="break-words">{source.title}</span>
                         </div>
                       )}
-                      <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{source.excerpt}</p>
-                      <div className="flex items-center gap-2 mt-2">
-                        <Badge variant="outline" className={`text-xs ${
+                      <p className="text-[11px] md:text-xs text-muted-foreground mt-1 line-clamp-2 break-words">{source.excerpt}</p>
+                      <div className="flex flex-wrap items-center gap-1.5 md:gap-2 mt-2">
+                        <Badge variant="outline" className={`text-[10px] md:text-xs ${
                           isVisionSource ? "border-purple-500/40 text-purple-300" : ""
                         }`}>
                           {isVisionSource ? "🖼️ Vision" : source.category}
                         </Badge>
-                        <span className="text-xs text-muted-foreground truncate">{source.source_name}</span>
+                        <span className="text-[10px] md:text-xs text-muted-foreground truncate">{source.source_name}</span>
                       </div>
                     </div>
                   </div>

@@ -1,27 +1,48 @@
-import { Twitter, Linkedin, Facebook } from "lucide-react"
+import { Twitter, Linkedin, Facebook, MessageCircle, Send, Mail } from "lucide-react"
 import type { SharePlatformConfig } from "./types"
 
 export const SHARE_PLATFORMS: SharePlatformConfig[] = [
   {
     id: "twitter",
-    label: "X / Twitter",
-    accent: "from-[#1d1d1f] to-[#111] text-white",
-    description: "Real-time legal insights (280 chars)",
+    label: "X",
+    accent: "from-[#000000] to-[#1a1a1a] text-white",
+    description: "280 characters",
     icon: <Twitter className="w-4 h-4" />
+  },
+  {
+    id: "whatsapp",
+    label: "WhatsApp",
+    accent: "from-[#25D366] to-[#1EBE57] text-white",
+    description: "Share via chat",
+    icon: <MessageCircle className="w-4 h-4" />
   },
   {
     id: "linkedin",
     label: "LinkedIn",
     accent: "from-[#0A66C2] to-[#004182] text-white",
-    description: "Professional analysis (3,000 chars)",
+    description: "Professional",
     icon: <Linkedin className="w-4 h-4" />
+  },
+  {
+    id: "telegram",
+    label: "Telegram",
+    accent: "from-[#0088cc] to-[#006699] text-white",
+    description: "Instant messaging",
+    icon: <Send className="w-4 h-4" />
   },
   {
     id: "facebook",
     label: "Facebook",
     accent: "from-[#1877F2] to-[#0F5EC7] text-white",
-    description: "Community-friendly summaries",
+    description: "Social network",
     icon: <Facebook className="w-4 h-4" />
+  },
+  {
+    id: "email",
+    label: "Email",
+    accent: "from-[#EA4335] to-[#C5221F] text-white",
+    description: "Send via email",
+    icon: <Mail className="w-4 h-4" />
   }
 ]
 

@@ -121,21 +121,21 @@ class GlobalTrendsSpider(scrapy.Spider):
         "legislation", "bill", "act", "law", "constitution",
     ]
     
-    # Exclude patterns - articles that mention these are likely not about Kenya
+    # Exclude patterns - Focus only on clearly non-Africa regions
+    # Reduced list to avoid over-filtering relevant African content
     exclude_patterns = [
         r'\b(?:china|chinese|beijing)\b',
         r'\b(?:russia|russian|moscow|putin)\b',
         r'\b(?:ukraine|ukrainian|kyiv)\b',
-        r'\b(?:israel|israeli|palestine|palestinian|gaza)\b',
+        r'\b(?:israel|israeli|palestine|palestinian|gaza|west bank)\b',
         r'\b(?:iran|iranian|tehran)\b',
-        r'\b(?:north korea|south korea|seoul|pyongyang)\b',
+        r'\b(?:north korea|south korea|seoul|pyongyang|korean peninsula)\b',
         r'\b(?:japan|japanese|tokyo)\b',
-        r'\b(?:india|indian|delhi|mumbai)\b',
-        r'\b(?:brazil|brazilian|brasilia)\b',
+        r'\b(?:india|indian|delhi|mumbai|bangalore)\b',
+        r'\b(?:pakistan|pakistani|islamabad|karachi)\b',
+        r'\b(?:brazil|brazilian|brasilia|sao paulo)\b',
         r'\b(?:mexico|mexican|mexico city)\b',
-        r'\b(?:canada|canadian|ottawa|toronto)\b',
-        r'\b(?:australia|australian|sydney|melbourne)\b',
-        r'\b(?:europe|european|eu|brussels|paris|berlin|london)\b',
+        r'\b(?:argentina|argentine|buenos aires)\b',
     ]
     
     custom_settings = {

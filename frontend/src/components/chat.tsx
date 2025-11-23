@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react"
 import { toast } from "sonner"
+import { History as HistoryIcon } from "lucide-react"
 import {
   ChatSidebar
 } from "./chat/ChatSidebar"
@@ -1117,7 +1118,7 @@ ${researchProcess.tools_used && researchProcess.tools_used.length > 0
   }
 
   return (
-    <div className="relative flex h-screen bg-gradient-to-b from-background via-background/95 to-background text-foreground overflow-hidden">
+    <div className="relative flex h-screen max-h-screen bg-gradient-to-b from-background via-background/95 to-background text-foreground overflow-hidden">
       <div className="pointer-events-none absolute inset-0 opacity-60">
         <div className="absolute -top-32 left-1/2 h-96 w-96 -translate-x-1/2 rounded-full bg-primary/20 blur-[120px]" />
         <div className="absolute bottom-0 right-0 h-80 w-80 rounded-full bg-blue-500/10 blur-[120px]" />
@@ -1133,7 +1134,16 @@ ${researchProcess.tools_used && researchProcess.tools_used.length > 0
         onCloseHistory={() => setShowHistory(false)}
       />
 
-      <div className="flex-1 flex flex-col relative z-10 h-full overflow-hidden">
+      {/* Floating History Button for Mobile - Always Accessible */}
+      <button
+        onClick={() => setShowHistory(!showHistory)}
+        className="md:hidden fixed bottom-20 right-4 z-40 h-14 w-14 rounded-full bg-primary text-primary-foreground shadow-2xl border-2 border-primary/20 hover:bg-primary/90 transition-all hover:scale-110 flex items-center justify-center"
+        aria-label="Toggle chat history"
+      >
+        <HistoryIcon className={`w-6 h-6 transition-transform ${showHistory ? "scale-110" : ""}`} />
+      </button>
+
+      <div className="flex-1 flex flex-col relative z-10 h-full max-h-screen overflow-hidden min-w-0">
         <ChatHeader
           isResearchMode={isResearchMode}
           useHybrid={useHybrid}

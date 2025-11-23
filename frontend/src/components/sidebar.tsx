@@ -10,8 +10,7 @@ import {
   Mic,
   User,
   LogOut,
-  Menu,
-  X,
+  PanelLeft,
 } from "lucide-react"
 import { Button } from "./ui/button"
 import { cn } from "@/lib/utils"
@@ -52,14 +51,14 @@ export function Sidebar() {
 
   return (
     <>
-      {/* Mobile Hamburger Button */}
+      {/* Mobile Sidebar Toggle Button */}
       {isMobile && (
         <button
           onClick={() => setIsOpen(!isOpen)}
-          className="fixed top-4 left-4 z-50 p-2 rounded-lg bg-background border shadow-lg md:hidden"
+          className="fixed top-3 left-3 z-50 h-9 w-9 rounded-full bg-background/80 backdrop-blur-sm border border-white/10 hover:bg-background/90 shadow-lg md:hidden flex items-center justify-center transition-all"
           aria-label="Toggle menu"
         >
-          {isOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+          <PanelLeft className={`w-4 h-4 transition-transform duration-300 ${isOpen ? "rotate-180" : ""}`} />
         </button>
       )}
 

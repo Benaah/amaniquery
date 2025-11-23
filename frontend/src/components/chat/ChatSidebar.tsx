@@ -1,3 +1,6 @@
+"use client"
+
+import { useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Plus, MessageSquare, Trash2, X } from "lucide-react"
 import type { ChatSession } from "./types"
@@ -21,6 +24,18 @@ export function ChatSidebar({
   onCreateSession,
   onCloseHistory
 }: ChatSidebarProps) {
+  // Prevent body scroll when mobile sidebar is open
+  useEffect(() => {
+    if (showHistory) {
+      document.body.style.overflow = "hidden"
+    } else {
+      document.body.style.overflow = "unset"
+    }
+    return () => {
+      document.body.style.overflow = "unset"
+    }
+  }, [showHistory])
+
   return (
     <>
       {/* Desktop Sidebar */}
@@ -80,19 +95,19 @@ export function ChatSidebar({
 
       {/* Mobile Sidebar Overlay */}
       {showHistory && (
-        <div className="md:hidden fixed inset-0 z-50 bg-black/70 backdrop-blur-sm" onClick={onCloseHistory}>
-          <div className="absolute left-0 top-0 h-full w-80 bg-background border-r border-white/10 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-            <div className="p-4 border-b border-white/10">
-              <div className="flex items-center justify-between">
-                <h3 className="font-semibold">Chat History</h3>
-                <Button variant="ghost" size="sm" onClick={onCloseHistory}>
+        <div className="md:hidden fixed inset-0 z-[60] bg-black/70 backdrop-blur-sm" onClick={onCloseHistory}>
+          <div className="absolute left-0 top-0 h-full w-[85%] max-w-sm bg-background border-r border-white/10 shadow-2xl z-[61]" onClick={(e) => e.stopPropagation()}>
+            <div className="p-3 md:p-4 border-b border-white/10">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="font-semibold text-sm md:text-base">Chat History</h3>
+                <Button variant="ghost" size="sm" className="h-9 w-9 rounded-full" onClick={onCloseHistory}>
                   <X className="w-4 h-4" />
                 </Button>
               </div>
               <Button
                 variant="outline"
                 size="sm"
-                className="w-full mt-2 rounded-xl"
+                className="w-full h-9 md:h-10 rounded-xl text-xs md:text-sm"
                 onClick={() => {
                   onCreateSession()
                   onCloseHistory()
@@ -102,38 +117,38 @@ export function ChatSidebar({
                 New Chat
               </Button>
             </div>
-            <div className="p-2 space-y-1 flex-1 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+            <div className="p-2 md:p-3 space-y-1 flex-1 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
               {chatHistory.map((session) => (
-                <div key={session.id} className="flex items-center space-x-2 p-1 group min-w-0">
+                <div key={session.id} className="flex items-center space-x-1.5 md:space-x-2 p-1 group min-w-0">
                   <Button
                     variant={currentSessionId === session.id ? "secondary" : "ghost"}
-                    className="flex-1 justify-start text-left h-auto p-3 min-w-0"
+                    className="flex-1 justify-start text-left h-auto p-2 md:p-3 min-w-0 min-h-[44px]"
                     onClick={() => {
                       onLoadSession(session.id)
                       onCloseHistory()
                     }}
                   >
-                    <MessageSquare className="w-4 h-4 mr-2 flex-shrink-0" />
+                    <MessageSquare className="w-3.5 h-3.5 md:w-4 md:h-4 mr-1.5 md:mr-2 flex-shrink-0" />
                     <div className="flex-1 min-w-0 overflow-hidden">
                       <div 
-                        className="font-medium truncate block"
+                        className="font-medium truncate block text-xs md:text-sm"
                         title={session.title || `Chat ${session.id.slice(-8)}`}
                       >
                         {session.title || `Chat ${session.id.slice(-8)}`}
                       </div>
-                      <div className="text-xs text-muted-foreground truncate">{session.message_count} messages</div>
+                      <div className="text-[10px] md:text-xs text-muted-foreground truncate">{session.message_count} messages</div>
                     </div>
                   </Button>
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="text-muted-foreground hover:text-destructive"
+                    className="text-muted-foreground hover:text-destructive h-9 w-9 md:h-10 md:w-10 rounded-full flex-shrink-0"
                     onClick={(e) => {
                       e.stopPropagation()
                       onDeleteSession(session.id)
                     }}
                   >
-                    <Trash2 className="w-4 h-4" />
+                    <Trash2 className="w-3.5 h-3.5 md:w-4 md:h-4" />
                   </Button>
                 </div>
               ))}

@@ -66,7 +66,7 @@ export async function getCached<T>(key: string): Promise<T | null> {
  */
 export async function setCached(
     key: string,
-    value: any,
+    value: unknown,
     ttl: number = 600
 ): Promise<void> {
     try {
@@ -95,7 +95,7 @@ export async function invalidateCache(pattern: string): Promise<void> {
         // Upstash Redis supports SCAN command
         let cursor: number | string = 0
         do {
-            const result = await redis.scan(cursor, {
+            const result: [number | string, string[]] = await redis.scan(cursor, {
                 match: pattern,
                 count: 100,
             })

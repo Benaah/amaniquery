@@ -65,7 +65,7 @@ export default function AdminUsersPage() {
     try {
       const sessionToken = localStorage.getItem("session_token")
       const response = await fetch(
-        `${API_URL}/api/v1/auth/admin/users?page=${page}&page_size=${pageSize}`,
+        `/api/cache/admin/users?page=${page}&page_size=${pageSize}`,
         {
           headers: {
             "X-Session-Token": sessionToken || "",
@@ -77,6 +77,8 @@ export default function AdminUsersPage() {
         const data = await response.json()
         setUsers(data.users || [])
         setTotal(data.total || 0)
+        const cacheStatus = response.headers.get("X-Cache")
+        if (cacheStatus) console.log(`Users page ${page} cache: ${cacheStatus}`)
       } else {
         toast.error("Failed to fetch users")
       }

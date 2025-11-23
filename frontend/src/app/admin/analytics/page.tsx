@@ -59,7 +59,7 @@ export default function AdminAnalyticsPage() {
     setLoadingAnalytics(true)
     try {
       const sessionToken = localStorage.getItem("session_token")
-      const response = await fetch(`${API_URL}/api/v1/auth/analytics/dashboard`, {
+      const response = await fetch(`/api/cache/admin/analytics`, {
         headers: {
           "X-Session-Token": sessionToken || "",
         },
@@ -68,6 +68,8 @@ export default function AdminAnalyticsPage() {
       if (response.ok) {
         const data = await response.json()
         setAnalytics(data)
+        const cacheStatus = response.headers.get("X-Cache")
+        if (cacheStatus) console.log(`Analytics cache: ${cacheStatus}`)
       } else {
         toast.error("Failed to fetch analytics")
       }

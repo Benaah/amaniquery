@@ -152,7 +152,9 @@ export default function AdminDashboard() {
 
   const fetchStats = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/stats`)
+      const response = await fetch(`/api/cache/admin/stats`, {
+        headers: getAuthHeaders()
+      })
       if (response.ok) {
         const data = await response.json()
         setStats(data)
@@ -227,7 +229,7 @@ export default function AdminDashboard() {
 
   const fetchConfigs = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/admin/config`, {
+      const response = await fetch(`/api/cache/admin/config`, {
         headers: {
           "Content-Type": "application/json",
           ...getAuthHeaders()
@@ -244,7 +246,7 @@ export default function AdminDashboard() {
 
   const fetchDatabaseStats = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/admin/databases`, {
+      const response = await fetch(`/api/cache/admin/databases`, {
         headers: {
           "Content-Type": "application/json",
           ...getAuthHeaders()
@@ -261,7 +263,7 @@ export default function AdminDashboard() {
 
   const fetchDatabaseStorageStats = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/admin/database-storage`, {
+      const response = await fetch(`/api/cache/admin/database-storage`, {
         headers: {
           "Content-Type": "application/json",
           ...getAuthHeaders()
@@ -282,7 +284,7 @@ export default function AdminDashboard() {
       if (searchQuery) params.append("query", searchQuery)
       params.append("limit", "100")
 
-      const response = await fetch(`${API_BASE_URL}/admin/documents?${params}`, {
+      const response = await fetch(`/api/cache/admin/documents?${params}`, {
         headers: {
           "Content-Type": "application/json",
           ...getAuthHeaders()
@@ -468,6 +470,9 @@ export default function AdminDashboard() {
         }),
       })
       if (response.ok) {
+        // Invalidate cache
+        await fetch(`/api/cache/admin/config`, { method: "DELETE" })
+
         setNewConfigKey("")
         setNewConfigValue("")
         setNewConfigDescription("")
@@ -488,6 +493,8 @@ export default function AdminDashboard() {
         },
       })
       if (response.ok) {
+        // Invalidate cache
+        await fetch(`/api/cache/admin/config`, { method: "DELETE" })
         fetchConfigs()
       }
     } catch (error) {

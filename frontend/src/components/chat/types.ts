@@ -26,6 +26,13 @@ export interface InteractiveWidget {
     source_citation?: string
 }
 
+export interface GithubDiff {
+    old_text: string
+    new_text: string
+    title: string
+    highlight_type: "side_by_side" | "unified"
+}
+
 export interface Message {
     id: string
     session_id: string
@@ -45,6 +52,7 @@ export interface Message {
     // AK-RAG structured response support
     structured_response?: StructuredResponse
     interactive_widgets?: InteractiveWidget[]
+    github_diff?: GithubDiff
     persona?: "wanjiku" | "wakili" | "mwanahabari"
 }
 

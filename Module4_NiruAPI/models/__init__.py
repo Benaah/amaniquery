@@ -62,6 +62,14 @@ class InteractiveWidget(BaseModel):
     source_citation: Optional[str] = None
 
 
+class GithubDiff(BaseModel):
+    """GitHub-style diff for legal amendments"""
+    old_text: str
+    new_text: str
+    title: str
+    highlight_type: str = "side_by_side"  # side_by_side or unified
+
+
 class QueryResponse(BaseModel):
     """Response model for query endpoint"""
     answer: str = Field(..., description="The generated answer")
@@ -71,6 +79,7 @@ class QueryResponse(BaseModel):
     model_used: str = Field(..., description="LLM model used")
     structured_data: Optional[Dict] = Field(None, description="Structured response data from AK-RAG")
     interactive_widgets: Optional[List[InteractiveWidget]] = Field(None, description="Interactive widgets for policy queries")
+    github_diff: Optional[GithubDiff] = Field(None, description="GitHub-style diff for amendments")
 
 
 class HealthResponse(BaseModel):

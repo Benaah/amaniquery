@@ -827,167 +827,92 @@ Combined Response:"""
 CRITICAL INSTRUCTION: DETECT QUANTITATIVE POLICY QUERIES
 If the user's query involves calculating costs, levies, taxes, fines, or statutory deductions (Housing Levy, NSSF, NHIF/SHIF, PAYE, Fuel Levy, Parking Fees, etc.), you MUST output a JSON response containing an interactive widget definition.
 
+CRITICAL INSTRUCTION: DETECT LEGAL AMENDMENTS (GIT-DIFF)
+If the user's query asks about changes, amendments, new bills, or comparisons (e.g., "changed from X to Y", "amendment to section", "what is new in the bill"), you MUST output a JSON response containing a `github_diff` object.
+
 OUTPUT FORMAT:
-If a widget is needed, output ONLY a JSON object with this structure:
+If a widget or diff is needed, output ONLY a JSON object with this structure:
 {
   "answer": "Brief text explanation...",
-  "interactive_widgets": [
-    {
-      "type": "salary_calculator" | "fine_calculator" | "levy_breakdown" | "loan_repayment",
-      "title": "Widget Title",
-      "description": "Widget Description",
-      "formula": "JavaScript evaluable formula (use input names as variables)",
-      "inputs": [{"name": "var_name", "label": "Label", "type": "number", "placeholder": "Example"}],
-      "outputs": [{"label": "Output Label", "format": "KES {value}"}],
-      "source_citation": "Source of the formula"
-    }
-  ]
+  "interactive_widgets": [ ... ],
+  "github_diff": {
+    "old_text": "Original legal text...",
+    "new_text": "Amended legal text...",
+    "title": "Bill Name → Section/Clause",
+    "highlight_type": "side_by_side"
+  }
 }
 
-If NO widget is needed, output a standard text response following these formatting rules:
-1. **Keep responses concise** - Maximum 3-4 main sections
-2. **Use clear spacing** - Add blank lines between sections
-3. **Limit section length** - Each section should be 2-3 short paragraphs or bullet points
-4. **Only cite sources when using specific context**
-5. **Use bullet points**
+If NO widget or diff is needed, output a standard text response.
 
 FEW-SHOT EXAMPLES FOR WIDGETS:
+... (keep existing widget examples) ...
 
-Example 1: Housing Levy
-User: "Housing levy inanipunguza kitu gani kwa 60K salary?"
+FEW-SHOT EXAMPLES FOR LEGAL DIFFS:
+
+Example 1: Housing Levy Change
+User: "How did the housing levy change in the new Finance Bill?"
 Response:
 {
-  "answer": "The Affordable Housing Levy is set at 1.5% of your gross monthly salary. For a salary of KES 60,000, the deduction is calculated as 1.5% of 60,000.",
-  "interactive_widgets": [{
-    "type": "salary_calculator",
-    "title": "Housing Levy Calculator",
-    "description": "Calculate your monthly Housing Levy deduction",
-    "formula": "salary * 0.015",
-    "inputs": [{"name": "salary", "label": "Gross Monthly Salary (KES)", "type": "number", "placeholder": "60000"}],
-    "outputs": [{"label": "Monthly Deduction", "format": "KES {value}"}],
-    "source_citation": "Finance Act 2023"
-  }]
+  "answer": "The Affordable Housing Levy was amended to clarify the deduction rate and matching contribution. The rate remains 1.5%, but the text now explicitly mandates the employer's matching contribution.",
+  "github_diff": {
+    "title": "Finance Bill 2024 → Clause 31B",
+    "old_text": "An employer shall pay the levy deducted under this section to the collector...",
+    "new_text": "An employer shall pay the levy deducted under this section and an equal amount as the employer's contribution to the collector...",
+    "highlight_type": "side_by_side"
+  }
 }
 
-Example 2: NSSF (Tier I & II)
-User: "How much NSSF will I pay if I earn 50k?"
+Example 2: SHIF Rates
+User: "What is the new SHIF rate compared to NHIF?"
 Response:
 {
-  "answer": "Under the new NSSF Act, contributions are 6% of pensionable earnings. For a salary of KES 50,000, you pay Tier I (on first 6,000) and Tier II (on balance up to 18,000 limit).",
-  "interactive_widgets": [{
-    "type": "salary_calculator",
-    "title": "NSSF Contribution Calculator",
-    "description": "Estimate your NSSF Tier I and Tier II contributions",
-    "formula": "let tier1 = Math.min(salary, 6000) * 0.06; let tier2 = (salary > 6000) ? Math.min(salary - 6000, 12000) * 0.06 : 0; tier1 + tier2",
-    "inputs": [{"name": "salary", "label": "Gross Monthly Salary (KES)", "type": "number", "placeholder": "50000"}],
-    "outputs": [{"label": "Total NSSF Contribution", "format": "KES {value}"}],
-    "source_citation": "NSSF Act 2013"
-  }]
+  "answer": "The Social Health Insurance Fund (SHIF) introduces a flat 2.75% rate on gross household income, replacing the graduated NHIF scale.",
+  "github_diff": {
+    "title": "Social Health Insurance Act → Contribution Rate",
+    "old_text": "Contributions shall be paid at the rates specified in the Schedule (Graduated Scale: KES 150 - KES 1,700)",
+    "new_text": "Every household shall contribute to the Fund at a rate of 2.75% of the gross household income.",
+    "highlight_type": "side_by_side"
+  }
 }
 
-Example 3: Parking Fees
-User: "Parking fees CBD sasa ni ngapi per hour?"
+Example 3: VAT on Fuel
+User: "Did they increase VAT on fuel?"
 Response:
 {
-  "answer": "Parking fees in Nairobi CBD vary by vehicle type. For private cars, the daily rate is typically KES 200, but hourly zones exist.",
-  "interactive_widgets": [{
-    "type": "fine_calculator",
-    "title": "Nairobi CBD Parking Calculator",
-    "description": "Calculate parking fees based on duration",
-    "formula": "hours * rate",
-    "inputs": [
-      {"name": "hours", "label": "Duration (Hours)", "type": "number", "placeholder": "2"},
-      {"name": "rate", "label": "Hourly Rate (KES)", "type": "number", "placeholder": "100", "default_value": "100"}
-    ],
-    "outputs": [{"label": "Total Parking Fee", "format": "KES {value}"}],
-    "source_citation": "Nairobi City County Finance Act"
-  }]
+  "answer": "Yes, the Finance Act 2023 increased the VAT on petroleum products from 8% to 16%.",
+  "github_diff": {
+    "title": "Finance Act 2023 → VAT Act Amendment",
+    "old_text": "The tax shall be charged at the rate of 8 percent on the supply of petroleum products...",
+    "new_text": "The tax shall be charged at the rate of 16 percent on the supply of petroleum products...",
+    "highlight_type": "side_by_side"
+  }
 }
 
-Example 4: PAYE
-User: "Calculate PAYE for 100k income"
+Example 4: Traffic Fines Amendment
+User: "Amendment to traffic fines for speeding"
 Response:
 {
-  "answer": "PAYE is calculated on a graduated scale. For KES 100,000, bands apply: 10% on first 24k, 25% on next 8.3k, 30% on balance (simplified).",
-  "interactive_widgets": [{
-    "type": "salary_calculator",
-    "title": "PAYE Estimator",
-    "description": "Estimate PAYE (approximate, excluding relief)",
-    "formula": "let taxable = salary; let tax = 0; if(taxable > 24000) { tax += 24000 * 0.1; taxable -= 24000; } else { return taxable * 0.1; } if(taxable > 8333) { tax += 8333 * 0.25; taxable -= 8333; } else { return tax + taxable * 0.25; } tax += taxable * 0.3; tax",
-    "inputs": [{"name": "salary", "label": "Taxable Income (KES)", "type": "number", "placeholder": "100000"}],
-    "outputs": [{"label": "Estimated PAYE", "format": "KES {value}"}],
-    "source_citation": "Income Tax Act"
-  }]
+  "answer": "The Traffic (Amendment) Bill proposes increasing the maximum fine for speeding offenses.",
+  "github_diff": {
+    "title": "Traffic (Amendment) Bill → Section 42",
+    "old_text": "Any person who contravenes this section shall be liable to a fine not exceeding twenty thousand shillings...",
+    "new_text": "Any person who contravenes this section shall be liable to a fine not exceeding one hundred thousand shillings...",
+    "highlight_type": "side_by_side"
+  }
 }
 
-Example 5: SHIF
-User: "SHIF itakata pesa ngapi?"
+Example 5: Excise Duty on Betting
+User: "Change in excise duty for betting"
 Response:
 {
-  "answer": "The Social Health Insurance Fund (SHIF) deduction is proposed at 2.75% of gross household income.",
-  "interactive_widgets": [{
-    "type": "salary_calculator",
-    "title": "SHIF Deduction Calculator",
-    "description": "Calculate 2.75% SHIF deduction",
-    "formula": "income * 0.0275",
-    "inputs": [{"name": "income", "label": "Gross Income (KES)", "type": "number", "placeholder": "50000"}],
-    "outputs": [{"label": "SHIF Contribution", "format": "KES {value}"}],
-    "source_citation": "Social Health Insurance Act 2023"
-  }]
-}
-
-Example 6: Traffic Fines
-User: "Fine ya overlapping ni how much?"
-Response:
-{
-  "answer": "Traffic fines are stipulated in the Traffic Act. Obstruction or overlapping often attracts a fine.",
-  "interactive_widgets": [{
-    "type": "fine_calculator",
-    "title": "Traffic Fine Calculator",
-    "description": "Estimate potential fines for offenses",
-    "formula": "offense_count * fine_amount",
-    "inputs": [
-        {"name": "fine_amount", "label": "Fine per Offense (KES)", "type": "number", "placeholder": "5000", "default_value": "5000"},
-        {"name": "offense_count", "label": "Number of Offenses", "type": "number", "placeholder": "1"}
-    ],
-    "outputs": [{"label": "Total Fine", "format": "KES {value}"}],
-    "source_citation": "Traffic Act Cap 403"
-  }]
-}
-
-Example 7: Sugar Levy
-User: "How much will the new sugar levy add to a 1kg packet?"
-Response:
-{
-  "answer": "The proposed sugar levy is KES 5 per kilogram.",
-  "interactive_widgets": [{
-    "type": "levy_breakdown",
-    "title": "Sugar Levy Calculator",
-    "description": "Calculate additional cost due to sugar levy",
-    "formula": "weight * 5",
-    "inputs": [{"name": "weight", "label": "Sugar Weight (kg)", "type": "number", "placeholder": "1"}],
-    "outputs": [{"label": "Levy Amount", "format": "KES {value}"}],
-    "source_citation": "Finance Bill 2023"
-  }]
-}
-
-Example 8: County Cess
-User: "County cess for potato lorry entering Nairobi?"
-Response:
-{
-  "answer": "Cess charges depend on the county and vehicle tonnage. For Nairobi, charges apply per entry.",
-  "interactive_widgets": [{
-    "type": "fine_calculator",
-    "title": "County Cess Calculator",
-    "description": "Estimate cess charges for goods entry",
-    "formula": "lorries * rate",
-    "inputs": [
-        {"name": "lorries", "label": "Number of Lorries", "type": "number", "placeholder": "1"},
-        {"name": "rate", "label": "Cess Rate per Lorry (KES)", "type": "number", "placeholder": "3000", "default_value": "3000"}
-    ],
-    "outputs": [{"label": "Total Cess", "format": "KES {value}"}],
-    "source_citation": "Nairobi City County Finance Act"
-  }]
+  "answer": "The excise duty on betting stakes was increased from 7.5% to 12.5%.",
+  "github_diff": {
+    "title": "Excise Duty Act → Betting Tax",
+    "old_text": "Excise duty on betting shall be at the rate of 7.5 percent of the amount wagered or staked.",
+    "new_text": "Excise duty on betting shall be at the rate of 12.5 percent of the amount wagered or staked.",
+    "highlight_type": "side_by_side"
+  }
 }"""
 
         # User prompt
@@ -997,7 +922,7 @@ Response:
 
 Question: {query}
 
-Provide a concise answer. If the query is quantitative/policy-related (taxes, levies, fines), output JSON with an interactive widget. Otherwise, output standard text."""
+Provide a concise answer. If the query is quantitative (taxes/levies), output JSON with `interactive_widgets`. If it asks about amendments/changes, output JSON with `github_diff`. Otherwise, output standard text."""
 
         try:
             raw_answer = ""
@@ -1066,11 +991,12 @@ Provide a concise answer. If the query is quantitative/policy-related (taxes, le
                 
                 parsed_json = json.loads(clean_answer)
                 
-                # If valid JSON with answer and widgets
+                # If valid JSON with answer and widgets/diff
                 if isinstance(parsed_json, dict) and "answer" in parsed_json:
                     return {
                         "answer": parsed_json["answer"],
-                        "interactive_widgets": parsed_json.get("interactive_widgets")
+                        "interactive_widgets": parsed_json.get("interactive_widgets"),
+                        "github_diff": parsed_json.get("github_diff")
                     }
                 else:
                     # JSON but not our expected format, treat as text

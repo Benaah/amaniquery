@@ -1134,14 +1134,7 @@ ${researchProcess.tools_used && researchProcess.tools_used.length > 0
         onCloseHistory={() => setShowHistory(false)}
       />
 
-      {/* Floating History Button for Mobile - Always Accessible */}
-      <button
-        onClick={() => setShowHistory(!showHistory)}
-        className="md:hidden fixed bottom-20 right-4 z-40 h-14 w-14 rounded-full bg-primary text-primary-foreground shadow-2xl border-2 border-primary/20 hover:bg-primary/90 transition-all hover:scale-110 flex items-center justify-center"
-        aria-label="Toggle chat history"
-      >
-        <HistoryIcon className={`w-6 h-6 transition-transform ${showHistory ? "scale-110" : ""}`} />
-      </button>
+
 
       <div className="flex-1 flex flex-col relative z-10 h-full max-h-screen overflow-hidden min-w-0">
         <ChatHeader
@@ -1151,14 +1144,6 @@ ${researchProcess.tools_used && researchProcess.tools_used.length > 0
           showHistory={showHistory}
           isLoading={isLoading}
           onToggleHistory={() => setShowHistory(!showHistory)}
-          onToggleResearch={() => {
-            setIsResearchMode(!isResearchMode)
-            setUseHybrid(false)
-          }}
-          onToggleHybrid={() => {
-            setUseHybrid(!useHybrid)
-            setIsResearchMode(false)
-          }}
           onShare={() => shareChat()}
         />
 
@@ -1207,8 +1192,15 @@ ${researchProcess.tools_used && researchProcess.tools_used.length > 0
           onSendMessage={sendMessage}
           enableAutocomplete={ENABLE_AUTOCOMPLETE}
           autocompleteSuggestions={autocompleteSuggestions}
-          showAutocomplete={showAutocomplete}
           setShowAutocomplete={setShowAutocomplete}
+          onToggleResearch={() => {
+            setIsResearchMode(!isResearchMode)
+            setUseHybrid(false)
+          }}
+          onToggleHybrid={() => {
+            setUseHybrid(!useHybrid)
+            setIsResearchMode(false)
+          }}
         />
       </div>
     </div>

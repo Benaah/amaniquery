@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { History, Search, Sparkles, Share2, Settings } from "lucide-react"
+import { History, Search, Sparkles, Share2, Home } from "lucide-react"
 import Link from "next/link"
 
 interface ChatHeaderProps {
@@ -10,8 +10,6 @@ interface ChatHeaderProps {
   showHistory: boolean
   isLoading: boolean
   onToggleHistory: () => void
-  onToggleResearch: () => void
-  onToggleHybrid: () => void
   onShare: () => void
 }
 
@@ -22,8 +20,6 @@ export function ChatHeader({
   showHistory,
   isLoading,
   onToggleHistory,
-  onToggleResearch,
-  onToggleHybrid,
   onShare
 }: ChatHeaderProps) {
   return (
@@ -31,15 +27,6 @@ export function ChatHeader({
       <div className="flex flex-col gap-1.5 md:gap-2 p-2 md:p-4">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-1.5 md:gap-2 min-w-0 flex-1">
-            <Button 
-              variant={showHistory ? "default" : "outline"} 
-              size="sm" 
-              className="md:hidden rounded-full h-10 w-10 flex-shrink-0 z-20 relative bg-background/80 backdrop-blur-sm border-white/10 hover:bg-background/90" 
-              onClick={onToggleHistory}
-              aria-label="Toggle chat history"
-            >
-              <History className={`w-5 h-5 transition-transform ${showHistory ? "scale-110" : ""}`} />
-            </Button>
             <div className="min-w-0 flex-1">
               <p className="text-[10px] md:text-xs uppercase tracking-[0.2em] text-muted-foreground truncate">AmaniQuery</p>
               <h1 className="text-sm md:text-lg font-semibold truncate">Conversational Legal Intelligence</h1>
@@ -59,23 +46,13 @@ export function ChatHeader({
           </div>
           <div className="flex items-center gap-1 md:gap-1.5 flex-shrink-0">
             <Button
-              variant={useHybrid && !isResearchMode ? "default" : "outline"}
+              variant={showHistory ? "default" : "outline"}
               size="sm"
-              onClick={onToggleHybrid}
-              disabled={isResearchMode}
-              className={`h-9 md:h-7 rounded-full px-2 md:px-2.5 text-xs flex-shrink-0 ${useHybrid && !isResearchMode ? "bg-purple-600 hover:bg-purple-700" : ""}`}
+              className="h-9 md:h-7 rounded-full px-2 md:px-2.5 text-xs flex-shrink-0"
+              onClick={onToggleHistory}
             >
-              <Sparkles className="w-3.5 h-3.5 md:w-3 md:h-3 md:mr-1.5" />
-              <span className="hidden md:inline">Hybrid</span>
-            </Button>
-            <Button
-              variant={isResearchMode ? "default" : "outline"}
-              size="sm"
-              onClick={onToggleResearch}
-              className={`h-9 md:h-7 rounded-full px-2 md:px-2.5 text-xs flex-shrink-0 ${isResearchMode ? "bg-blue-600 hover:bg-blue-700" : ""}`}
-            >
-              <Search className="w-3.5 h-3.5 md:w-3 md:h-3 md:mr-1.5" />
-              <span className="hidden md:inline">Research</span>
+              <History className="w-3.5 h-3.5 md:w-3 md:h-3 md:mr-1.5" />
+              <span className="hidden md:inline">History</span>
             </Button>
             {currentSessionId && (
               <Button variant="outline" size="sm" className="h-9 md:h-7 rounded-full px-2 md:px-2.5 text-xs flex-shrink-0" onClick={onShare}>
@@ -85,7 +62,7 @@ export function ChatHeader({
             )}
             <Link href="/">
               <Button variant="outline" size="sm" className="h-9 md:h-7 rounded-full px-2 md:px-2.5 text-xs flex-shrink-0">
-                <Settings className="w-3.5 h-3.5 md:w-3 md:h-3 md:mr-1.5" />
+                <Home className="w-3.5 h-3.5 md:w-3 md:h-3 md:mr-1.5" />
                 <span className="hidden md:inline">Home</span>
               </Button>
             </Link>

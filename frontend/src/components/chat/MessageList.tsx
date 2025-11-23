@@ -34,7 +34,7 @@ import { ImagePreview } from "./ImagePreview"
 import { SHARE_PLATFORMS } from "./constants"
 import { AmaniQueryResponse } from "../AmaniQueryResponse"
 import { ImpactCalculator } from "./ImpactCalculator"
-import type { Message, Source, SharePlatform, ShareSheetState, StructuredResponse } from "./types"
+import type { Message, Source, SharePlatform, ShareSheetState, StructuredResponse, InteractiveWidget } from "./types"
 
 interface MessageListProps {
   messages: Message[]
@@ -289,14 +289,14 @@ export function MessageList({
                         {message.attachments && message.attachments.length > 0 && (
                           <div className="space-y-3">
                             {/* Separate images from other files */}
-                            {message.attachments.filter(att => {
+                            {message.attachments.filter((att) => {
                               const isImage = att.file_type === "image" || 
                                 /\.(png|jpg|jpeg|gif|bmp|webp)$/i.test(att.filename)
                               return isImage && att.cloudinary_url
                             }).length > 0 && (
                               <div className="space-y-2">
                                 {message.attachments
-                                  .filter(att => {
+                                  .filter((att) => {
                                     const isImage = att.file_type === "image" || 
                                       /\.(png|jpg|jpeg|gif|bmp|webp)$/i.test(att.filename)
                                     return isImage && att.cloudinary_url
@@ -314,7 +314,7 @@ export function MessageList({
 
                             {/* Non-image files and images without Cloudinary URLs */}
                             {message.attachments
-                              .filter(att => {
+                              .filter((att) => {
                                 const isImage = att.file_type === "image" || 
                                   /\.(png|jpg|jpeg|gif|bmp|webp)$/i.test(att.filename)
                                 return !isImage || !att.cloudinary_url
@@ -561,7 +561,7 @@ export function MessageList({
                       </div>
                     )}
 
-                    {shareSheet?.messageId === message.id && (
+                    {shareSheet && shareSheet.messageId === message.id && (
                       <div className="rounded-3xl border border-white/10 bg-background/80 backdrop-blur-xl p-3 md:p-5 space-y-3 md:space-y-4 mt-2">
                         <div className="flex items-center justify-between">
                           <div>

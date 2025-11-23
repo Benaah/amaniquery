@@ -3,6 +3,29 @@ import type { AmaniQueryResponse as StructuredResponse } from "../AmaniQueryResp
 
 export type { StructuredResponse }
 
+export interface WidgetInput {
+    name: string
+    label: string
+    type: string
+    placeholder?: string
+    default_value?: string
+}
+
+export interface WidgetOutput {
+    label: string
+    format: string
+}
+
+export interface InteractiveWidget {
+    type: string
+    title: string
+    description: string
+    formula: string
+    inputs: WidgetInput[]
+    outputs: WidgetOutput[]
+    source_citation?: string
+}
+
 export interface Message {
     id: string
     session_id: string
@@ -21,6 +44,7 @@ export interface Message {
     isRegenerating?: boolean
     // AK-RAG structured response support
     structured_response?: StructuredResponse
+    interactive_widgets?: InteractiveWidget[]
     persona?: "wanjiku" | "wakili" | "mwanahabari"
 }
 

@@ -33,6 +33,7 @@ import { WelcomeScreen } from "./WelcomeScreen"
 import { ImagePreview } from "./ImagePreview"
 import { SHARE_PLATFORMS } from "./constants"
 import { AmaniQueryResponse } from "../AmaniQueryResponse"
+import { ImpactCalculator } from "./ImpactCalculator"
 import type { Message, Source, SharePlatform, ShareSheetState, StructuredResponse } from "./types"
 
 interface MessageListProps {
@@ -384,6 +385,19 @@ export function MessageList({
                                   </ReactMarkdown>
                                 </div>
                             )}
+
+                            {/* Impact Agent Widgets */}
+                            {message.interactive_widgets && message.interactive_widgets.length > 0 && (
+                              <div className="mt-4 space-y-4">
+                                {message.interactive_widgets.map((widget, idx) => (
+                                  <ImpactCalculator 
+                                    key={idx} 
+                                    widget={widget} 
+                                    className="border-l-4 border-l-primary"
+                                  />
+                                ))}
+                              </div>
+                            )}
                           </div>
                         ) : (
                           <div className={`prose prose-sm md:prose-base max-w-none dark:prose-invert text-sm md:text-base break-words ${
@@ -394,6 +408,19 @@ export function MessageList({
                             <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw, rehypeHighlight]}>
                               {formatMessageWithCitations(message.content, message.sources)}
                             </ReactMarkdown>
+                            
+                            {/* Impact Agent Widgets for non-AK-RAG responses too (if any) */}
+                            {message.interactive_widgets && message.interactive_widgets.length > 0 && (
+                              <div className="mt-4 space-y-4 not-prose">
+                                {message.interactive_widgets.map((widget, idx) => (
+                                  <ImpactCalculator 
+                                    key={idx} 
+                                    widget={widget} 
+                                    className="border-l-4 border-l-primary"
+                                  />
+                                ))}
+                              </div>
+                            )}
                           </div>
                         )}
                       </CardContent>

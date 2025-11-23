@@ -818,32 +818,177 @@ Combined Response:"""
         context: str,
         temperature: float,
         max_tokens: int,
-    ) -> str:
-        """Generate answer using LLM"""
+    ) -> Dict[str, Any]:
+        """Generate answer using LLM, potentially with interactive widgets"""
         
-        # System prompt
+        # System prompt with Impact Agent instructions
         system_prompt = """You are AmaniQuery, an AI assistant specialized in Kenyan law, parliamentary proceedings, and current affairs.
 
-CRITICAL FORMATTING RULES:
+CRITICAL INSTRUCTION: DETECT QUANTITATIVE POLICY QUERIES
+If the user's query involves calculating costs, levies, taxes, fines, or statutory deductions (Housing Levy, NSSF, NHIF/SHIF, PAYE, Fuel Levy, Parking Fees, etc.), you MUST output a JSON response containing an interactive widget definition.
+
+OUTPUT FORMAT:
+If a widget is needed, output ONLY a JSON object with this structure:
+{
+  "answer": "Brief text explanation...",
+  "interactive_widgets": [
+    {
+      "type": "salary_calculator" | "fine_calculator" | "levy_breakdown" | "loan_repayment",
+      "title": "Widget Title",
+      "description": "Widget Description",
+      "formula": "JavaScript evaluable formula (use input names as variables)",
+      "inputs": [{"name": "var_name", "label": "Label", "type": "number", "placeholder": "Example"}],
+      "outputs": [{"label": "Output Label", "format": "KES {value}"}],
+      "source_citation": "Source of the formula"
+    }
+  ]
+}
+
+If NO widget is needed, output a standard text response following these formatting rules:
 1. **Keep responses concise** - Maximum 3-4 main sections
 2. **Use clear spacing** - Add blank lines between sections
 3. **Limit section length** - Each section should be 2-3 short paragraphs or bullet points
-4. **Only cite sources when using specific context** - Do NOT add "[Source # is not applicable]" or similar disclaimers
-5. **Use bullet points** - Prefer lists over long paragraphs
-6. **Bold key terms sparingly** - Only for critical legal terms or concepts
+4. **Only cite sources when using specific context**
+5. **Use bullet points**
 
-RESPONSE STRUCTURE:
-1. **Brief Summary** (2-3 sentences, no more)
-2. **Key Points** (3-5 bullet points covering main aspects)
-3. **Important Details** (Only if needed, keep concise)
-4. **Practical Note** (1-2 sentences if relevant)
+FEW-SHOT EXAMPLES FOR WIDGETS:
 
-AVOID:
-- Long introductory paragraphs explaining what you'll do
-- Repetitive source disclaimers
-- Overly detailed explanations that could be summarized
-- Multiple nested headings
-- Walls of text"""
+Example 1: Housing Levy
+User: "Housing levy inanipunguza kitu gani kwa 60K salary?"
+Response:
+{
+  "answer": "The Affordable Housing Levy is set at 1.5% of your gross monthly salary. For a salary of KES 60,000, the deduction is calculated as 1.5% of 60,000.",
+  "interactive_widgets": [{
+    "type": "salary_calculator",
+    "title": "Housing Levy Calculator",
+    "description": "Calculate your monthly Housing Levy deduction",
+    "formula": "salary * 0.015",
+    "inputs": [{"name": "salary", "label": "Gross Monthly Salary (KES)", "type": "number", "placeholder": "60000"}],
+    "outputs": [{"label": "Monthly Deduction", "format": "KES {value}"}],
+    "source_citation": "Finance Act 2023"
+  }]
+}
+
+Example 2: NSSF (Tier I & II)
+User: "How much NSSF will I pay if I earn 50k?"
+Response:
+{
+  "answer": "Under the new NSSF Act, contributions are 6% of pensionable earnings. For a salary of KES 50,000, you pay Tier I (on first 6,000) and Tier II (on balance up to 18,000 limit).",
+  "interactive_widgets": [{
+    "type": "salary_calculator",
+    "title": "NSSF Contribution Calculator",
+    "description": "Estimate your NSSF Tier I and Tier II contributions",
+    "formula": "let tier1 = Math.min(salary, 6000) * 0.06; let tier2 = (salary > 6000) ? Math.min(salary - 6000, 12000) * 0.06 : 0; tier1 + tier2",
+    "inputs": [{"name": "salary", "label": "Gross Monthly Salary (KES)", "type": "number", "placeholder": "50000"}],
+    "outputs": [{"label": "Total NSSF Contribution", "format": "KES {value}"}],
+    "source_citation": "NSSF Act 2013"
+  }]
+}
+
+Example 3: Parking Fees
+User: "Parking fees CBD sasa ni ngapi per hour?"
+Response:
+{
+  "answer": "Parking fees in Nairobi CBD vary by vehicle type. For private cars, the daily rate is typically KES 200, but hourly zones exist.",
+  "interactive_widgets": [{
+    "type": "fine_calculator",
+    "title": "Nairobi CBD Parking Calculator",
+    "description": "Calculate parking fees based on duration",
+    "formula": "hours * rate",
+    "inputs": [
+      {"name": "hours", "label": "Duration (Hours)", "type": "number", "placeholder": "2"},
+      {"name": "rate", "label": "Hourly Rate (KES)", "type": "number", "placeholder": "100", "default_value": "100"}
+    ],
+    "outputs": [{"label": "Total Parking Fee", "format": "KES {value}"}],
+    "source_citation": "Nairobi City County Finance Act"
+  }]
+}
+
+Example 4: PAYE
+User: "Calculate PAYE for 100k income"
+Response:
+{
+  "answer": "PAYE is calculated on a graduated scale. For KES 100,000, bands apply: 10% on first 24k, 25% on next 8.3k, 30% on balance (simplified).",
+  "interactive_widgets": [{
+    "type": "salary_calculator",
+    "title": "PAYE Estimator",
+    "description": "Estimate PAYE (approximate, excluding relief)",
+    "formula": "let taxable = salary; let tax = 0; if(taxable > 24000) { tax += 24000 * 0.1; taxable -= 24000; } else { return taxable * 0.1; } if(taxable > 8333) { tax += 8333 * 0.25; taxable -= 8333; } else { return tax + taxable * 0.25; } tax += taxable * 0.3; tax",
+    "inputs": [{"name": "salary", "label": "Taxable Income (KES)", "type": "number", "placeholder": "100000"}],
+    "outputs": [{"label": "Estimated PAYE", "format": "KES {value}"}],
+    "source_citation": "Income Tax Act"
+  }]
+}
+
+Example 5: SHIF
+User: "SHIF itakata pesa ngapi?"
+Response:
+{
+  "answer": "The Social Health Insurance Fund (SHIF) deduction is proposed at 2.75% of gross household income.",
+  "interactive_widgets": [{
+    "type": "salary_calculator",
+    "title": "SHIF Deduction Calculator",
+    "description": "Calculate 2.75% SHIF deduction",
+    "formula": "income * 0.0275",
+    "inputs": [{"name": "income", "label": "Gross Income (KES)", "type": "number", "placeholder": "50000"}],
+    "outputs": [{"label": "SHIF Contribution", "format": "KES {value}"}],
+    "source_citation": "Social Health Insurance Act 2023"
+  }]
+}
+
+Example 6: Traffic Fines
+User: "Fine ya overlapping ni how much?"
+Response:
+{
+  "answer": "Traffic fines are stipulated in the Traffic Act. Obstruction or overlapping often attracts a fine.",
+  "interactive_widgets": [{
+    "type": "fine_calculator",
+    "title": "Traffic Fine Calculator",
+    "description": "Estimate potential fines for offenses",
+    "formula": "offense_count * fine_amount",
+    "inputs": [
+        {"name": "fine_amount", "label": "Fine per Offense (KES)", "type": "number", "placeholder": "5000", "default_value": "5000"},
+        {"name": "offense_count", "label": "Number of Offenses", "type": "number", "placeholder": "1"}
+    ],
+    "outputs": [{"label": "Total Fine", "format": "KES {value}"}],
+    "source_citation": "Traffic Act Cap 403"
+  }]
+}
+
+Example 7: Sugar Levy
+User: "How much will the new sugar levy add to a 1kg packet?"
+Response:
+{
+  "answer": "The proposed sugar levy is KES 5 per kilogram.",
+  "interactive_widgets": [{
+    "type": "levy_breakdown",
+    "title": "Sugar Levy Calculator",
+    "description": "Calculate additional cost due to sugar levy",
+    "formula": "weight * 5",
+    "inputs": [{"name": "weight", "label": "Sugar Weight (kg)", "type": "number", "placeholder": "1"}],
+    "outputs": [{"label": "Levy Amount", "format": "KES {value}"}],
+    "source_citation": "Finance Bill 2023"
+  }]
+}
+
+Example 8: County Cess
+User: "County cess for potato lorry entering Nairobi?"
+Response:
+{
+  "answer": "Cess charges depend on the county and vehicle tonnage. For Nairobi, charges apply per entry.",
+  "interactive_widgets": [{
+    "type": "fine_calculator",
+    "title": "County Cess Calculator",
+    "description": "Estimate cess charges for goods entry",
+    "formula": "lorries * rate",
+    "inputs": [
+        {"name": "lorries", "label": "Number of Lorries", "type": "number", "placeholder": "1"},
+        {"name": "rate", "label": "Cess Rate per Lorry (KES)", "type": "number", "placeholder": "3000", "default_value": "3000"}
+    ],
+    "outputs": [{"label": "Total Cess", "format": "KES {value}"}],
+    "source_citation": "Nairobi City County Finance Act"
+  }]
+}"""
 
         # User prompt
         user_prompt = f"""Context from relevant documents:
@@ -852,27 +997,10 @@ AVOID:
 
 Question: {query}
 
-Provide a concise, scannable answer following this format:
-
-**Summary** (2-3 sentences maximum)
-
-**Key Points:**
-- Point 1 (one line)
-- Point 2 (one line)
-- Point 3 (one line)
-
-**Important Details:** (Only if needed, 2-3 short paragraphs max)
-
-**Note:** (One sentence if relevant)
-
-IMPORTANT:
-- Only cite sources [Source #] when directly quoting or referencing specific context
-- Do NOT add disclaimers about source applicability
-- Keep each section brief and focused
-- Use blank lines between sections for readability
-- If context is limited, provide a concise answer based on your knowledge without lengthy explanations"""
+Provide a concise answer. If the query is quantitative/policy-related (taxes, levies, fines), output JSON with an interactive widget. Otherwise, output standard text."""
 
         try:
+            raw_answer = ""
             if self.llm_provider in ["openai", "moonshot"]:
                 # Both OpenAI and Moonshot use the same API format
                 response = self.client.chat.completions.create(
@@ -884,12 +1012,7 @@ IMPORTANT:
                     temperature=temperature,
                     max_tokens=max_tokens,
                 )
-                answer = response.choices[0].message.content
-                logger.info(f"LLM response length: {len(answer) if answer else 0}")
-                if not answer or not answer.strip():
-                    logger.warning("LLM returned empty or whitespace-only response")
-                    return "I apologize, but I was unable to generate a response. Please try rephrasing your question."
-                return answer
+                raw_answer = response.choices[0].message.content
             
             elif self.llm_provider == "gemini":
                 # Gemini uses a different API format
@@ -909,12 +1032,7 @@ IMPORTANT:
                     generation_config=generation_config
                 )
                 
-                answer = response.text
-                logger.info(f"Gemini response length: {len(answer) if answer else 0}")
-                if not answer or not answer.strip():
-                    logger.warning("Gemini returned empty or whitespace-only response")
-                    return "I apologize, but I was unable to generate a response. Please try rephrasing your question."
-                return answer
+                raw_answer = response.text
             
             elif self.llm_provider == "anthropic":
                 response = self.client.messages.create(
@@ -926,35 +1044,45 @@ IMPORTANT:
                         {"role": "user", "content": user_prompt}
                     ],
                 )
-                answer = response.content[0].text
-                logger.info(f"LLM response length: {len(answer) if answer else 0}")
-                if not answer or not answer.strip():
-                    logger.warning("LLM returned empty or whitespace-only response")
-                    return "I apologize, but I was unable to generate a response. Please try rephrasing your question."
-                return answer
+                raw_answer = response.content[0].text
             
             else:
-                return "LLM provider not supported"
+                return {"answer": "LLM provider not supported"}
+
+            # Parse response
+            logger.info(f"LLM response length: {len(raw_answer) if raw_answer else 0}")
+            if not raw_answer or not raw_answer.strip():
+                logger.warning("LLM returned empty or whitespace-only response")
+                return {"answer": "I apologize, but I was unable to generate a response. Please try rephrasing your question."}
+
+            # Try to parse as JSON
+            try:
+                # Clean up potential markdown code blocks
+                clean_answer = raw_answer.strip()
+                if clean_answer.startswith("```json"):
+                    clean_answer = clean_answer[7:]
+                if clean_answer.endswith("```"):
+                    clean_answer = clean_answer[:-3]
+                
+                parsed_json = json.loads(clean_answer)
+                
+                # If valid JSON with answer and widgets
+                if isinstance(parsed_json, dict) and "answer" in parsed_json:
+                    return {
+                        "answer": parsed_json["answer"],
+                        "interactive_widgets": parsed_json.get("interactive_widgets")
+                    }
+                else:
+                    # JSON but not our expected format, treat as text
+                    return {"answer": raw_answer}
+            except json.JSONDecodeError:
+                # Not JSON, treat as standard text response
+                return {"answer": raw_answer}
                 
         except Exception as e:
             error_msg = str(e)
             logger.error(f"Error generating answer: {error_msg}")
-            
-            # Provide helpful error messages
-            if "401" in error_msg or "Invalid Authentication" in error_msg:
-                if self.llm_provider == "moonshot":
-                    return ("Error: Moonshot AI API key is invalid. Please get a new API key from "
-                           "https://platform.moonshot.cn/console and update MOONSHOT_API_KEY in your .env file")
-                elif self.llm_provider == "openai":
-                    return ("Error: OpenAI API key is invalid. Please check your OPENAI_API_KEY in the .env file")
-                else:
-                    return f"Authentication error: {error_msg}"
-            elif "429" in error_msg or "rate limit" in error_msg.lower():
-                return "Error: API rate limit exceeded. Please try again later."
-            elif "insufficient_quota" in error_msg.lower():
-                return "Error: API quota exceeded. Please check your account balance."
-            else:
-                return f"Error generating answer: {error_msg}"
+            return {"answer": f"Error generating answer: {error_msg}"}
     
     def _generate_answer_stream(
         self,
@@ -964,95 +1092,22 @@ IMPORTANT:
         max_tokens: int,
     ):
         """Generate answer using LLM with streaming"""
+        # NOTE: For Impact Agent (widgets), we currently prioritize correctness over streaming.
+        # We generate the full response (including widgets) and then yield the text answer.
+        # This ensures widgets are generated if needed, even if we can't stream them yet.
         
-        # System prompt
-        system_prompt = """You are AmaniQuery, an AI assistant specialized in Kenyan law, parliamentary proceedings, and current affairs.
-
-CRITICAL FORMATTING RULES:
-1. **Keep responses concise** - Maximum 3-4 main sections
-2. **Use clear spacing** - Add blank lines between sections
-3. **Limit section length** - Each section should be 2-3 short paragraphs or bullet points
-4. **Only cite sources when using specific context** - Do NOT add "[Source # is not applicable]" or similar disclaimers
-5. **Use bullet points** - Prefer lists over long paragraphs
-6. **Bold key terms sparingly** - Only for critical legal terms or concepts
-
-RESPONSE STRUCTURE:
-1. **Brief Summary** (2-3 sentences, no more)
-2. **Key Points** (3-5 bullet points covering main aspects)
-3. **Important Details** (Only if needed, keep concise)
-4. **Practical Note** (1-2 sentences if relevant)
-
-AVOID:
-- Long introductory paragraphs explaining what you'll do
-- Repetitive source disclaimers
-- Overly detailed explanations that could be summarized
-- Multiple nested headings
-- Walls of text"""
-
-        # User prompt
-        user_prompt = f"""Context from relevant documents:
-
-{context}
-
-Question: {query}
-
-Provide a concise, scannable answer following this format:
-
-**Summary** (2-3 sentences maximum)
-
-**Key Points:**
-- Point 1 (one line)
-- Point 2 (one line)
-- Point 3 (one line)
-
-**Important Details:** (Only if needed, 2-3 short paragraphs max)
-
-**Note:** (One sentence if relevant)
-
-IMPORTANT:
-- Only cite sources [Source #] when directly quoting or referencing specific context
-- Do NOT add disclaimers about source applicability
-- Keep each section brief and focused
-- Use blank lines between sections for readability
-- If context is limited, provide a concise answer based on your knowledge without lengthy explanations"""
-
-        try:
-            if self.llm_provider in ["openai", "moonshot"]:
-                # Both OpenAI and Moonshot use the same API format
-                response = self.client.chat.completions.create(
-                    model=self.model,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt},
-                    ],
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                    stream=True,  # Enable streaming
-                )
-                return response  # Return the stream object
-            
-            elif self.llm_provider == "anthropic":
-                response = self.client.messages.create(
-                    model=self.model,
-                    max_tokens=max_tokens,
-                    temperature=temperature,
-                    system=system_prompt,
-                    messages=[
-                        {"role": "user", "content": user_prompt}
-                    ],
-                    stream=True,  # Enable streaming
-                )
-                return response
-            
-            else:
-                # For non-streaming providers, fall back to regular generation
-                return self._generate_answer(query, context, temperature, max_tokens)
-                
-        except Exception as e:
-            error_msg = str(e)
-            logger.error(f"Error generating streaming answer: {error_msg}")
-            # Fall back to non-streaming
-            return self._generate_answer(query, context, temperature, max_tokens)
+        # Generate full response using the widget-aware method
+        response = self._generate_answer(query, context, temperature, max_tokens)
+        
+        # If it's a dict (standard response), extract answer
+        if isinstance(response, dict):
+            answer = response.get("answer", "")
+            # We yield the answer as a single chunk. 
+            # This simulates streaming but allows us to reuse the widget logic.
+            yield answer
+        else:
+            # Fallback if something went wrong and it returned a string
+            yield str(response)
     
     def _format_sources(self, docs: List[Dict]) -> List[Dict]:
         """Format source citations"""

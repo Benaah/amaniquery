@@ -872,7 +872,8 @@ async def query(request: QueryRequest):
                         "sources": [s.dict() for s in sources],
                         "query_time": metadata.get('total_time_seconds', 0),
                         "retrieved_chunks": metadata.get('num_docs_retrieved', 0),
-                        "model_used": f"AK-RAG-{metadata.get('persona', 'wanjiku')}-local"
+                        "model_used": f"AK-RAG-{metadata.get('persona', 'wanjiku')}-local",
+                        "structured_data": response_data.get('response')
                     }
                     
                     logger.info(f"[AK-RAG] Query completed in {metadata.get('total_time_seconds', 0):.2f}s using {metadata.get('persona')} persona")
@@ -921,6 +922,7 @@ async def query(request: QueryRequest):
             query_time=result["query_time"],
             retrieved_chunks=result.get("retrieved_chunks", result.get("retrieved_images", 0)),
             model_used=result["model_used"],
+            structured_data=result.get("structured_data")
         )
         
     except Exception as e:
@@ -1672,6 +1674,85 @@ async def add_chat_message(session_id: str, message: ChatMessageCreate, request:
                         })
                     result["sources"] = vision_sources
                     result["retrieved_chunks"] = result.get("retrieved_images", 0)
+                    result["retrieved_chunks"] = result.get("retrieved_images", 0)
+                elif ak_rag_graph is not None:
+                    # Use AK-RAG local agents
+                    try:
+                        from Module4_NiruAPI.agents.ak_rag_graph import execute_pipeline
+                        
+                        # Get conversation history
+                        conversation_history = []
+                        try:
+                            messages = chat_manager.get_messages(session_id, limit=5)
+                            conversation_history = [
+                                {"role": msg.role, "content": msg.content}
+                                for msg in messages
+                            ]
+                        except:
+                            conversation_history = []
+                        
+                        # Execute AK-RAG pipeline
+                        ak_result = execute_pipeline(
+                            graph=ak_rag_graph,
+                            user_query=message.content,
+                            conversation_history=conversation_history
+                        )
+                        
+                        # Extract response and metadata
+                        response_data = ak_result.get('response', {})
+                        metadata = ak_result.get('metadata', {})
+                        
+                        if response_data and 'response' in response_data:
+                            resp = response_data['response']
+                            
+                            # Build answer
+                            answer_parts = []
+                            if 'summary_card' in resp:
+                                summary = resp['summary_card']
+                                answer_parts.append(f"**{summary.get('title', '')}**\n\n{summary.get('content', '')}")
+                            
+                            if 'detailed_breakdown' in resp and 'points' in resp['detailed_breakdown']:
+                                answer_parts.append("\n\n**Details:**")
+                                for i, point in enumerate(resp['detailed_breakdown']['points'], 1):
+                                    answer_parts.append(f"{i}. {point}")
+                            
+                            if 'kenyan_context' in resp and 'impact' in resp['kenyan_context']:
+                                answer_parts.append(f"\n\n**🇰🇪 Kenyan Context:** {resp['kenyan_context']['impact']}")
+                            
+                            answer = "\n".join(answer_parts)
+                            
+                            # Sources
+                            sources = []
+                            if 'citations' in resp:
+                                for i, citation in enumerate(resp['citations'], 1):
+                                    sources.append({
+                                        "title": citation.get('source', f'Source {i}'),
+                                        "url": citation.get('url', 'N/A'),
+                                        "source_name": citation.get('source', 'Unknown'),
+                                        "category": metadata.get('query_type', 'public_interest'),
+                                        "excerpt": citation.get('quote', '')[:200] if citation.get('quote') else ''
+                                    })
+                            
+                            result = {
+                                "sources": sources,
+                                "retrieved_chunks": metadata.get('num_docs_retrieved', 0),
+                                "model_used": f"AK-RAG-{metadata.get('persona', 'wanjiku')}-local",
+                                "answer_stream": [answer],
+                                "structured_data": response_data.get('response')
+                            }
+                        else:
+                            # Fallback
+                            raise Exception("Invalid AK-RAG response")
+                    except Exception as e:
+                        logger.warning(f"[AK-RAG] Error in chat: {e}, falling back to standard RAG")
+                        result = rag_pipeline.query_stream(
+                            query=message.content,
+                            top_k=3,
+                            max_tokens=1000,
+                            max_context_length=2000,
+                            temperature=0.7,
+                            session_id=session_id,
+                        )
                 else:
                     result = rag_pipeline.query_stream(
                         query=message.content,
@@ -1808,7 +1889,8 @@ async def add_chat_message(session_id: str, message: ChatMessageCreate, request:
                         # Send completion
                         completion_data = {
                             "type": "done",
-                            "full_answer": full_answer
+                            "full_answer": full_answer,
+                            "structured_data": result.get("structured_data")
                         }
                         yield f"data: {json.dumps(completion_data)}\n\n"
                         

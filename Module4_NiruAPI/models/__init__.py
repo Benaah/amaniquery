@@ -43,6 +43,7 @@ class QueryResponse(BaseModel):
     query_time: float = Field(..., description="Query processing time in seconds")
     retrieved_chunks: int = Field(..., description="Number of chunks retrieved")
     model_used: str = Field(..., description="LLM model used")
+    structured_data: Optional[Dict] = Field(None, description="Structured response data from AK-RAG")
 
 
 class HealthResponse(BaseModel):

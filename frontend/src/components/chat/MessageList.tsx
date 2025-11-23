@@ -32,7 +32,8 @@ import rehypeHighlight from "rehype-highlight"
 import { WelcomeScreen } from "./WelcomeScreen"
 import { ImagePreview } from "./ImagePreview"
 import { SHARE_PLATFORMS } from "./constants"
-import type { Message, Source, SharePlatform, ShareSheetState } from "./types"
+import { AmaniQueryResponse } from "../AmaniQueryResponse"
+import type { Message, Source, SharePlatform, ShareSheetState, StructuredResponse } from "./types"
 
 interface MessageListProps {
   messages: Message[]
@@ -122,6 +123,11 @@ export function MessageList({
     })
 
     return formattedContent
+  }
+
+  // Detect AK-RAG responses
+  const isAKRAGResponse = (message: Message): boolean => {
+    return message.model_used?.includes("AK-RAG") || false
   }
 
   return (
@@ -357,15 +363,39 @@ export function MessageList({
                           </div>
                         )}
 
-                        <div className={`prose prose-sm md:prose-base max-w-none dark:prose-invert text-sm md:text-base break-words ${
-                          message.role === "user" 
-                            ? "prose-headings:text-primary-foreground prose-p:text-primary-foreground prose-strong:text-primary-foreground prose-em:text-primary-foreground prose-code:text-primary-foreground prose-pre:text-primary-foreground prose-a:text-primary-foreground/90 hover:prose-a:text-primary-foreground prose-li:text-primary-foreground" 
-                            : ""
-                        }`}>
-                          <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw, rehypeHighlight]}>
-                            {formatMessageWithCitations(message.content, message.sources)}
-                          </ReactMarkdown>
-                        </div>
+                        {/* Message Content - conditionally render structured response or markdown */}
+                        {message.role === "assistant" && isAKRAGResponse(message) ? (
+                          <div className="ak-rag-response space-y-4">
+                            {/* Badge */}
+                            <div className="inline-flex items-center gap-2 rounded-full border border-green-500/40 bg-green-500/10 px-3 py-1 text-xs text-green-100">
+                              🇰🇪 AK-RAG Persona Response
+                            </div>
+                            
+                            {/* Structured Response or Markdown Fallback */}
+                            {message.structured_response ? (
+                                <AmaniQueryResponse 
+                                    data={message.structured_response} 
+                                    className="w-full"
+                                />
+                            ) : (
+                                <div className="prose prose-sm md:prose-base max-w-none dark:prose-invert text-sm md:text-base break-words">
+                                  <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw, rehypeHighlight]}>
+                                    {formatMessageWithCitations(message.content, message.sources)}
+                                  </ReactMarkdown>
+                                </div>
+                            )}
+                          </div>
+                        ) : (
+                          <div className={`prose prose-sm md:prose-base max-w-none dark:prose-invert text-sm md:text-base break-words ${
+                            message.role === "user" 
+                              ? "prose-headings:text-primary-foreground prose-p:text-primary-foreground prose-strong:text-primary-foreground prose-em:text-primary-foreground prose-code:text-primary-foreground prose-pre:text-primary-foreground prose-a:text-primary-foreground/90 hover:prose-a:text-primary-foreground prose-li:text-primary-foreground" 
+                              : ""
+                          }`}>
+                            <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw, rehypeHighlight]}>
+                              {formatMessageWithCitations(message.content, message.sources)}
+                            </ReactMarkdown>
+                          </div>
+                        )}
                       </CardContent>
                     </Card>
                     )}

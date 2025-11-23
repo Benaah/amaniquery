@@ -1,4 +1,7 @@
 import type { ReactNode } from "react"
+import type { AmaniQueryResponse as StructuredResponse } from "../AmaniQueryResponse"
+
+export type { StructuredResponse }
 
 export interface Message {
     id: string
@@ -16,6 +19,9 @@ export interface Message {
     originalQuery?: string
     isEditing?: boolean
     isRegenerating?: boolean
+    // AK-RAG structured response support
+    structured_response?: StructuredResponse
+    persona?: "wanjiku" | "wakili" | "mwanahabari"
 }
 
 export interface Source {

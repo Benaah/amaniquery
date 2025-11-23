@@ -573,6 +573,7 @@ ${researchProcess.tools_used && researchProcess.tools_used.length > 0
                                   token_count: metadata.token_count,
                                   model_used: metadata.model_used,
                                   sources: metadata.sources,
+                                  structured_response: parsed.structured_data,
                                   saved: true
                                 }
                               : msg

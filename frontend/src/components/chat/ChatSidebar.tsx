@@ -96,7 +96,7 @@ export function ChatSidebar({
       {/* Mobile Sidebar Overlay */}
       {showHistory && (
         <div className="md:hidden fixed inset-0 z-[60] bg-black/70 backdrop-blur-sm" onClick={onCloseHistory}>
-          <div className="absolute left-0 top-0 h-full w-[85%] max-w-sm bg-background border-r border-white/10 shadow-2xl z-[61]" onClick={(e) => e.stopPropagation()}>
+          <div className="absolute left-0 top-0 h-full w-[85%] max-w-sm bg-background border-r border-white/10 shadow-2xl z-[61] flex flex-col" onClick={(e) => e.stopPropagation()}>
             <div className="p-3 md:p-4 border-b border-white/10">
               <div className="flex items-center justify-between mb-2">
                 <h3 className="font-semibold text-sm md:text-base">Chat History</h3>

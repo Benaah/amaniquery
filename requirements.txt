@@ -35,7 +35,7 @@ upstash-vector  # For vector database
 qdrant-client  # Fallback vector store
 cryptography  # For encrypting API keys
 redis  # For rate limiting and caching
-weviate-client  # Fallback vector store
+weaviate-client  # Fallback vector store
 
 # Database (PostgreSQL for sessions, feedback, chat history)
 psycopg2-binary

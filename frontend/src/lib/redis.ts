@@ -1,9 +1,42 @@
 import { Redis } from "@upstash/redis"
 
+// Helper to handle potential connection string mismatch
+const getRedisConfig = () => {
+    let url = process.env.UPSTASH_REDIS_REST_URL || ""
+    let token = process.env.UPSTASH_REDIS_REST_TOKEN || ""
+
+    // If URL is a connection string (rediss://), parse it to get REST URL and token
+    if (url.startsWith("rediss://") || url.startsWith("redis://")) {
+        try {
+            // Format: rediss://user:password@host:port
+            const clean = url.replace(/^rediss?:\/\//, "")
+            const [auth, hostPort] = clean.split("@")
+            
+            if (auth && hostPort) {
+                const [_, password] = auth.split(":")
+                const [host] = hostPort.split(":")
+                
+                if (host) {
+                    url = `https://${host}`
+                }
+                if (password) {
+                    token = password
+                }
+            }
+        } catch (e) {
+            console.warn("Failed to parse Redis connection string, falling back to original values")
+        }
+    }
+
+    return { url, token }
+}
+
+const config = getRedisConfig()
+
 // Initialize Redis client with Upstash credentials
 const redis = new Redis({
-    url: process.env.UPSTASH_REDIS_REST_URL!,
-    token: process.env.UPSTASH_REDIS_REST_TOKEN!,
+    url: config.url,
+    token: config.token,
 })
 
 // Cache key prefixes
@@ -70,7 +103,7 @@ export async function setCached(
     ttl: number = 600
 ): Promise<void> {
     try {
-        await redis.setex(key, ttl, JSON.stringify(value))
+        await redis.set(key, JSON.stringify(value), { ex: ttl })
     } catch (error) {
         console.error("Redis set error:", error)
     }

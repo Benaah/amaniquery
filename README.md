@@ -607,7 +607,7 @@ Apache License 2.0 - See LICENSE file
 
 ## 🤝 Contributing
 
-This is a hackathon project. Contributions welcome!
+All contributions are welcome! Refer to the [CONTRIBUTING.md](CONTRIBUTING.md) file for details.
 
 ---
 

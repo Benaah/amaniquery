@@ -36,6 +36,40 @@ class Source(BaseModel):
     start_time_seconds: Optional[float] = None
 
 
+class WidgetInput(BaseModel):
+    """Input field for interactive widget"""
+    name: str
+    label: str
+    type: str = "number"
+    placeholder: Optional[str] = None
+    default_value: Optional[str] = None
+
+
+class WidgetOutput(BaseModel):
+    """Output field for interactive widget"""
+    label: str
+    format: str = "{value}"  # e.g. "KES {value}"
+
+
+class InteractiveWidget(BaseModel):
+    """Interactive widget definition"""
+    type: str  # salary_calculator, fine_calculator, etc.
+    title: str
+    description: str
+    formula: str  # JavaScript evaluable string
+    inputs: List[WidgetInput]
+    outputs: List[WidgetOutput]
+    source_citation: Optional[str] = None
+
+
+class GithubDiff(BaseModel):
+    """GitHub-style diff for legal amendments"""
+    old_text: str
+    new_text: str
+    title: str
+    highlight_type: str = "side_by_side"  # side_by_side or unified
+
+
 class QueryResponse(BaseModel):
     """Response model for query endpoint"""
     answer: str = Field(..., description="The generated answer")
@@ -43,6 +77,9 @@ class QueryResponse(BaseModel):
     query_time: float = Field(..., description="Query processing time in seconds")
     retrieved_chunks: int = Field(..., description="Number of chunks retrieved")
     model_used: str = Field(..., description="LLM model used")
+    structured_data: Optional[Dict] = Field(None, description="Structured response data from AK-RAG")
+    interactive_widgets: Optional[List[InteractiveWidget]] = Field(None, description="Interactive widgets for policy queries")
+    github_diff: Optional[GithubDiff] = Field(None, description="GitHub-style diff for amendments")
 
 
 class HealthResponse(BaseModel):

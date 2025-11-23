@@ -1,4 +1,37 @@
 import type { ReactNode } from "react"
+import type { AmaniQueryResponse as StructuredResponse } from "../AmaniQueryResponse"
+
+export type { StructuredResponse }
+
+export interface WidgetInput {
+    name: string
+    label: string
+    type: string
+    placeholder?: string
+    default_value?: string
+}
+
+export interface WidgetOutput {
+    label: string
+    format: string
+}
+
+export interface InteractiveWidget {
+    type: string
+    title: string
+    description: string
+    formula: string
+    inputs: WidgetInput[]
+    outputs: WidgetOutput[]
+    source_citation?: string
+}
+
+export interface GithubDiff {
+    old_text: string
+    new_text: string
+    title: string
+    highlight_type: "side_by_side" | "unified"
+}
 
 export interface Message {
     id: string
@@ -16,6 +49,11 @@ export interface Message {
     originalQuery?: string
     isEditing?: boolean
     isRegenerating?: boolean
+    // AK-RAG structured response support
+    structured_response?: StructuredResponse
+    interactive_widgets?: InteractiveWidget[]
+    github_diff?: GithubDiff
+    persona?: "wanjiku" | "wakili" | "mwanahabari"
 }
 
 export interface Source {

@@ -1,4 +1,4 @@
-# Dockerfile for FastAPI backend deployment on Render
+# Dockerfile for FastAPI backend deployment
 FROM python:3.11-slim AS base
 
 ENV PYTHONDONTWRITEBYTECODE=1 \

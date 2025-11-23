@@ -818,32 +818,102 @@ Combined Response:"""
         context: str,
         temperature: float,
         max_tokens: int,
-    ) -> str:
-        """Generate answer using LLM"""
+    ) -> Dict[str, Any]:
+        """Generate answer using LLM, potentially with interactive widgets"""
         
-        # System prompt
+        # System prompt with Impact Agent instructions
         system_prompt = """You are AmaniQuery, an AI assistant specialized in Kenyan law, parliamentary proceedings, and current affairs.
 
-CRITICAL FORMATTING RULES:
-1. **Keep responses concise** - Maximum 3-4 main sections
-2. **Use clear spacing** - Add blank lines between sections
-3. **Limit section length** - Each section should be 2-3 short paragraphs or bullet points
-4. **Only cite sources when using specific context** - Do NOT add "[Source # is not applicable]" or similar disclaimers
-5. **Use bullet points** - Prefer lists over long paragraphs
-6. **Bold key terms sparingly** - Only for critical legal terms or concepts
+CRITICAL INSTRUCTION: DETECT QUANTITATIVE POLICY QUERIES
+If the user's query involves calculating costs, levies, taxes, fines, or statutory deductions (Housing Levy, NSSF, NHIF/SHIF, PAYE, Fuel Levy, Parking Fees, etc.), you MUST output a JSON response containing an interactive widget definition.
 
-RESPONSE STRUCTURE:
-1. **Brief Summary** (2-3 sentences, no more)
-2. **Key Points** (3-5 bullet points covering main aspects)
-3. **Important Details** (Only if needed, keep concise)
-4. **Practical Note** (1-2 sentences if relevant)
+CRITICAL INSTRUCTION: DETECT LEGAL AMENDMENTS (GIT-DIFF)
+If the user's query asks about changes, amendments, new bills, or comparisons (e.g., "changed from X to Y", "amendment to section", "what is new in the bill"), you MUST output a JSON response containing a `github_diff` object.
 
-AVOID:
-- Long introductory paragraphs explaining what you'll do
-- Repetitive source disclaimers
-- Overly detailed explanations that could be summarized
-- Multiple nested headings
-- Walls of text"""
+OUTPUT FORMAT:
+If a widget or diff is needed, output ONLY a JSON object with this structure:
+{
+  "answer": "Brief text explanation...",
+  "interactive_widgets": [ ... ],
+  "github_diff": {
+    "old_text": "Original legal text...",
+    "new_text": "Amended legal text...",
+    "title": "Bill Name → Section/Clause",
+    "highlight_type": "side_by_side"
+  }
+}
+
+If NO widget or diff is needed, output a standard text response.
+
+FEW-SHOT EXAMPLES FOR WIDGETS:
+... (keep existing widget examples) ...
+
+FEW-SHOT EXAMPLES FOR LEGAL DIFFS:
+
+Example 1: Housing Levy Change
+User: "How did the housing levy change in the new Finance Bill?"
+Response:
+{
+  "answer": "The Affordable Housing Levy was amended to clarify the deduction rate and matching contribution. The rate remains 1.5%, but the text now explicitly mandates the employer's matching contribution.",
+  "github_diff": {
+    "title": "Finance Bill 2024 → Clause 31B",
+    "old_text": "An employer shall pay the levy deducted under this section to the collector...",
+    "new_text": "An employer shall pay the levy deducted under this section and an equal amount as the employer's contribution to the collector...",
+    "highlight_type": "side_by_side"
+  }
+}
+
+Example 2: SHIF Rates
+User: "What is the new SHIF rate compared to NHIF?"
+Response:
+{
+  "answer": "The Social Health Insurance Fund (SHIF) introduces a flat 2.75% rate on gross household income, replacing the graduated NHIF scale.",
+  "github_diff": {
+    "title": "Social Health Insurance Act → Contribution Rate",
+    "old_text": "Contributions shall be paid at the rates specified in the Schedule (Graduated Scale: KES 150 - KES 1,700)",
+    "new_text": "Every household shall contribute to the Fund at a rate of 2.75% of the gross household income.",
+    "highlight_type": "side_by_side"
+  }
+}
+
+Example 3: VAT on Fuel
+User: "Did they increase VAT on fuel?"
+Response:
+{
+  "answer": "Yes, the Finance Act 2023 increased the VAT on petroleum products from 8% to 16%.",
+  "github_diff": {
+    "title": "Finance Act 2023 → VAT Act Amendment",
+    "old_text": "The tax shall be charged at the rate of 8 percent on the supply of petroleum products...",
+    "new_text": "The tax shall be charged at the rate of 16 percent on the supply of petroleum products...",
+    "highlight_type": "side_by_side"
+  }
+}
+
+Example 4: Traffic Fines Amendment
+User: "Amendment to traffic fines for speeding"
+Response:
+{
+  "answer": "The Traffic (Amendment) Bill proposes increasing the maximum fine for speeding offenses.",
+  "github_diff": {
+    "title": "Traffic (Amendment) Bill → Section 42",
+    "old_text": "Any person who contravenes this section shall be liable to a fine not exceeding twenty thousand shillings...",
+    "new_text": "Any person who contravenes this section shall be liable to a fine not exceeding one hundred thousand shillings...",
+    "highlight_type": "side_by_side"
+  }
+}
+
+Example 5: Excise Duty on Betting
+User: "Change in excise duty for betting"
+Response:
+{
+  "answer": "The excise duty on betting stakes was increased from 7.5% to 12.5%.",
+  "github_diff": {
+    "title": "Excise Duty Act → Betting Tax",
+    "old_text": "Excise duty on betting shall be at the rate of 7.5 percent of the amount wagered or staked.",
+    "new_text": "Excise duty on betting shall be at the rate of 12.5 percent of the amount wagered or staked.",
+    "highlight_type": "side_by_side"
+  }
+}"""
 
         # User prompt
         user_prompt = f"""Context from relevant documents:
@@ -852,27 +922,10 @@ AVOID:
 
 Question: {query}
 
-Provide a concise, scannable answer following this format:
-
-**Summary** (2-3 sentences maximum)
-
-**Key Points:**
-- Point 1 (one line)
-- Point 2 (one line)
-- Point 3 (one line)
-
-**Important Details:** (Only if needed, 2-3 short paragraphs max)
-
-**Note:** (One sentence if relevant)
-
-IMPORTANT:
-- Only cite sources [Source #] when directly quoting or referencing specific context
-- Do NOT add disclaimers about source applicability
-- Keep each section brief and focused
-- Use blank lines between sections for readability
-- If context is limited, provide a concise answer based on your knowledge without lengthy explanations"""
+Provide a concise answer. If the query is quantitative (taxes/levies), output JSON with `interactive_widgets`. If it asks about amendments/changes, output JSON with `github_diff`. Otherwise, output standard text."""
 
         try:
+            raw_answer = ""
             if self.llm_provider in ["openai", "moonshot"]:
                 # Both OpenAI and Moonshot use the same API format
                 response = self.client.chat.completions.create(
@@ -884,12 +937,7 @@ IMPORTANT:
                     temperature=temperature,
                     max_tokens=max_tokens,
                 )
-                answer = response.choices[0].message.content
-                logger.info(f"LLM response length: {len(answer) if answer else 0}")
-                if not answer or not answer.strip():
-                    logger.warning("LLM returned empty or whitespace-only response")
-                    return "I apologize, but I was unable to generate a response. Please try rephrasing your question."
-                return answer
+                raw_answer = response.choices[0].message.content
             
             elif self.llm_provider == "gemini":
                 # Gemini uses a different API format
@@ -909,12 +957,7 @@ IMPORTANT:
                     generation_config=generation_config
                 )
                 
-                answer = response.text
-                logger.info(f"Gemini response length: {len(answer) if answer else 0}")
-                if not answer or not answer.strip():
-                    logger.warning("Gemini returned empty or whitespace-only response")
-                    return "I apologize, but I was unable to generate a response. Please try rephrasing your question."
-                return answer
+                raw_answer = response.text
             
             elif self.llm_provider == "anthropic":
                 response = self.client.messages.create(
@@ -926,35 +969,46 @@ IMPORTANT:
                         {"role": "user", "content": user_prompt}
                     ],
                 )
-                answer = response.content[0].text
-                logger.info(f"LLM response length: {len(answer) if answer else 0}")
-                if not answer or not answer.strip():
-                    logger.warning("LLM returned empty or whitespace-only response")
-                    return "I apologize, but I was unable to generate a response. Please try rephrasing your question."
-                return answer
+                raw_answer = response.content[0].text
             
             else:
-                return "LLM provider not supported"
+                return {"answer": "LLM provider not supported"}
+
+            # Parse response
+            logger.info(f"LLM response length: {len(raw_answer) if raw_answer else 0}")
+            if not raw_answer or not raw_answer.strip():
+                logger.warning("LLM returned empty or whitespace-only response")
+                return {"answer": "I apologize, but I was unable to generate a response. Please try rephrasing your question."}
+
+            # Try to parse as JSON
+            try:
+                # Clean up potential markdown code blocks
+                clean_answer = raw_answer.strip()
+                if clean_answer.startswith("```json"):
+                    clean_answer = clean_answer[7:]
+                if clean_answer.endswith("```"):
+                    clean_answer = clean_answer[:-3]
+                
+                parsed_json = json.loads(clean_answer)
+                
+                # If valid JSON with answer and widgets/diff
+                if isinstance(parsed_json, dict) and "answer" in parsed_json:
+                    return {
+                        "answer": parsed_json["answer"],
+                        "interactive_widgets": parsed_json.get("interactive_widgets"),
+                        "github_diff": parsed_json.get("github_diff")
+                    }
+                else:
+                    # JSON but not our expected format, treat as text
+                    return {"answer": raw_answer}
+            except json.JSONDecodeError:
+                # Not JSON, treat as standard text response
+                return {"answer": raw_answer}
                 
         except Exception as e:
             error_msg = str(e)
             logger.error(f"Error generating answer: {error_msg}")
-            
-            # Provide helpful error messages
-            if "401" in error_msg or "Invalid Authentication" in error_msg:
-                if self.llm_provider == "moonshot":
-                    return ("Error: Moonshot AI API key is invalid. Please get a new API key from "
-                           "https://platform.moonshot.cn/console and update MOONSHOT_API_KEY in your .env file")
-                elif self.llm_provider == "openai":
-                    return ("Error: OpenAI API key is invalid. Please check your OPENAI_API_KEY in the .env file")
-                else:
-                    return f"Authentication error: {error_msg}"
-            elif "429" in error_msg or "rate limit" in error_msg.lower():
-                return "Error: API rate limit exceeded. Please try again later."
-            elif "insufficient_quota" in error_msg.lower():
-                return "Error: API quota exceeded. Please check your account balance."
-            else:
-                return f"Error generating answer: {error_msg}"
+            return {"answer": f"Error generating answer: {error_msg}"}
     
     def _generate_answer_stream(
         self,
@@ -964,95 +1018,22 @@ IMPORTANT:
         max_tokens: int,
     ):
         """Generate answer using LLM with streaming"""
+        # NOTE: For Impact Agent (widgets), we currently prioritize correctness over streaming.
+        # We generate the full response (including widgets) and then yield the text answer.
+        # This ensures widgets are generated if needed, even if we can't stream them yet.
         
-        # System prompt
-        system_prompt = """You are AmaniQuery, an AI assistant specialized in Kenyan law, parliamentary proceedings, and current affairs.
-
-CRITICAL FORMATTING RULES:
-1. **Keep responses concise** - Maximum 3-4 main sections
-2. **Use clear spacing** - Add blank lines between sections
-3. **Limit section length** - Each section should be 2-3 short paragraphs or bullet points
-4. **Only cite sources when using specific context** - Do NOT add "[Source # is not applicable]" or similar disclaimers
-5. **Use bullet points** - Prefer lists over long paragraphs
-6. **Bold key terms sparingly** - Only for critical legal terms or concepts
-
-RESPONSE STRUCTURE:
-1. **Brief Summary** (2-3 sentences, no more)
-2. **Key Points** (3-5 bullet points covering main aspects)
-3. **Important Details** (Only if needed, keep concise)
-4. **Practical Note** (1-2 sentences if relevant)
-
-AVOID:
-- Long introductory paragraphs explaining what you'll do
-- Repetitive source disclaimers
-- Overly detailed explanations that could be summarized
-- Multiple nested headings
-- Walls of text"""
-
-        # User prompt
-        user_prompt = f"""Context from relevant documents:
-
-{context}
-
-Question: {query}
-
-Provide a concise, scannable answer following this format:
-
-**Summary** (2-3 sentences maximum)
-
-**Key Points:**
-- Point 1 (one line)
-- Point 2 (one line)
-- Point 3 (one line)
-
-**Important Details:** (Only if needed, 2-3 short paragraphs max)
-
-**Note:** (One sentence if relevant)
-
-IMPORTANT:
-- Only cite sources [Source #] when directly quoting or referencing specific context
-- Do NOT add disclaimers about source applicability
-- Keep each section brief and focused
-- Use blank lines between sections for readability
-- If context is limited, provide a concise answer based on your knowledge without lengthy explanations"""
-
-        try:
-            if self.llm_provider in ["openai", "moonshot"]:
-                # Both OpenAI and Moonshot use the same API format
-                response = self.client.chat.completions.create(
-                    model=self.model,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt},
-                    ],
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                    stream=True,  # Enable streaming
-                )
-                return response  # Return the stream object
-            
-            elif self.llm_provider == "anthropic":
-                response = self.client.messages.create(
-                    model=self.model,
-                    max_tokens=max_tokens,
-                    temperature=temperature,
-                    system=system_prompt,
-                    messages=[
-                        {"role": "user", "content": user_prompt}
-                    ],
-                    stream=True,  # Enable streaming
-                )
-                return response
-            
-            else:
-                # For non-streaming providers, fall back to regular generation
-                return self._generate_answer(query, context, temperature, max_tokens)
-                
-        except Exception as e:
-            error_msg = str(e)
-            logger.error(f"Error generating streaming answer: {error_msg}")
-            # Fall back to non-streaming
-            return self._generate_answer(query, context, temperature, max_tokens)
+        # Generate full response using the widget-aware method
+        response = self._generate_answer(query, context, temperature, max_tokens)
+        
+        # If it's a dict (standard response), extract answer
+        if isinstance(response, dict):
+            answer = response.get("answer", "")
+            # We yield the answer as a single chunk. 
+            # This simulates streaming but allows us to reuse the widget logic.
+            yield answer
+        else:
+            # Fallback if something went wrong and it returned a string
+            yield str(response)
     
     def _format_sources(self, docs: List[Dict]) -> List[Dict]:
         """Format source citations"""

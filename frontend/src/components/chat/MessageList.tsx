@@ -32,7 +32,9 @@ import rehypeHighlight from "rehype-highlight"
 import { WelcomeScreen } from "./WelcomeScreen"
 import { ImagePreview } from "./ImagePreview"
 import { SHARE_PLATFORMS } from "./constants"
-import type { Message, Source, SharePlatform, ShareSheetState } from "./types"
+import { AmaniQueryResponse } from "../AmaniQueryResponse"
+import { ImpactCalculator } from "./ImpactCalculator"
+import type { Message, Source, SharePlatform, ShareSheetState, StructuredResponse, InteractiveWidget } from "./types"
 
 interface MessageListProps {
   messages: Message[]
@@ -122,6 +124,11 @@ export function MessageList({
     })
 
     return formattedContent
+  }
+
+  // Detect AK-RAG responses
+  const isAKRAGResponse = (message: Message): boolean => {
+    return message.model_used?.includes("AK-RAG") || false
   }
 
   return (
@@ -282,14 +289,14 @@ export function MessageList({
                         {message.attachments && message.attachments.length > 0 && (
                           <div className="space-y-3">
                             {/* Separate images from other files */}
-                            {message.attachments.filter(att => {
+                            {message.attachments.filter((att) => {
                               const isImage = att.file_type === "image" || 
                                 /\.(png|jpg|jpeg|gif|bmp|webp)$/i.test(att.filename)
                               return isImage && att.cloudinary_url
                             }).length > 0 && (
                               <div className="space-y-2">
                                 {message.attachments
-                                  .filter(att => {
+                                  .filter((att) => {
                                     const isImage = att.file_type === "image" || 
                                       /\.(png|jpg|jpeg|gif|bmp|webp)$/i.test(att.filename)
                                     return isImage && att.cloudinary_url
@@ -307,7 +314,7 @@ export function MessageList({
 
                             {/* Non-image files and images without Cloudinary URLs */}
                             {message.attachments
-                              .filter(att => {
+                              .filter((att) => {
                                 const isImage = att.file_type === "image" || 
                                   /\.(png|jpg|jpeg|gif|bmp|webp)$/i.test(att.filename)
                                 return !isImage || !att.cloudinary_url
@@ -357,15 +364,65 @@ export function MessageList({
                           </div>
                         )}
 
-                        <div className={`prose prose-sm md:prose-base max-w-none dark:prose-invert text-sm md:text-base break-words ${
-                          message.role === "user" 
-                            ? "prose-headings:text-primary-foreground prose-p:text-primary-foreground prose-strong:text-primary-foreground prose-em:text-primary-foreground prose-code:text-primary-foreground prose-pre:text-primary-foreground prose-a:text-primary-foreground/90 hover:prose-a:text-primary-foreground prose-li:text-primary-foreground" 
-                            : ""
-                        }`}>
-                          <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw, rehypeHighlight]}>
-                            {formatMessageWithCitations(message.content, message.sources)}
-                          </ReactMarkdown>
-                        </div>
+                        {/* Message Content - conditionally render structured response or markdown */}
+                        {message.role === "assistant" && isAKRAGResponse(message) ? (
+                          <div className="ak-rag-response space-y-4">
+                            {/* Badge */}
+                            <div className="inline-flex items-center gap-2 rounded-full border border-green-500/40 bg-green-500/10 px-3 py-1 text-xs text-green-100">
+                              🇰🇪 AK-RAG Persona Response
+                            </div>
+                            
+                            {/* Structured Response or Markdown Fallback */}
+                            {message.structured_response ? (
+                                <AmaniQueryResponse 
+                                    data={message.structured_response} 
+                                    className="w-full"
+                                />
+                            ) : (
+                                <div className="prose prose-sm md:prose-base max-w-none dark:prose-invert text-sm md:text-base break-words">
+                                  <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw, rehypeHighlight]}>
+                                    {formatMessageWithCitations(message.content, message.sources)}
+                                  </ReactMarkdown>
+                                </div>
+                            )}
+
+                            {/* Impact Agent Widgets */}
+                            {message.interactive_widgets && message.interactive_widgets.length > 0 && (
+                              <div className="mt-4 space-y-4">
+                                {message.interactive_widgets.map((widget, idx) => (
+                                  <ImpactCalculator 
+                                    key={idx} 
+                                    widget={widget} 
+                                    className="border-l-4 border-l-primary"
+                                  />
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <div className={`prose prose-sm md:prose-base max-w-none dark:prose-invert text-sm md:text-base break-words ${
+                            message.role === "user" 
+                              ? "prose-headings:text-primary-foreground prose-p:text-primary-foreground prose-strong:text-primary-foreground prose-em:text-primary-foreground prose-code:text-primary-foreground prose-pre:text-primary-foreground prose-a:text-primary-foreground/90 hover:prose-a:text-primary-foreground prose-li:text-primary-foreground" 
+                              : ""
+                          }`}>
+                            <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw, rehypeHighlight]}>
+                              {formatMessageWithCitations(message.content, message.sources)}
+                            </ReactMarkdown>
+                            
+                            {/* Impact Agent Widgets for non-AK-RAG responses too (if any) */}
+                            {message.interactive_widgets && message.interactive_widgets.length > 0 && (
+                              <div className="mt-4 space-y-4 not-prose">
+                                {message.interactive_widgets.map((widget, idx) => (
+                                  <ImpactCalculator 
+                                    key={idx} 
+                                    widget={widget} 
+                                    className="border-l-4 border-l-primary"
+                                  />
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </CardContent>
                     </Card>
                     )}
@@ -504,7 +561,7 @@ export function MessageList({
                       </div>
                     )}
 
-                    {shareSheet?.messageId === message.id && (
+                    {shareSheet && shareSheet.messageId === message.id && (
                       <div className="rounded-3xl border border-white/10 bg-background/80 backdrop-blur-xl p-3 md:p-5 space-y-3 md:space-y-4 mt-2">
                         <div className="flex items-center justify-between">
                           <div>

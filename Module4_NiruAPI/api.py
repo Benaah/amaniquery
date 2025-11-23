@@ -69,7 +69,7 @@ load_dotenv()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Handle application startup and shutdown"""
-    global vector_store, rag_pipeline, alignment_pipeline, sms_pipeline, sms_service, metadata_manager, chat_manager, crawler_manager, research_module, agentic_research_module, report_generator, config_manager, notification_service, hybrid_rag_pipeline, autocomplete_tool, vision_storage, vision_rag_service, database_storage, cache_manager
+    global vector_store, rag_pipeline, alignment_pipeline, sms_pipeline, sms_service, metadata_manager, chat_manager, crawler_manager, research_module, agentic_research_module, report_generator, config_manager, notification_service, hybrid_rag_pipeline, autocomplete_tool, vision_storage, vision_rag_service, database_storage, cache_manager, ak_rag_graph
     
     logger.info("Starting AmaniQuery API")
     
@@ -364,6 +364,68 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Database storage not available: {e}")
         database_storage = None
+    
+    # Initialize AK-RAG Agent Orchestration Graph (local agents)
+    ak_rag_graph = None
+    try:
+        from Module4_NiruAPI.agents.ak_rag_graph import create_ak_rag_graph
+        from Module4_NiruAPI.agents.retrieval_strategies import UnifiedRetriever
+        
+        # Create unified retriever using vector store
+        if vector_store:
+            # Determine backend from environment or vector store attributes
+            vector_backend = os.getenv("VECTOR_STORE_BACKEND", "chromadb")
+            
+            # Map backend name to retrieval strategy backend
+            backend_map = {
+                "qdrant": "qdrant",
+                "upstash": "qdrant",  # Upstash uses Qdrant-compatible API
+                "weaviate": "weaviate",
+                "chromadb": "qdrant"  # Default to qdrant for chromadb
+            }
+            
+            backend = backend_map.get(vector_backend, "qdrant")
+            
+            logger.info(f"Initializing AK-RAG with backend: {backend} (vector_backend: {vector_backend})")
+            
+            try:
+                # Get the actual client from vector store
+                client = None
+                if hasattr(vector_store, 'client'):
+                    client = vector_store.client
+                elif hasattr(vector_store, 'qdrant_client'):
+                    client = vector_store.qdrant_client
+                elif hasattr(vector_store, 'weaviate_client'):
+                    client = vector_store.weaviate_client
+                
+                unified_retriever = UnifiedRetriever(
+                    backend=backend,
+                    client=client,
+                    collection_name="amaniquery_docs",  # Correct collection name
+                    embedder=vector_store.embedding_model
+                )
+                
+                # Create AK-RAG graph with local agents
+                if rag_pipeline and rag_pipeline.llm_service:
+                    ak_rag_graph = create_ak_rag_graph(
+                        llm_client=rag_pipeline.llm_service,
+                        vector_db_client=unified_retriever,
+                        enable_persistence=False
+                    )
+                    logger.info("✅ AK-RAG agent orchestration graph initialized (local agents)")
+                    logger.info(f"Using backend: {backend}, collection: amaniquery_docs")
+                    logger.info("Agents: IntentRouter, ShengTranslator, Retrieval, Kenyanizer, Synthesis, Validation")
+                else:
+                    logger.warning("AK-RAG graph not initialized: LLM service not available")
+            except Exception as e:
+                logger.warning(f"Could not create unified retriever: {e}")
+                ak_rag_graph = None
+        else:
+            logger.warning("AK-RAG graph not initialized: vector store not available")
+    except Exception as e:
+        logger.warning(f"AK-RAG agent orchestration not available: {e}")
+        logger.info("Will use standard RAG pipeline for queries")
+        ak_rag_graph = None
     
     logger.info("AmaniQuery API ready")
     
@@ -692,10 +754,18 @@ async def query(request: QueryRequest):
     """
     Main query endpoint - Ask questions about Kenyan law, parliament, and news
     
+    **Automatically uses AK-RAG local agents when available for:**
+    - Intent classification (wanjiku/wakili/mwanahabari)
+    - Sheng translation and detection
+    - Persona-optimized retrieval
+    - JSON-enforced structured responses
+    - Self-correcting validation
+    
     **Example queries:**
     - "What does the Kenyan Constitution say about freedom of speech?"
     - "What are the recent parliamentary debates on finance?"
     - "Latest news on AI policy in Kenya"
+    - "Kanjo wameongeza parking fees aje?" (Sheng)
     
     **Vision RAG:** If session has uploaded images/PDFs, automatically uses Vision RAG for visual question answering.
     """
@@ -731,8 +801,105 @@ async def query(request: QueryRequest):
                     category="vision",
                     excerpt=f"Image similarity: {src.get('similarity', 0):.2f}",
                 ))
+        
+        # Try AK-RAG local agents if available (for non-vision queries)
+        elif ak_rag_graph is not None:
+            logger.info(f"[AK-RAG] Using local agent orchestration for query")
+            
+            try:
+                from Module4_NiruAPI.agents.ak_rag_graph import execute_pipeline
+                
+                # Get conversation history if session exists
+                conversation_history = []
+                if request.session_id and chat_manager:
+                    try:
+                        messages = chat_manager.get_messages(request.session_id, limit=5)
+                        conversation_history = [
+                            {"role": msg.role, "content": msg.content}
+                            for msg in messages
+                        ]
+                    except:
+                        conversation_history = []
+                
+                # Execute AK-RAG pipeline
+                ak_result = execute_pipeline(
+                    graph=ak_rag_graph,
+                    user_query=request.query,
+                    conversation_history=conversation_history
+                )
+                
+                # Extract response and metadata
+                response_data = ak_result.get('response', {})
+                metadata = ak_result.get('metadata', {})
+                
+                # Build answer from response structure
+                if response_data and 'response' in response_data:
+                    resp = response_data['response']
+                    
+                    # Build comprehensive answer
+                    answer_parts = []
+                    
+                    # Summary card
+                    if 'summary_card' in resp:
+                        summary = resp['summary_card']
+                        answer_parts.append(f"**{summary.get('title', '')}**\n\n{summary.get('content', '')}")
+                    
+                    # Detailed breakdown
+                    if 'detailed_breakdown' in resp and 'points' in resp['detailed_breakdown']:
+                        answer_parts.append("\n\n**Details:**")
+                        for i, point in enumerate(resp['detailed_breakdown']['points'], 1):
+                            answer_parts.append(f"{i}. {point}")
+                    
+                    # Kenyan context
+                    if 'kenyan_context' in resp and 'impact' in resp['kenyan_context']:
+                        answer_parts.append(f"\n\n**🇰🇪 Kenyan Context:** {resp['kenyan_context']['impact']}")
+                    
+                    answer = "\n".join(answer_parts)
+                    
+                    # Format sources from citations
+                    sources = []
+                    if 'citations' in resp:
+                        for i, citation in enumerate(resp['citations'], 1):
+                            sources.append(Source(
+                                title=citation.get('source', f'Source {i}'),
+                                url=citation.get('url', 'N/A'),
+                                source_name=citation.get('source', 'Unknown'),
+                                category=metadata.get('query_type', 'public_interest'),
+                                excerpt=citation.get('quote', '')[:200] if citation.get('quote') else ''
+                            ))
+                    
+                    result = {
+                        "answer": answer,
+                        "sources": [s.dict() for s in sources],
+                        "query_time": metadata.get('total_time_seconds', 0),
+                        "retrieved_chunks": metadata.get('num_docs_retrieved', 0),
+                        "model_used": f"AK-RAG-{metadata.get('persona', 'wanjiku')}-local",
+                        "structured_data": response_data
+                    }
+                    
+                    logger.info(f"[AK-RAG] Query completed in {metadata.get('total_time_seconds', 0):.2f}s using {metadata.get('persona')} persona")
+                else:
+                    # AK-RAG failed, fall back to standard pipeline
+                    logger.warning("[AK-RAG] Response structure invalid, falling back to standard RAG")
+                    raise Exception("Invalid AK-RAG response structure")
+                    
+            except Exception as e:
+                # Fall back to standard RAG pipeline
+                logger.warning(f"[AK-RAG] Error: {e}, falling back to standard RAG pipeline")
+                result = rag_pipeline.query(
+                    query=request.query,
+                    top_k=request.top_k,
+                    category=request.category,
+                    source=request.source,
+                    temperature=request.temperature,
+                    max_tokens=request.max_tokens,
+                    session_id=request.session_id
+                )
+                sources = [Source(**src) for src in result["sources"]]
+        
         else:
-            # Use regular RAG
+            # Use regular RAG (AK-RAG not available)
+            logger.info("[RAG] Using standard RAG pipeline")
             result = rag_pipeline.query(
                 query=request.query,
                 top_k=request.top_k,
@@ -756,6 +923,7 @@ async def query(request: QueryRequest):
             query_time=result["query_time"],
             retrieved_chunks=result.get("retrieved_chunks", result.get("retrieved_images", 0)),
             model_used=result["model_used"],
+            structured_data=result.get("structured_data")
         )
         
     except Exception as e:
@@ -1507,6 +1675,85 @@ async def add_chat_message(session_id: str, message: ChatMessageCreate, request:
                         })
                     result["sources"] = vision_sources
                     result["retrieved_chunks"] = result.get("retrieved_images", 0)
+                    result["retrieved_chunks"] = result.get("retrieved_images", 0)
+                elif ak_rag_graph is not None:
+                    # Use AK-RAG local agents
+                    try:
+                        from Module4_NiruAPI.agents.ak_rag_graph import execute_pipeline
+                        
+                        # Get conversation history
+                        conversation_history = []
+                        try:
+                            messages = chat_manager.get_messages(session_id, limit=5)
+                            conversation_history = [
+                                {"role": msg.role, "content": msg.content}
+                                for msg in messages
+                            ]
+                        except:
+                            conversation_history = []
+                        
+                        # Execute AK-RAG pipeline
+                        ak_result = execute_pipeline(
+                            graph=ak_rag_graph,
+                            user_query=message.content,
+                            conversation_history=conversation_history
+                        )
+                        
+                        # Extract response and metadata
+                        response_data = ak_result.get('response', {})
+                        metadata = ak_result.get('metadata', {})
+                        
+                        if response_data and 'response' in response_data:
+                            resp = response_data['response']
+                            
+                            # Build answer
+                            answer_parts = []
+                            if 'summary_card' in resp:
+                                summary = resp['summary_card']
+                                answer_parts.append(f"**{summary.get('title', '')}**\n\n{summary.get('content', '')}")
+                            
+                            if 'detailed_breakdown' in resp and 'points' in resp['detailed_breakdown']:
+                                answer_parts.append("\n\n**Details:**")
+                                for i, point in enumerate(resp['detailed_breakdown']['points'], 1):
+                                    answer_parts.append(f"{i}. {point}")
+                            
+                            if 'kenyan_context' in resp and 'impact' in resp['kenyan_context']:
+                                answer_parts.append(f"\n\n**🇰🇪 Kenyan Context:** {resp['kenyan_context']['impact']}")
+                            
+                            answer = "\n".join(answer_parts)
+                            
+                            # Sources
+                            sources = []
+                            if 'citations' in resp:
+                                for i, citation in enumerate(resp['citations'], 1):
+                                    sources.append({
+                                        "title": citation.get('source', f'Source {i}'),
+                                        "url": citation.get('url', 'N/A'),
+                                        "source_name": citation.get('source', 'Unknown'),
+                                        "category": metadata.get('query_type', 'public_interest'),
+                                        "excerpt": citation.get('quote', '')[:200] if citation.get('quote') else ''
+                                    })
+                            
+                            result = {
+                                "sources": sources,
+                                "retrieved_chunks": metadata.get('num_docs_retrieved', 0),
+                                "model_used": f"AK-RAG-{metadata.get('persona', 'wanjiku')}-local",
+                                "answer_stream": [answer],
+                                "structured_data": response_data
+                            }
+                        else:
+                            # Fallback
+                            raise Exception("Invalid AK-RAG response")
+                    except Exception as e:
+                        logger.warning(f"[AK-RAG] Error in chat: {e}, falling back to standard RAG")
+                        result = rag_pipeline.query_stream(
+                            query=message.content,
+                            top_k=3,
+                            max_tokens=1000,
+                            max_context_length=2000,
+                            temperature=0.7,
+                            session_id=session_id,
+                        )
                 else:
                     result = rag_pipeline.query_stream(
                         query=message.content,
@@ -1643,7 +1890,8 @@ async def add_chat_message(session_id: str, message: ChatMessageCreate, request:
                         # Send completion
                         completion_data = {
                             "type": "done",
-                            "full_answer": full_answer
+                            "full_answer": full_answer,
+                            "structured_data": result.get("structured_data")
                         }
                         yield f"data: {json.dumps(completion_data)}\n\n"
                         

@@ -407,14 +407,65 @@ async def lifespan(app: FastAPI):
                 
                 # Create AK-RAG graph with local agents
                 if rag_pipeline and rag_pipeline.llm_service:
+                    
+                    # Initialize Fast LLM Client for Agents (Intent Router / Sheng)
+                    fast_llm_callable = None
+                    try:
+                        # Priority 1: Gemini 1.5 Flash
+                        gemini_key = os.getenv("GEMINI_API_KEY")
+                        if gemini_key:
+                            import google.generativeai as genai
+                            genai.configure(api_key=gemini_key)
+                            # Use flash model
+                            flash_model = genai.GenerativeModel('gemini-1.5-flash')
+                            
+                            def gemini_wrapper(prompt, **kwargs):
+                                response = flash_model.generate_content(prompt)
+                                return response.text
+                                
+                            fast_llm_callable = gemini_wrapper
+                            logger.info("🚀 Fast LLM initialized: Gemini 1.5 Flash")
+                        
+                        # Priority 2: OpenRouter (Llama 3 70B)
+                        if not fast_llm_callable:
+                            openrouter_key = os.getenv("OPENROUTER_API_KEY")
+                            if openrouter_key:
+                                from openai import OpenAI
+                                or_client = OpenAI(
+                                    api_key=openrouter_key,
+                                    base_url="https://openrouter.ai/api/v1",
+                                    default_headers={
+                                        "HTTP-Referer": "https://amaniquery.vercel.app",
+                                        "X-Title": "AmaniQuery",
+                                    }
+                                )
+                                
+                                def openrouter_wrapper(prompt, **kwargs):
+                                    response = or_client.chat.completions.create(
+                                        model="meta-llama/llama-3-70b-instruct",
+                                        messages=[{"role": "user", "content": prompt}],
+                                        temperature=0.1
+                                    )
+                                    return response.choices[0].message.content
+                                    
+                                fast_llm_callable = openrouter_wrapper
+                                logger.info("🚀 Fast LLM initialized: Llama 3 70B (OpenRouter)")
+                                
+                    except Exception as e:
+                        logger.warning(f"Failed to initialize fast LLM: {e}")
+                        fast_llm_callable = None
+
                     ak_rag_graph = create_ak_rag_graph(
                         llm_client=rag_pipeline.llm_service,
                         vector_db_client=unified_retriever,
-                        enable_persistence=False
+                        enable_persistence=False,
+                        fast_llm_client=fast_llm_callable
                     )
                     logger.info("✅ AK-RAG agent orchestration graph initialized (local agents)")
                     logger.info(f"Using backend: {backend}, collection: amaniquery_docs")
                     logger.info("Agents: IntentRouter, ShengTranslator, Retrieval, Kenyanizer, Synthesis, Validation")
+                    if fast_llm_callable:
+                        logger.info("⚡ Edge Optimization: Using Fast LLM for Routing & Translation")
                 else:
                     logger.warning("AK-RAG graph not initialized: LLM service not available")
             except Exception as e:
@@ -544,7 +595,7 @@ async def health_check():
     
     # Cache for 30 seconds
     if cache_manager:
-        cache_manager.set(cache_key, result.dict(), ttl=30)
+        cache_manager.set(cache_key, result.model_dump(), ttl=30)
     
     return result
 
@@ -695,7 +746,7 @@ async def get_stats():
         
         # Cache for 60 seconds
         if cache_manager:
-            cache_manager.set(cache_key, result.dict(), ttl=60)
+            cache_manager.set(cache_key, result.model_dump(), ttl=60)
         
         return result
     except HTTPException:
@@ -870,7 +921,7 @@ async def query(request: QueryRequest):
                     
                     result = {
                         "answer": answer,
-                        "sources": [s.dict() for s in sources],
+                        "sources": [s.model_dump() for s in sources],
                         "query_time": metadata.get('total_time_seconds', 0),
                         "retrieved_chunks": metadata.get('num_docs_retrieved', 0),
                         "model_used": f"AK-RAG-{metadata.get('persona', 'wanjiku')}-local",

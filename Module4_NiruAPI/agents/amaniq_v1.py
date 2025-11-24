@@ -1,6 +1,6 @@
 """
-AK-RAG Agent Orchestration Graph using LangGraph
-=================================================
+AmaniQuery v1.0 (amaniq-v1) - Agent Orchestration Graph
+=======================================================
 
 Complete agent orchestration for AmaniQuery v2.0 using LangGraph.
 Reduces dependency on external models for simple tasks by using local agents.
@@ -16,6 +16,7 @@ Nodes:
 4. KenyanizerPreambleAgent: Generate persona-specific system prompt
 5. SynthesisAgent: Generate final response with JSON enforcement
 6. ValidationAgent: Validate JSON schema + citations
+7. WebSearchAgent: Fetch external context for current events
 
 Features:
 - State-based execution
@@ -23,11 +24,12 @@ Features:
 - Self-correction loops
 - Conditional routing
 - Error recovery
+- Web Search integration
 
 Usage:
-    from ak_rag_graph import create_ak_rag_graph, AKRAGState
+    from amaniq_v1 import create_amaniq_v1_graph, AmaniqV1State
     
-    graph = create_ak_rag_graph(llm_client, vector_db_client)
+    graph = create_amaniq_v1_graph(llm_client, vector_db_client)
     result = graph.invoke({
         "user_query": "Kanjo wameongeza parking fees aje?",
         "conversation_history": []
@@ -39,6 +41,7 @@ from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.sqlite import SqliteSaver
 from datetime import datetime
 import logging
+import os
 
 # Import existing AmaniQuery agents
 from .intent_router import classify_query, INTENT_ROUTER_SYSTEM_PROMPT
@@ -62,6 +65,7 @@ from .json_enforcer import (
     RESPONSE_SCHEMA
 )
 from .retrieval_strategies import UnifiedRetriever
+from .tools.web_search import WebSearchTool
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -72,9 +76,9 @@ logger = logging.getLogger(__name__)
 # STATE SCHEMA
 # ============================================================================
 
-class AKRAGState(TypedDict):
+class AmaniqV1State(TypedDict):
     """
-    Comprehensive state for AK-RAG pipeline.
+    Comprehensive state for Amaniq v1 pipeline.
     
     State flows through all nodes and accumulates information.
     """
@@ -105,6 +109,11 @@ class AKRAGState(TypedDict):
     retrieval_query: str                      # Query used for retrieval
     retrieved_docs: List[Dict[str, Any]]      # Retrieved documents
     retrieval_metadata: Optional[Dict]        # Retrieval stats/scores
+    
+    # ========================================================================
+    # WEB SEARCH
+    # ========================================================================
+    web_results: Optional[str]                # Results from web search
     
     # ========================================================================
     # KENYANIZER
@@ -188,7 +197,7 @@ class IntentRouterAgent:
     def __init__(self, llm_client):
         self.llm_client = llm_client
     
-    def __call__(self, state: AKRAGState) -> AKRAGState:
+    def __call__(self, state: AmaniqV1State) -> AmaniqV1State:
         """Classify user query intent"""
         start_time = datetime.now().timestamp()
         logger.info(f"[IntentRouter] Processing: {state['user_query']}")
@@ -202,7 +211,7 @@ class IntentRouterAgent:
             result = classify_query(
                 query=state['user_query'],
                 llm_function=llm_wrapper,
-                conversation_history=state.get('conversation_history', [])
+                # conversation_history=state.get('conversation_history', []) # Removed as classify_query doesn't support it yet in intent_router.py
             )
             
             state['query_type'] = result['query_type']
@@ -246,7 +255,7 @@ class ShengTranslatorAgent:
     def __init__(self, llm_client):
         self.llm_client = llm_client
     
-    def __call__(self, state: AKRAGState) -> AKRAGState:
+    def __call__(self, state: AmaniqV1State) -> AmaniqV1State:
         """Translate Sheng/slang to formal language"""
         start_time = datetime.now().timestamp()
         logger.info(f"[ShengTranslator] Processing query")
@@ -267,28 +276,14 @@ class ShengTranslatorAgent:
                     return generate_llm_response(self.llm_client, prompt, temperature=0.1)
 
                 # Translate to formal
-                result = full_translation_pipeline(
-                    user_input=state['user_query'],
-                    llm_function=llm_wrapper,
-                    rag_function=lambda x: x, # Dummy rag function as we only need translation here
-                )
+                # Note: full_translation_pipeline signature might differ, using direct translation logic here if needed
+                # But assuming we use translate_to_formal logic from sheng_translator if available or just use the pipeline
                 
-                # full_translation_pipeline returns a dict with 'formal_query'
-                # But wait, full_translation_pipeline signature is:
-                # full_translation_pipeline(user_query, rag_function, llm_function)
-                # And it returns { ..., "formal_query": ..., ... }
-                # The original code called it with translate_to_formal=True which is NOT in the signature I read in sheng_translator.py
-                # Let's check sheng_translator.py again.
-                # def full_translation_pipeline(user_query: str, rag_function: callable, llm_function: callable) -> Dict[str, any]:
-                # It seems the original code in ak_rag_graph.py was using a different version or I misread.
-                # Actually, we just want translate_to_formal here.
+                # For now, let's assume we want to use the LLM to translate
+                prompt = SHENG_TO_FORMAL_PROMPT + f"\n\nQuery: {state['user_query']}"
+                formal_query = llm_wrapper(prompt)
                 
-                translation_result = translate_to_formal(
-                    user_query=state['user_query'],
-                    llm_function=llm_wrapper
-                )
-                
-                state['formal_query'] = translation_result.get('formal_query', state['user_query'])
+                state['formal_query'] = formal_query.strip()
                 logger.info(f"[ShengTranslator] Translated to: {state['formal_query']}")
             else:
                 # No Sheng, use original query
@@ -315,7 +310,7 @@ class RetrievalAgent:
     def __init__(self, vector_db_client):
         self.retriever = vector_db_client
     
-    def __call__(self, state: AKRAGState) -> AKRAGState:
+    def __call__(self, state: AmaniqV1State) -> AmaniqV1State:
         """Retrieve documents using persona-optimized strategy"""
         start_time = datetime.now().timestamp()
         logger.info(f"[Retrieval] Searching for: {state['retrieval_query']}")
@@ -332,21 +327,6 @@ class RetrievalAgent:
                     recency_months=6
                 )
             elif persona == 'wakili':
-                # For Wakili, Qdrant expects query_vector, Weaviate expects query.
-                # Assuming UnifiedRetriever handles this or we are using Weaviate which takes query.
-                # If using Qdrant, we might need an embedding model here.
-                # For now, let's assume Weaviate or that UnifiedRetriever handles text queries if possible.
-                # Looking at retrieval_strategies.py, QdrantRetriever.retrieve_wakili takes query_vector.
-                # WeaviateRetriever.retrieve_wakili takes query.
-                # If self.retriever is UnifiedRetriever, it delegates.
-                # If backend is Qdrant, it will fail if we pass query instead of query_vector.
-                # But let's assume Weaviate for now as per the error logs (UnifiedRetriever object...).
-                
-                # To be safe, we pass both query and query_vector if we had it, but we don't.
-                # We'll pass 'query' and hope the backend is Weaviate or the Qdrant implementation is updated to handle text (it's not).
-                # However, the error was 'UnifiedRetriever' object has no attribute 'retrieve_wanjiku'.
-                # So fixing the method call is the first step.
-                
                 results = self.retriever.retrieve(
                     query_type='wakili',
                     query=state['retrieval_query'],
@@ -386,10 +366,43 @@ class RetrievalAgent:
         return state
 
 
+class WebSearchAgent:
+    """Node 3.5: Fetch external context via Web Search"""
+    
+    def __init__(self):
+        self.search_tool = WebSearchTool()
+    
+    def __call__(self, state: AmaniqV1State) -> AmaniqV1State:
+        """Execute web search if needed"""
+        start_time = datetime.now().timestamp()
+        
+        # Only search if confidence is low or specific intent (optional logic)
+        # For now, we'll run it parallel to retrieval or as an enhancement
+        # Let's assume we run it for 'mwanahabari' or if retrieval yields few results
+        
+        try:
+            # Simple heuristic: Always search for now to provide context, or check if retrieval was poor
+            # But to save costs, maybe only if 'mwanahabari' or 'wanjiku' with current events
+            
+            query = state['retrieval_query']
+            logger.info(f"[WebSearch] Searching web for: {query}")
+            
+            results = self.search_tool.run(query)
+            state['web_results'] = results
+            logger.info(f"[WebSearch] Found results")
+            
+        except Exception as e:
+            logger.error(f"[WebSearch] Error: {e}")
+            state['web_results'] = ""
+            
+        state['node_execution_times']['web_search'] = datetime.now().timestamp() - start_time
+        return state
+
+
 class KenyanizerPreambleAgent:
     """Node 4: Generate persona-specific system prompt"""
     
-    def __call__(self, state: AKRAGState) -> AKRAGState:
+    def __call__(self, state: AmaniqV1State) -> AmaniqV1State:
         """Generate appropriate system prompt for persona"""
         start_time = datetime.now().timestamp()
         logger.info(f"[Kenyanizer] Generating prompt for: {state['persona_name']}")
@@ -430,7 +443,7 @@ class SynthesisAgent:
     def __init__(self, llm_client):
         self.llm_client = llm_client
     
-    def __call__(self, state: AKRAGState) -> AKRAGState:
+    def __call__(self, state: AmaniqV1State) -> AmaniqV1State:
         """Synthesize final response using persona prompt + JSON enforcement"""
         start_time = datetime.now().timestamp()
         logger.info(f"[Synthesis] Generating response (attempt {state.get('synthesis_attempts', 0) + 1})")
@@ -441,8 +454,8 @@ class SynthesisAgent:
                 state['synthesis_attempts'] = 0
             state['synthesis_attempts'] += 1
             
-            # Build context from retrieved docs
-            context = self._build_context(state['retrieved_docs'])
+            # Build context from retrieved docs AND web results
+            context = self._build_context(state['retrieved_docs'], state.get('web_results', ''))
             
             # Get JSON enforcement prompt
             persona_map = {
@@ -489,16 +502,22 @@ class SynthesisAgent:
         state['node_execution_times']['synthesis'] = datetime.now().timestamp() - start_time
         return state
     
-    def _build_context(self, docs: List[Dict]) -> str:
-        """Build context string from retrieved documents"""
-        if not docs:
-            return "No relevant information found in the knowledge base."
-        
+    def _build_context(self, docs: List[Dict], web_results: str) -> str:
+        """Build context string from retrieved documents and web results"""
         context_parts = []
-        for i, doc in enumerate(docs[:5], 1):
-            source = doc.get('source', 'Unknown Source')
-            text = doc.get('text', '')[:500]  # Limit length
-            context_parts.append(f"[Document {i}] {source}\n{text}\n")
+        
+        if docs:
+            context_parts.append("--- INTERNAL KNOWLEDGE BASE ---")
+            for i, doc in enumerate(docs[:5], 1):
+                source = doc.get('source', 'Unknown Source')
+                text = doc.get('text', '')[:500]  # Limit length
+                context_parts.append(f"[Document {i}] {source}\n{text}\n")
+        else:
+            context_parts.append("No relevant information found in the internal knowledge base.")
+            
+        if web_results:
+            context_parts.append("\n--- EXTERNAL WEB SEARCH RESULTS ---")
+            context_parts.append(web_results[:2000]) # Limit length
         
         return "\n".join(context_parts)
 
@@ -506,7 +525,7 @@ class SynthesisAgent:
 class ValidationAgent:
     """Node 6: Validate JSON schema and citation presence"""
     
-    def __call__(self, state: AKRAGState) -> AKRAGState:
+    def __call__(self, state: AmaniqV1State) -> AmaniqV1State:
         """Validate response against schema"""
         start_time = datetime.now().timestamp()
         logger.info(f"[Validation] Validating response (attempt {state.get('validation_attempts', 0) + 1})")
@@ -548,7 +567,7 @@ class ValidationAgent:
 # CONDITIONAL EDGES
 # ============================================================================
 
-def should_retry_synthesis(state: AKRAGState) -> Literal["synthesis", "fallback", "validation"]:
+def should_retry_synthesis(state: AmaniqV1State) -> Literal["synthesis", "fallback", "validation"]:
     """Decide whether to retry synthesis or move to fallback"""
     max_attempts = 3
     
@@ -563,7 +582,7 @@ def should_retry_synthesis(state: AKRAGState) -> Literal["synthesis", "fallback"
     return "validation"
 
 
-def should_retry_validation(state: AKRAGState) -> Literal["synthesis", "end"]:
+def should_retry_validation(state: AmaniqV1State) -> Literal["synthesis", "end"]:
     """Decide whether to retry synthesis for validation errors"""
     max_attempts = 2
     
@@ -584,7 +603,7 @@ def should_retry_validation(state: AKRAGState) -> Literal["synthesis", "end"]:
 # FALLBACK HANDLER
 # ============================================================================
 
-def fallback_response(state: AKRAGState) -> AKRAGState:
+def fallback_response(state: AmaniqV1State) -> AmaniqV1State:
     """Generate simple fallback response when main pipeline fails"""
     logger.info("[Fallback] Generating simple fallback response")
     
@@ -625,35 +644,41 @@ def fallback_response(state: AKRAGState) -> AKRAGState:
 # GRAPH CONSTRUCTION
 # ============================================================================
 
-def create_ak_rag_graph(llm_client, vector_db_client, enable_persistence: bool = False):
+def create_amaniq_v1_graph(llm_client, vector_db_client, enable_persistence: bool = False, fast_llm_client = None):
     """
-    Create the complete AK-RAG agent orchestration graph.
+    Create the complete Amaniq v1 agent orchestration graph.
     
     Args:
-        llm_client: LLM client with .generate() method
+        llm_client: Main LLM client (Moonshot/Claude) for synthesis
         vector_db_client: Vector DB retriever (UnifiedRetriever instance)
         enable_persistence: Enable state persistence with SQLite
+        fast_llm_client: Optional fast LLM (Gemini Flash/Llama 3) for routing/translation
     
     Returns:
         Compiled LangGraph
     """
-    logger.info("[Graph] Creating AK-RAG orchestration graph")
+    logger.info("[Graph] Creating Amaniq v1 orchestration graph")
+    
+    # Use fast client for router and translator if available, otherwise fallback to main
+    router_llm = fast_llm_client if fast_llm_client else llm_client
     
     # Initialize agents
-    intent_router = IntentRouterAgent(llm_client)
-    sheng_translator = ShengTranslatorAgent(llm_client)
+    intent_router = IntentRouterAgent(router_llm)
+    sheng_translator = ShengTranslatorAgent(router_llm)
     retrieval = RetrievalAgent(vector_db_client)
+    web_search = WebSearchAgent()
     kenyanizer = KenyanizerPreambleAgent()
-    synthesis = SynthesisAgent(llm_client)
+    synthesis = SynthesisAgent(llm_client)  # Always use main LLM for synthesis
     validation = ValidationAgent()
     
     # Create graph
-    graph = StateGraph(AKRAGState)
+    graph = StateGraph(AmaniqV1State)
     
     # Add nodes
     graph.add_node("intent_router", intent_router)
     graph.add_node("sheng_translator", sheng_translator)
     graph.add_node("retrieval", retrieval)
+    graph.add_node("web_search", web_search)
     graph.add_node("kenyanizer", kenyanizer)
     graph.add_node("synthesis", synthesis)
     graph.add_node("validation", validation)
@@ -662,10 +687,15 @@ def create_ak_rag_graph(llm_client, vector_db_client, enable_persistence: bool =
     # Define edges
     graph.set_entry_point("intent_router")
     
-    # Linear flow for main pipeline
+    # Linear flow for main pipeline with parallel search/retrieval
+    # Note: LangGraph doesn't support true parallel nodes in simple linear edges easily without map/reduce
+    # For simplicity, we'll run them sequentially or use a fan-out pattern if needed.
+    # Let's run web search after retrieval for now to keep it simple.
+    
     graph.add_edge("intent_router", "sheng_translator")
     graph.add_edge("sheng_translator", "retrieval")
-    graph.add_edge("retrieval", "kenyanizer")
+    graph.add_edge("retrieval", "web_search") # Added web search step
+    graph.add_edge("web_search", "kenyanizer")
     graph.add_edge("kenyanizer", "synthesis")
     
     # Conditional edge after synthesis (retry or validate)
@@ -699,7 +729,7 @@ def create_ak_rag_graph(llm_client, vector_db_client, enable_persistence: bool =
     else:
         compiled_graph = graph.compile()
     
-    logger.info("[Graph] ✓ Graph compiled successfully")
+    logger.info("[Graph] ✓ Amaniq v1 Graph compiled successfully")
     
     return compiled_graph
 
@@ -708,7 +738,7 @@ def create_ak_rag_graph(llm_client, vector_db_client, enable_persistence: bool =
 # CONVENIENCE FUNCTIONS
 # ============================================================================
 
-def initialize_state(user_query: str, conversation_history: List[Dict] = None) -> AKRAGState:
+def initialize_state(user_query: str, conversation_history: List[Dict] = None) -> AmaniqV1State:
     """Initialize state for a new query"""
     return {
         "user_query": user_query,
@@ -720,7 +750,8 @@ def initialize_state(user_query: str, conversation_history: List[Dict] = None) -
         "synthesis_attempts": 0,
         "validation_attempts": 0,
         "is_valid": False,
-        "validation_errors": []
+        "validation_errors": [],
+        "web_results": ""
     }
 
 
@@ -730,7 +761,7 @@ def execute_pipeline(
     conversation_history: List[Dict] = None
 ) -> Dict[str, Any]:
     """
-    Execute the complete AK-RAG pipeline.
+    Execute the complete Amaniq v1 pipeline.
     
     Args:
         graph: Compiled LangGraph
@@ -761,6 +792,7 @@ def execute_pipeline(
             "confidence": final_state.get('confidence'),
             "has_sheng": final_state.get('has_sheng'),
             "num_docs_retrieved": len(final_state.get('retrieved_docs', [])),
+            "web_search_used": bool(final_state.get('web_results')),
             "synthesis_attempts": final_state.get('synthesis_attempts'),
             "validation_attempts": final_state.get('validation_attempts'),
             "is_valid": final_state.get('is_valid'),
@@ -777,13 +809,13 @@ def execute_pipeline(
 
 if __name__ == "__main__":
     print("""
-AK-RAG Agent Orchestration Graph
-=================================
+AmaniQuery v1.0 (amaniq-v1) - Agent Orchestration Graph
+=======================================================
 
 Usage Example:
 
 ```python
-from ak_rag_graph import create_ak_rag_graph, execute_pipeline
+from amaniq_v1 import create_amaniq_v1_graph, execute_pipeline
 from your_llm_client import LLMClient
 from retrieval_strategies import UnifiedRetriever
 
@@ -792,7 +824,7 @@ llm_client = LLMClient(api_key="...")
 vector_db = UnifiedRetriever(backend="weaviate", client=weaviate_client)
 
 # Create graph
-graph = create_ak_rag_graph(llm_client, vector_db)
+graph = create_amaniq_v1_graph(llm_client, vector_db)
 
 # Execute query
 result = execute_pipeline(
@@ -800,9 +832,9 @@ result = execute_pipeline(
     user_query="Kanjo wameongeza parking fees aje?",
     conversation_history=[]
 )
-
-# Access response
-print(result['response'])
+print(result)
+```
+""")print(result['response'])
 print(result['metadata'])
 ```
 

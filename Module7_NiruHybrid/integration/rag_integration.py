@@ -321,7 +321,7 @@ class HybridRAGPipeline:
                         sources=[{"title": s.get('title', ''), "url": s.get('url', '')} for s in sources],
                         recommendations=["Review sources", "Verify information"]
                     )
-                    result['structured_output'] = structured.dict()
+                    result['structured_output'] = structured.model_dump()
                     self.structured_output_queries += 1
                 except Exception as e:
                     logger.warning(f"Structured output generation failed: {e}")

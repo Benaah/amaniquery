@@ -1312,24 +1312,26 @@ async def stream_query(request: QueryRequest):
                 # Convert synchronous stream to async iterator
                 import asyncio
                 
-                if llm_provider in ["openai", "moonshot"]:
-                    # Iterate synchronously but yield asynchronously
-                    for chunk in answer_stream:
-                        if chunk.choices and chunk.choices[0].delta.content:
+                # Check if this is a real streaming response or our wrapper
+                # Our _generate_answer_stream yields plain strings, not LLM chunks
+                for chunk in answer_stream:
+                    # If it's a string (from our wrapper), send it directly
+                    if isinstance(chunk, str):
+                        full_answer += chunk
+                        yield f"data: {chunk}\n\n"
+                        await asyncio.sleep(0)
+                    # Otherwise it's an LLM streaming chunk
+                    elif llm_provider in ["openai", "moonshot"]:
+                        if hasattr(chunk, 'choices') and chunk.choices and chunk.choices[0].delta.content:
                             content = chunk.choices[0].delta.content
                             full_answer += content
                             yield f"data: {content}\n\n"
-                            # Yield control to event loop periodically
                             await asyncio.sleep(0)
-                
-                elif llm_provider == "anthropic":
-                    # Iterate synchronously but yield asynchronously
-                    for chunk in answer_stream:
+                    elif llm_provider == "anthropic":
                         if chunk.type == "content_block_delta" and chunk.delta.text:
                             text = chunk.delta.text
                             full_answer += text
                             yield f"data: {text}\n\n"
-                            # Yield control to event loop periodically
                             await asyncio.sleep(0)
                 
                 # Send sources at the end
@@ -1788,10 +1790,10 @@ async def add_chat_message(session_id: str, message: ChatMessageCreate, request:
                     result["sources"] = vision_sources
                     result["retrieved_chunks"] = result.get("retrieved_images", 0)
                     result["retrieved_chunks"] = result.get("retrieved_images", 0)
-                elif ak_rag_graph is not None:
-                    # Use AK-RAG local agents
+                elif amaniq_v1_graph is not None:
+                    # Use AmaniQ v1 local agents
                     try:
-                        from Module4_NiruAPI.agents.ak_rag_graph import execute_pipeline
+                        from Module4_NiruAPI.agents.amaniq_v1 import execute_pipeline
                         
                         # Get conversation history
                         conversation_history = []
@@ -1804,9 +1806,9 @@ async def add_chat_message(session_id: str, message: ChatMessageCreate, request:
                         except:
                             conversation_history = []
                         
-                        # Execute AK-RAG pipeline
+                        # Execute AmaniQ v1 pipeline
                         ak_result = execute_pipeline(
-                            graph=ak_rag_graph,
+                            graph=amaniq_v1_graph,
                             user_query=message.content,
                             conversation_history=conversation_history
                         )
@@ -1849,15 +1851,15 @@ async def add_chat_message(session_id: str, message: ChatMessageCreate, request:
                             result = {
                                 "sources": sources,
                                 "retrieved_chunks": metadata.get('num_docs_retrieved', 0),
-                                "model_used": f"AK-RAG-{metadata.get('persona', 'wanjiku')}-local",
+                                "model_used": f"AmaniQ-{metadata.get('persona', 'wanjiku')}-local",
                                 "answer_stream": [answer],
                                 "structured_data": response_data
                             }
                         else:
                             # Fallback
-                            raise Exception("Invalid AK-RAG response")
+                            raise Exception("Invalid AmaniQ response")
                     except Exception as e:
-                        logger.warning(f"[AK-RAG] Error in chat: {e}, falling back to standard RAG")
+                        logger.warning(f"[AmaniQ] Error in chat: {e}, falling back to standard RAG")
                         result = rag_pipeline.query_stream(
                             query=message.content,
                             top_k=3,

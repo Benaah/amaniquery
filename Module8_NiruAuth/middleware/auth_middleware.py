@@ -150,7 +150,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
                         user_id=user.id if user else None,
                         integration_id=integration.id if integration else None,
                         api_key_id=api_key_record.id,
-                        scopes=api_key_record.scopes or []
+                        scopes=api_key_record.scopes or [],
+                        user=user,  # Cache user object
+                        integration=integration  # Cache integration object
                     )
         
         # 2. Try Bearer token (JWT or OAuth)
@@ -169,7 +171,8 @@ class AuthMiddleware(BaseHTTPMiddleware):
                     auth_method="oauth2",
                     user_id=user.id if user else None,
                     integration_id=None,
-                    scopes=oauth_token.scopes or []
+                    scopes=oauth_token.scopes or [],
+                    user=user  # Cache user object
                 )
             
             # Try JWT token
@@ -188,7 +191,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
                         auth_method="jwt",
                         user_id=user.id if user else None,
                         integration_id=integration.id if integration else None,
-                        scopes=jwt_payload.get("scopes", [])
+                        scopes=jwt_payload.get("scopes", []),
+                        user=user,  # Cache user object
+                        integration=integration  # Cache integration object
                     )
         
         # 3. Try session token (Cookie or X-Session-Token header)
@@ -220,7 +225,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 
                 session = SessionProvider.validate_session(db, session_token)
                 if session:
-                    # Refresh to get user
+                    # Refresh to get user and attach to context
                     db.expire_all()
                     user = db.query(User).filter(User.id == session.user_id).first()
                     if user:
@@ -228,7 +233,8 @@ class AuthMiddleware(BaseHTTPMiddleware):
                         return AuthContext(
                             auth_method="session",
                             user_id=user.id,
-                            integration_id=None
+                            integration_id=None,
+                            user=user  # Attach user object to avoid re-querying
                         )
                     else:
                         # Log warning if session exists but user doesn't

@@ -85,6 +85,8 @@ async def lifespan(app: FastAPI):
     try:
         backend = os.getenv("VECTOR_STORE_BACKEND", "chromadb")  # upstash, qdrant, chromadb
         vector_store = VectorStore(backend=backend, config_manager=config_manager)
+        # Warmup model in background to not block startup
+        threading.Thread(target=vector_store.warmup, daemon=True).start()
         logger.info("Vector store initialized")
     except Exception as e:
         logger.error(f"Failed to initialize vector store: {e}")

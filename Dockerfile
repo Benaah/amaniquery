@@ -22,6 +22,10 @@ WORKDIR /app
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Pre-download embedding model to bake into image
+COPY download_model.py .
+RUN python download_model.py
+
 COPY . .
 
 RUN useradd --create-home --shell /bin/bash app && \

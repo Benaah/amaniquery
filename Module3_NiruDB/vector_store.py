@@ -103,6 +103,20 @@ class VectorStore:
                         else:
                             raise
                 
+                # OPTIMIZATION: Dynamic Quantization for CPU
+                if device == 'cpu':
+                    try:
+                        import torch
+                        logger.info("🚀 Applying Dynamic Quantization to Embedding Model for CPU speedup...")
+                        self._embedding_model = torch.quantization.quantize_dynamic(
+                            self._embedding_model, 
+                            {torch.nn.Linear}, 
+                            dtype=torch.qint8
+                        )
+                        logger.info("✅ Model Quantized Successfully")
+                    except Exception as q_e:
+                        logger.warning(f"Quantization failed: {q_e}")
+
                 logger.info(f"Loaded embedding model: {self.embedding_model_name} on {device}")
             except ImportError as e:
                 logger.error(f"Failed to import SentenceTransformer: {e}")
@@ -690,6 +704,16 @@ class VectorStore:
                 logger.error(f"Error getting Elasticsearch stats: {e}")
                 stats["elasticsearch_docs"] = 0
         return stats
+
+    def warmup(self):
+        """Warmup the embedding model to prevent latency on first request"""
+        try:
+            logger.info("🔥 Warming up embedding model...")
+            # Encode a dummy sentence to trigger model loading and JIT compilation
+            self.embedding_model.encode("Warmup query for AmaniQuery optimization")
+            logger.info("✅ Embedding model warmed up")
+        except Exception as e:
+            logger.warning(f"Warmup failed: {e}")
 
 
 class QDrantCollectionWrapper:

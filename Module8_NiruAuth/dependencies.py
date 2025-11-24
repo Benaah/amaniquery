@@ -66,6 +66,18 @@ def get_current_user(
             detail="Authentication required. Please log in again."
         )
     
+    # If user is already cached in auth_context, return it directly
+    if auth_context.user is not None:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"Using cached user {auth_context.user.id} from auth context")
+        return auth_context.user
+    
+    # Fallback: Query DB if not cached (for backward compatibility)
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.warning(f"Auth context missing cached user - querying DB for user {auth_context.user_id}")
+    
     user = db.query(User).filter(User.id == auth_context.user_id).first()
     if not user:
         raise HTTPException(
@@ -94,6 +106,18 @@ def get_current_integration(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Integration authentication required"
         )
+    
+    # If integration is already cached in auth_context, return it directly
+    if auth_context.integration is not None:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"Using cached integration {auth_context.integration.id} from auth context")
+        return auth_context.integration
+    
+    # Fallback: Query DB if not cached
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.warning(f"Auth context missing cached integration - querying DB for integration {auth_context.integration_id}")
     
     integration = db.query(Integration).filter(Integration.id == auth_context.integration_id).first()
     if not integration:

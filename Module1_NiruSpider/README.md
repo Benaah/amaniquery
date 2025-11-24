@@ -12,7 +12,7 @@ Module1_NiruSpider/
 │   ├── __init__.py
 │   ├── spiders/
 │   │   ├── __init__.py
-│   │   ├── kenya_law_spider.py
+│   │   ├── kenya_law_new_spider.py
 │   │   ├── parliament_spider.py
 │   │   ├── news_rss_spider.py
 │   │   └── global_trends_spider.py
@@ -26,20 +26,31 @@ Module1_NiruSpider/
 
 ## Spiders
 
-### 1. Kenya Law Spider
+### 1. Kenya Law Spider (New)
 
-Crawls legal documents from kenyalaw.org.
+Crawls comprehensive legal resources from **https://new.kenyalaw.org**.
 
 **Target Sources:**
-- Constitution of Kenya 2010
-- Acts of Parliament
-- Bills
-- Legal notices
+- Constitution of Kenya 2010 (article-level)
+- Acts of Parliament (500+ acts, section-level)
+- Bills (all types)
+- Subsidiary Legislation
+- County Legislation
+- Case Law & Judgments (300k+ decisions from all courts)
+- Kenya Gazette (8,000+ gazettes from 1899-2025)
+- Treaties & International Agreements
+- Publications (journals, reports)
+- Cause Lists (daily court schedules)
+- Legal Blog Articles
 
 **Features:**
-- Handles HTML and PDF documents
-- Extracts article numbers, sections, clauses
-- Categorizes by legal document type
+- Comprehensive coverage of all legal resources
+- Article/section-level content extraction
+- Court hierarchy support (Supreme, Appellate, High, Lower courts)
+- Historical gazette archives (1899-present)
+- Pagination support for all content types
+- PDF and HTML document handling
+- Metadata extraction (dates, authors, citation numbers)
 
 ### 2. Parliament Spider
 

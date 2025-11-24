@@ -364,6 +364,11 @@ class AuthContext(BaseModel):
     roles: List[str] = []
     permissions: List[str] = []
     scopes: Optional[List[str]] = None
+    user: Optional[Any] = None  # Cache the user object to avoid re-querying DB
+    integration: Optional[Any] = None  # Cache the integration object to avoid re-querying DB
+
+    class Config:
+        arbitrary_types_allowed = True
 
 
 # ==================== Error Models ====================

@@ -10,7 +10,7 @@ from scrapy.utils.project import get_project_settings
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from niruspider.spiders.kenya_law_spider import KenyaLawSpider
+from niruspider.spiders.kenya_law_new_spider import KenyaLawNewSpider
 from niruspider.spiders.parliament_spider import ParliamentSpider
 from niruspider.spiders.news_rss_spider import NewsRSSSpider
 from niruspider.spiders.global_trends_spider import GlobalTrendsSpider
@@ -30,7 +30,7 @@ def main():
     
     # Add all spiders
     spiders = [
-        ("Kenya Law", KenyaLawSpider),
+        ("Kenya Law", KenyaLawNewSpider),
         ("Parliament", ParliamentSpider),
         ("Kenyan News (RSS)", NewsRSSSpider),
         ("Global Trends (RSS)", GlobalTrendsSpider),

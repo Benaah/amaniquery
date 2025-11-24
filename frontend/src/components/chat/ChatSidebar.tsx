@@ -50,9 +50,6 @@ export function ChatSidebar({
               <Plus className="w-3 h-3" />
             </Button>
           </div>
-          <div className="mt-3 rounded-xl border border-white/5 bg-white/5 px-3 py-2 text-xs text-muted-foreground">
-            Quickly relive previous analyses or spin up a fresh thread.
-          </div>
         </div>
         <div className="p-3 space-y-2 flex-1">
           {chatHistory.map((session) => (

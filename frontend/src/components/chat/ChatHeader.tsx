@@ -18,7 +18,6 @@ export function ChatHeader({
   useHybrid,
   currentSessionId,
   showHistory,
-  isLoading,
   onToggleHistory,
   onShare
 }: ChatHeaderProps) {
@@ -66,26 +65,6 @@ export function ChatHeader({
                 <span className="hidden md:inline">Home</span>
               </Button>
             </Link>
-          </div>
-        </div>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-1 md:gap-1.5 text-[9px] md:text-xs">
-          <div className="rounded-xl border border-white/10 bg-gradient-to-br from-primary/10 to-primary/5 px-1.5 md:px-2 py-1 md:py-1.5">
-            <p className="text-muted-foreground uppercase tracking-wider text-[8px] md:text-[9px]">Streaming</p>
-            <p className="font-semibold text-[10px] md:text-xs truncate">Token-by-token</p>
-          </div>
-          <div className="rounded-xl border border-white/10 bg-white/5 px-1.5 md:px-2 py-1 md:py-1.5">
-            <p className="text-muted-foreground uppercase tracking-wider text-[8px] md:text-[9px]">Sources</p>
-            <p className="font-semibold text-[10px] md:text-xs truncate">Verifiable citations</p>
-          </div>
-          <div className="rounded-xl border border-white/10 bg-white/5 px-1.5 md:px-2 py-1 md:py-1.5">
-            <p className="text-muted-foreground uppercase tracking-wider text-[8px] md:text-[9px]">Mode</p>
-            <p className="font-semibold text-[10px] md:text-xs truncate">
-              {isResearchMode ? "Deep research" : useHybrid ? "Hybrid RAG" : "Chat"}
-            </p>
-          </div>
-          <div className="rounded-xl border border-white/10 bg-white/5 px-1.5 md:px-2 py-1 md:py-1.5">
-            <p className="text-muted-foreground uppercase tracking-wider text-[8px] md:text-[9px]">Share</p>
-            <p className="font-semibold text-[10px] md:text-xs truncate">NiruShare ready</p>
           </div>
         </div>
       </div>

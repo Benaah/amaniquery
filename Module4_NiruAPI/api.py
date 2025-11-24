@@ -69,7 +69,7 @@ load_dotenv()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Handle application startup and shutdown"""
-    global vector_store, rag_pipeline, alignment_pipeline, sms_pipeline, sms_service, metadata_manager, chat_manager, crawler_manager, research_module, agentic_research_module, report_generator, config_manager, notification_service, hybrid_rag_pipeline, autocomplete_tool, vision_storage, vision_rag_service, database_storage, cache_manager, ak_rag_graph
+    global vector_store, rag_pipeline, alignment_pipeline, sms_pipeline, sms_service, metadata_manager, chat_manager, crawler_manager, research_module, agentic_research_module, report_generator, config_manager, notification_service, hybrid_rag_pipeline, autocomplete_tool, vision_storage, vision_rag_service, database_storage, cache_manager, amaniq_v1_graph
     
     logger.info("Starting AmaniQuery API")
     
@@ -409,9 +409,70 @@ async def lifespan(app: FastAPI):
                 if rag_pipeline and rag_pipeline.llm_service:
                     
                     # Initialize Fast LLM Client for Agents (Intent Router / Sheng)
-                    fast_llm_callable = None
+                    fast_llm_client = None
                     try:
                         # Priority 1: Gemini 2.5 Flash
+                        gemini_key = os.getenv("GEMINI_API_KEY")
+                        if gemini_key:
+                            import google.generativeai as genai
+                            genai.configure(api_key=gemini_key)
+                            fast_model = genai.GenerativeModel('gemini-2.5-flash')
+                            fast_llm_client = fast_model
+                            logger.info("✓ Fast LLM initialized (Gemini 2.5 Flash)")
+                        else:
+                            # Fallback to OpenRouter if available
+                            openrouter_key = os.getenv("OPENROUTER_API_KEY")
+                            if openrouter_key:
+                                from openai import OpenAI
+                                or_client = OpenAI(
+                                    api_key=openrouter_key,
+                                    base_url="https://openrouter.ai/api/v1"
+                                )
+                                # Create wrapper that returns model object
+                                class OpenRouterWrapper:
+                                    def __init__(self, client):
+                                        self.client = client
+                                    def generate_content(self, prompt):
+                                        class Response:
+                                            def __init__(self, text):
+                                                self.text = text
+                                        result = self.client.chat.completions.create(
+                                            model="meta-llama/llama-3-70b-instruct",
+                                            messages=[{"role": "user", "content": prompt}]
+                                        )
+                                        return Response(result.choices[0].message.content)
+                                fast_llm_client = OpenRouterWrapper(or_client)
+                                logger.info("✓ Fast LLM initialized (OpenRouter/Llama-3)")
+                            else:
+                                logger.warning("No fast LLM keys found, using main LLM")
+                    except Exception as e:
+                        logger.warning(f"Fast LLM initialization failed: {e}, using main LLM")
+                    
+                    # Create the graph
+                    try:
+                        amaniq_v1_graph = create_amaniq_v1_graph(
+                            llm_client=rag_pipeline.llm_service,
+                            vector_db_client=unified_retriever,
+                            fast_llm_client=fast_llm_client
+                        )
+                        logger.info("✓ Amaniq v1 Agent Graph initialized (Intent Router + WebSearch + Reasoning)")
+                    except Exception as e:
+                        logger.error(f"Failed to create Amaniq v1 graph: {e}")
+                        amaniq_v1_graph = None
+                else:
+                    logger.warning("Amaniq v1 graph not initialized: rag_pipeline or llm_service not available")
+                    amaniq_v1_graph = None
+                    
+            except Exception as e:
+                logger.error(f"Failed to initialize unified retriever: {e}")
+                amaniq_v1_graph = None
+        else:
+            logger.warning("Amaniq v1 graph not initialized: vector_store not available")
+            amaniq_v1_graph = None
+    except Exception as e:
+        logger.warning(f"Amaniq v1 agent orchestration not available: {e}")
+        amaniq_v1_graph = None
+    
     # Shutdown cleanup
     logger.info("Shutting down AmaniQuery API")
 
@@ -479,15 +540,8 @@ async def root():
         "description": "RAG-powered API for Kenyan intelligence with Constitutional Alignment Analysis",
         "endpoints": {
             "query": "POST /query",
-            "alignment_check": "POST /alignment-check",
-            "quick_alignment": "POST /alignment-quick-check",
-            "sentiment": "GET /sentiment",
-            "sms_webhook": "POST /sms-webhook",
-            "sms_send": "POST /sms-send",
-            "sms_query_preview": "GET /sms-query",
             "health": "GET /health",
             "stats": "GET /stats",
-            "share": "POST /share/*",
             "docs": "GET /docs",
         }
     }
@@ -735,7 +789,7 @@ async def query(request: QueryRequest):
     """
     Main query endpoint - Ask questions about Kenyan law, parliament, and news
     
-    **Automatically uses AK-RAG local agents when available for:**
+    **Automatically uses amaniq_v1 local agents when available for:**
     - Intent classification (wanjiku/wakili/mwanahabari)
     - Sheng translation and detection
     - Persona-optimized retrieval
@@ -783,12 +837,12 @@ async def query(request: QueryRequest):
                     excerpt=f"Image similarity: {src.get('similarity', 0):.2f}",
                 ))
         
-        # Try AK-RAG local agents if available (for non-vision queries)
-        elif ak_rag_graph is not None:
-            logger.info(f"[AK-RAG] Using local agent orchestration for query")
+        # Try Amaniq v1 local agents if available (for non-vision queries)
+        elif amaniq_v1_graph is not None:
+            logger.info(f"[Amaniq v1] Using local agent orchestration for query")
             
             try:
-                from Module4_NiruAPI.agents.ak_rag_graph import execute_pipeline
+                from Module4_NiruAPI.agents.amaniq_v1 import execute_pipeline
                 
                 # Get conversation history if session exists
                 conversation_history = []
@@ -802,16 +856,16 @@ async def query(request: QueryRequest):
                     except:
                         conversation_history = []
                 
-                # Execute AK-RAG pipeline
-                ak_result = execute_pipeline(
-                    graph=ak_rag_graph,
+                # Execute Amaniq v1 pipeline
+                amaniq_result = execute_pipeline(
+                    graph=amaniq_v1_graph,
                     user_query=request.query,
                     conversation_history=conversation_history
                 )
                 
                 # Extract response and metadata
-                response_data = ak_result.get('response', {})
-                metadata = ak_result.get('metadata', {})
+                final_response = amaniq_result.get('final_response', {})
+                metadata = amaniq_result.get('metadata', {})
                 
                 # Build answer from response structure
                 if response_data and 'response' in response_data:

@@ -35,11 +35,11 @@ async def verify_router():
         if gemini_key:
             import google.generativeai as genai
             genai.configure(api_key=gemini_key)
-            # Using 2.0 Flash Experimental for best speed
-            flash_model = genai.GenerativeModel('gemini-2.0-flash-exp')
+            # Using 2.5 Flash for stability and higher quota
+            flash_model = genai.GenerativeModel('gemini-2.5-flash')
             # Pass the model object directly (it has generate_content method)
             fast_llm_client = flash_model
-            print("✅ Initialized Gemini 2.0 Flash (Experimental)")
+            print("✅ Initialized Gemini 2.5 Flash")
         elif openrouter_key:
             from openai import OpenAI
             or_client = OpenAI(

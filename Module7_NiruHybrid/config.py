@@ -137,6 +137,27 @@ class StreamingConfig:
 
 
 @dataclass
+class DistillationConfig:
+    """Configuration for model distillation cascade"""
+    # Cascade settings
+    enabled: bool = True
+    student_top_k: int = 50
+    teacher_top_k: int = 5
+    
+    # Distillation parameters
+    temperature: float = 2.0
+    alpha: float = 0.5  # Weight for distillation loss
+    
+    # Model paths (if different from main encoder)
+    teacher_model_path: Optional[str] = None
+    student_model_path: Optional[str] = None
+    
+    # Adaptive retrieval
+    use_adaptive: bool = True
+    confidence_threshold: float = 0.85
+
+
+@dataclass
 class HybridPipelineConfig:
     """Main configuration class"""
     encoder: HybridEncoderConfig = field(default_factory=HybridEncoderConfig)
@@ -144,6 +165,7 @@ class HybridPipelineConfig:
     diffusion: DiffusionConfig = field(default_factory=DiffusionConfig)
     retention: RetentionConfig = field(default_factory=RetentionConfig)
     streaming: StreamingConfig = field(default_factory=StreamingConfig)
+    distillation: DistillationConfig = field(default_factory=DistillationConfig)
     
     # Paths
     model_dir: Path = field(default_factory=lambda: Path("models/hybrid"))
@@ -168,6 +190,7 @@ class HybridPipelineConfig:
         diffusion_config = DiffusionConfig(**config_dict.get("diffusion", {}))
         retention_config = RetentionConfig(**config_dict.get("retention", {}))
         streaming_config = StreamingConfig(**config_dict.get("streaming", {}))
+        distillation_config = DistillationConfig(**config_dict.get("distillation", {}))
         
         return cls(
             encoder=encoder_config,
@@ -175,7 +198,8 @@ class HybridPipelineConfig:
             diffusion=diffusion_config,
             retention=retention_config,
             streaming=streaming_config,
-            **{k: v for k, v in config_dict.items() if k not in ["encoder", "quantization", "diffusion", "retention", "streaming"]}
+            distillation=distillation_config,
+            **{k: v for k, v in config_dict.items() if k not in ["encoder", "quantization", "diffusion", "retention", "streaming", "distillation"]}
         )
     
     def to_dict(self) -> Dict[str, Any]:
@@ -186,6 +210,7 @@ class HybridPipelineConfig:
             "diffusion": self.diffusion.__dict__,
             "retention": self.retention.__dict__,
             "streaming": self.streaming.__dict__,
+            "distillation": self.distillation.__dict__,
             "model_dir": str(self.model_dir),
             "checkpoint_dir": str(self.checkpoint_dir),
             "cache_dir": str(self.cache_dir),

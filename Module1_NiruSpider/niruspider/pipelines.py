@@ -138,7 +138,7 @@ class DeduplicationPipeline:
     def open_spider(self, spider):
         """Initialize deduplication engine"""
         try:
-            from ..deduplication import DeduplicationEngine
+            from .deduplication import DeduplicationEngine
             self.dedup_engine = DeduplicationEngine()
             spider.logger.info("Deduplication pipeline initialized")
         except Exception as e:
@@ -198,7 +198,7 @@ class QualityScoringPipeline:
     def open_spider(self, spider):
         """Initialize quality scorer"""
         try:
-            from ..quality_scorer import QualityScorer
+            from .quality_scorer import QualityScorer
             self.quality_scorer = QualityScorer()
             # Get min score from settings
             self.min_quality_score = spider.settings.getfloat("MIN_QUALITY_SCORE", 0.6)

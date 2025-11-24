@@ -500,12 +500,14 @@ async def lifespan(app: FastAPI):
     
     # Shutdown cleanup
     logger.info("Shutting down AmaniQuery API")
+    yield
+    logger.info("AmaniQuery API shutdown complete")
 
 # Initialize FastAPI app
 app = FastAPI(
     title="AmaniQuery API",
     description="RAG-powered API for Kenyan legal, parliamentary, and news intelligence",
-    version="1.0.0",
+    version="1.1.2",
     lifespan=lifespan
 )
 
@@ -561,7 +563,7 @@ async def root():
     """Root endpoint"""
     return {
         "name": "AmaniQuery API",
-        "version": "1.0.0",
+        "version": "1.1.4",
         "description": "RAG-powered API for Kenyan intelligence with Constitutional Alignment Analysis",
         "endpoints": {
             "query": "POST /query",

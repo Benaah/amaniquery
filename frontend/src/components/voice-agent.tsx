@@ -78,6 +78,21 @@ export function VoiceAgent({ livekitUrl, token, roomName, selectedVoice = "alloy
   const userTranscriptIdRef = useRef<string | null>(null)
   const agentTranscriptIdRef = useRef<string | null>(null)
 
+  // Fallback TTS using Web Speech API (for offline/TTS failures)
+  const speakWithBrowserTTS = (text: string) => {
+    if ('speechSynthesis' in window) {
+      const utterance = new SpeechSynthesisUtterance(text)
+      utterance.lang = "sw-KE" // Swahili (Kenya)
+      // Fallback to English if Swahili not available
+      const voices = speechSynthesis.getVoices()
+      const swahiliVoice = voices.find(v => v.lang.startsWith('sw'))
+      if (swahiliVoice) {
+        utterance.voice = swahiliVoice
+      }
+      speechSynthesis.speak(utterance)
+    }
+  }
+
   // Initialize Web Speech API for user transcription
   useEffect(() => {
     if (typeof window === "undefined") return
@@ -289,6 +304,11 @@ export function VoiceAgent({ livekitUrl, token, roomName, selectedVoice = "alloy
               const data = JSON.parse(new TextDecoder().decode(payload))
               if (data.type === "transcription" && data.role === "agent") {
                 const transcript = data.text || ""
+                
+                // Handle TTS failure - use browser fallback
+                if (data.tts_failed && transcript) {
+                  speakWithBrowserTTS(transcript)
+                }
                 
                 if (data.isFinal) {
                   // Final transcript

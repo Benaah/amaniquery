@@ -27,6 +27,12 @@ from ..diffusion.text_diffusion import TextDiffusionModel
 from ..diffusion.embedding_diffusion import EmbeddingDiffusionModel
 from ..streaming.stream_processor import StreamProcessor, AsyncStreamProcessor
 from ..integration.vector_store_adapter import HybridVectorStoreAdapter
+from ..distillation import (
+    DistillationCascade, 
+    TeacherStudentPair, 
+    BiEncoderWrapper, 
+    CrossEncoderWrapper
+)
 from ..config import HybridPipelineConfig, default_config
 
 
@@ -54,6 +60,7 @@ class HybridRAGPipeline:
         use_adaptive_retrieval: bool = True,
         use_agents: bool = True,
         use_structured_outputs: bool = True,
+        use_distillation: bool = True,
         max_retries: int = 3,
         timeout: float = 30.0,
         config: Optional[HybridPipelineConfig] = None
@@ -73,6 +80,7 @@ class HybridRAGPipeline:
             use_hybrid: Whether to use hybrid encoder
             use_diffusion: Whether to use diffusion models
             use_adaptive_retrieval: Whether to use adaptive retrieval
+            use_distillation: Whether to use distillation cascade
             config: Configuration
         """
         self.base_rag = base_rag_pipeline
@@ -89,6 +97,7 @@ class HybridRAGPipeline:
         self.use_adaptive_retrieval = use_adaptive_retrieval
         self.use_agents = use_agents
         self.use_structured_outputs = use_structured_outputs
+        self.use_distillation = use_distillation
         self.max_retries = max_retries
         self.timeout = timeout
         self.config = config or default_config
@@ -106,6 +115,15 @@ class HybridRAGPipeline:
         except Exception as e:
             logger.warning(f"Failed to initialize enhanced hybrid retrieval: {e}")
             self.hybrid_retrieval = None
+            
+        # Initialize Distillation Cascade
+        self.distillation_cascade = None
+        if self.use_distillation and self.config.distillation.enabled:
+            try:
+                self._init_distillation()
+            except Exception as e:
+                logger.warning(f"Failed to initialize distillation cascade: {e}")
+                self.use_distillation = False
         
         # Initialize multi-agent composition
         if use_agents:
@@ -219,8 +237,52 @@ class HybridRAGPipeline:
                 except Exception as e:
                     logger.warning(f"Failed to generate synthetic documents: {e}")
             
-            # Retrieve documents using enhanced hybrid retrieval if available
-            if self.hybrid_retrieval is not None:
+            # Retrieve documents
+            retrieved_docs = []
+            
+            # 1. Distillation Cascade (Highest Priority)
+            if self.use_distillation and self.distillation_cascade:
+                try:
+                    # Define student retrieval function
+                    def student_retrieve(q, k):
+                        # Use hybrid retrieval if available, else fallback
+                        if self.hybrid_retrieval:
+                            return self.hybrid_retrieval.retrieve(
+                                query=q, top_k=k, use_reranking=False, use_agents=False
+                            )
+                        else:
+                            return self._fallback_retrieval(q, k, category, use_hybrid, use_adaptive)
+
+                    cascade_result = self.distillation_cascade.retrieve_and_rerank(
+                        query=query,
+                        retriever_func=student_retrieve,
+                        initial_k=self.config.distillation.student_top_k,
+                        final_k=top_k, # User requested top_k
+                        adaptive=self.config.distillation.use_adaptive,
+                        confidence_threshold=self.config.distillation.confidence_threshold
+                    )
+                    
+                    # Normalize format
+                    raw_docs = cascade_result.get("results", [])
+                    retrieved_docs = []
+                    for r in raw_docs:
+                        # Handle different return formats from retrievers
+                        content = r.get('content') or r.get('text') or ''
+                        meta = r.get('metadata') or r.get('payload') or {}
+                        score = r.get('teacher_score', r.get('score', 0.0))
+                        
+                        retrieved_docs.append({
+                            'content': content,
+                            'metadata': meta,
+                            'score': score
+                        })
+                        
+                except Exception as e:
+                    logger.warning(f"Distillation cascade failed: {e}")
+                    # Fall through to standard retrieval
+            
+            # 2. Enhanced Hybrid Retrieval (if Distillation skipped or failed)
+            if not retrieved_docs and self.hybrid_retrieval is not None:
                 try:
                     filters = {}
                     if category:
@@ -249,7 +311,9 @@ class HybridRAGPipeline:
                 except Exception as e:
                     logger.warning(f"Enhanced retrieval failed, falling back: {e}")
                     retrieved_docs = self._fallback_retrieval(query, top_k, category, use_hybrid, use_adaptive)
-            else:
+            
+            # 3. Fallback Retrieval
+            elif not retrieved_docs:
                 retrieved_docs = self._fallback_retrieval(query, top_k, category, use_hybrid, use_adaptive)
             
             # Prepare context
@@ -321,7 +385,7 @@ class HybridRAGPipeline:
                         sources=[{"title": s.get('title', ''), "url": s.get('url', '')} for s in sources],
                         recommendations=["Review sources", "Verify information"]
                     )
-                    result['structured_output'] = structured.dict()
+                    result['structured_output'] = structured.model_dump()
                     self.structured_output_queries += 1
                 except Exception as e:
                     logger.warning(f"Structured output generation failed: {e}")
@@ -566,4 +630,54 @@ class HybridRAGPipeline:
                 pass
         
         return stats
+    
+    def _init_distillation(self):
+        """Initialize distillation cascade components"""
+        if not self.hybrid_encoder:
+            logger.warning("Hybrid encoder required for distillation student model")
+            self.use_distillation = False
+            return
+
+        # Student: The Hybrid Encoder (Bi-Encoder)
+        student_wrapper = BiEncoderWrapper(self.hybrid_encoder, device=self.config.encoder.device)
+        
+        # Teacher: Try to load a Cross-Encoder
+        teacher_wrapper = None
+        teacher_path = self.config.distillation.teacher_model_path
+        
+        try:
+            from sentence_transformers import CrossEncoder
+            
+            # Use configured path or default to a small, fast cross-encoder
+            model_name = teacher_path or "cross-encoder/ms-marco-MiniLM-L-6-v2"
+            logger.info(f"Loading teacher model: {model_name}")
+            
+            # Check if we should load on GPU
+            device = self.config.encoder.device
+            teacher_model = CrossEncoder(model_name, device=device)
+            teacher_wrapper = CrossEncoderWrapper(teacher_model, device=device)
+            
+        except ImportError:
+            logger.warning("sentence-transformers not installed. Cannot load CrossEncoder teacher.")
+        except Exception as e:
+            logger.warning(f"Failed to load teacher model: {e}")
+            
+        if not teacher_wrapper:
+            # Fallback: Use student as teacher (Self-Distillation / No-op re-ranking)
+            # This allows the pipeline to run even if teacher load fails, 
+            # effectively just re-scoring with the same model (which is redundant but safe)
+            logger.warning("Using student model as teacher (fallback)")
+            teacher_wrapper = student_wrapper
+
+        # Create Pair and Cascade
+        pair = TeacherStudentPair(
+            teacher_model=teacher_wrapper,
+            student_model=student_wrapper,
+            temperature=self.config.distillation.temperature,
+            alpha=self.config.distillation.alpha,
+            device=self.config.encoder.device
+        )
+        
+        self.distillation_cascade = DistillationCascade(pair)
+        logger.info("Distillation cascade initialized")
 

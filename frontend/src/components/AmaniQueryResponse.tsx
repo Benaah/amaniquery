@@ -44,6 +44,7 @@ export interface AmaniQueryResponse {
 interface AmaniQueryResponseProps {
   data: AmaniQueryResponse;
   className?: string;
+  onFollowUpClick?: (suggestion: string) => void;
 }
 
 // ============================================================================
@@ -148,7 +149,7 @@ const getContextIcon = (impact: string): string => {
 // MAIN COMPONENT
 // ============================================================================
 
-export const AmaniQueryResponse: React.FC<AmaniQueryResponseProps> = ({ data, className = '' }) => {
+export const AmaniQueryResponse: React.FC<AmaniQueryResponseProps> = ({ data, className = '', onFollowUpClick }) => {
   const [citationsExpanded, setCitationsExpanded] = useState(false);
   const [detailsExpanded, setDetailsExpanded] = useState(true);
   
@@ -196,6 +197,7 @@ export const AmaniQueryResponse: React.FC<AmaniQueryResponseProps> = ({ data, cl
       <FollowUpSuggestions
         suggestions={data.follow_up_suggestions}
         theme={theme}
+        onFollowUpClick={onFollowUpClick}
       />
     </div>
   );
@@ -430,7 +432,8 @@ const Citations: React.FC<{
 // FOLLOW-UP SUGGESTIONS
 const FollowUpSuggestions: React.FC<{
   suggestions: string[];
-} & ThemeProps> = ({ suggestions, theme }) => {
+  onFollowUpClick?: (suggestion: string) => void;
+} & ThemeProps> = ({ suggestions, theme, onFollowUpClick }) => {
   return (
     <div className={cn(
       "rounded-2xl p-5 border shadow-sm",
@@ -448,13 +451,14 @@ const FollowUpSuggestions: React.FC<{
         {suggestions.map((suggestion, idx) => (
           <button
             key={idx}
+            onClick={() => onFollowUpClick?.(suggestion)}
             className={cn(
               "p-3 md:px-4 rounded-xl text-sm text-left transition-all duration-200 font-medium border-2",
-              "bg-transparent",
+              "bg-transparent cursor-pointer",
               theme.classes.border,
               theme.classes.primaryText,
               theme.classes.buttonHover,
-              "hover:translate-x-1"
+              "hover:translate-x-1 hover:shadow-md active:scale-[0.98]"
             )}
           >
             {suggestion}

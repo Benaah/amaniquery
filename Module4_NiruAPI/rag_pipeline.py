@@ -134,28 +134,51 @@ class RAGPipeline:
                 else:
                     raise
         else:
-            # Local model support can be added here
-            logger.warning(f"Unknown provider {llm_provider}, defaulting to Moonshot")
-            api_key = self._get_secret("MOONSHOT_API_KEY")
-            base_url = (
-                os.getenv("MOONSHOT_BASE_URL")
-                or self._get_secret("MOONSHOT_BASE_URL")
-                or "https://api.moonshot.ai/v1"
-            )
-            if api_key:
+            # Check for OpenRouter first for any other provider/model
+            openrouter_key = self._get_secret("OPENROUTER_API_KEY")
+            if openrouter_key:
                 try:
                     self.client = OpenAI(
-                        api_key=api_key,
-                        base_url=base_url,
+                        api_key=openrouter_key,
+                        base_url="https://openrouter.ai/api/v1",
+                        default_headers={
+                            "HTTP-Referer": "https://amaniquery.vercel.app",
+                            "X-Title": "AmaniQuery",
+                        }
                     )
-                    logger.info(f"Using Moonshot AI at {base_url}")
+                    self.llm_provider = "openrouter"
+                    logger.info(f"Using OpenRouter for model: {self.model}")
+                    
+                    # Test connection
+                    # self.client.models.list() # Optional check
+                    
                 except Exception as e:
-                    logger.error(f"Failed to initialize Moonshot client: {e}")
-                    raise ValueError("MOONSHOT_API_KEY not set in environment or invalid")
+                    logger.error(f"Failed to initialize OpenRouter client: {e}")
+                    # Fallback to local/moonshot logic below if needed, or raise
+                    raise ValueError(f"Failed to initialize OpenRouter: {e}")
             else:
-                raise ValueError("MOONSHOT_API_KEY not set in environment")
+                # Local model support or fallback
+                logger.warning(f"Unknown provider {llm_provider} and no OPENROUTER_API_KEY found. Defaulting to Moonshot configuration check.")
+                api_key = self._get_secret("MOONSHOT_API_KEY")
+                base_url = (
+                    os.getenv("MOONSHOT_BASE_URL")
+                    or self._get_secret("MOONSHOT_BASE_URL")
+                    or "https://api.moonshot.ai/v1"
+                )
+                if api_key:
+                    try:
+                        self.client = OpenAI(
+                            api_key=api_key,
+                            base_url=base_url,
+                        )
+                        logger.info(f"Using Moonshot AI at {base_url} (Fallback)")
+                    except Exception as e:
+                        logger.error(f"Failed to initialize Moonshot client: {e}")
+                        raise ValueError("MOONSHOT_API_KEY not set in environment or invalid")
+                else:
+                    raise ValueError(f"Provider '{llm_provider}' not supported and OPENROUTER_API_KEY not set.")
         
-        logger.info(f"RAG Pipeline initialized with {llm_provider}/{model}")
+        logger.info(f"RAG Pipeline initialized with {self.llm_provider}/{self.model}")
         
         # Initialize ensemble clients (for multi-model responses when context is limited)
         self.ensemble_clients = self._initialize_ensemble_clients()
@@ -219,6 +242,25 @@ class RAGPipeline:
                 logger.info(f"Ensemble: Gemini client initialized with {gemini_model}")
         except Exception as e:
             logger.warning(f"Ensemble: Failed to initialize Gemini: {e}")
+
+        # OpenRouter
+        try:
+            api_key = self._get_secret("OPENROUTER_API_KEY")
+            if api_key:
+                clients["openrouter"] = {
+                    "client": OpenAI(
+                        api_key=api_key, 
+                        base_url="https://openrouter.ai/api/v1",
+                        default_headers={
+                            "HTTP-Referer": "https://amaniquery.vercel.app",
+                            "X-Title": "AmaniQuery",
+                        }
+                    ),
+                    "model": os.getenv("OPENROUTER_MODEL", "meta-llama/llama-3-8b-instruct:free")
+                }
+                logger.info("Ensemble: OpenRouter client initialized")
+        except Exception as e:
+            logger.warning(f"Ensemble: Failed to initialize OpenRouter: {e}")
         
         logger.info(f"Ensemble: {len(clients)} model(s) available for ensemble responses")
         return clients
@@ -506,6 +548,18 @@ Provide a concise answer based on your knowledge of Kenyan law and current affai
                         )
                     )
                     return response.text
+
+                elif provider == "openrouter":
+                    response = client.chat.completions.create(
+                        model=model,
+                        messages=[
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": user_prompt}
+                        ],
+                        temperature=temperature,
+                        max_tokens=max_tokens
+                    )
+                    return response.choices[0].message.content
                 
             except Exception as e:
                 logger.warning(f"Ensemble: {provider} failed: {e}")
@@ -785,7 +839,7 @@ Combined Response:"""
             }
     
     def _prepare_context(self, docs: List[Dict], max_context_length: int = 3000) -> str:
-        """Prepare context from retrieved documents"""
+        """Prepare context from retrieved documents with Prompt Pruning"""
         context_parts = []
         total_length = 0
         
@@ -793,15 +847,19 @@ Combined Response:"""
             meta = doc["metadata"]
             text = doc["text"]
             
-            # Truncate individual document text if too long
-            if len(text) > 500:
-                text = text[:500] + "..."
+            # Optimization: Prune very short chunks
+            if len(text) < 50:
+                continue
+
+            # Optimization: Tighter truncation
+            chunk_limit = 400
+            if len(text) > chunk_limit:
+                text = text[:chunk_limit] + "..."
             
-            # Format: [Source #] Title - Category\nText
-            context_part = (
-                f"[Source {i}] {meta.get('title', 'Untitled')} "
-                f"({meta.get('category', 'Unknown')})\n{text}\n"
-            )
+            # Optimization: Minimal metadata format
+            # Format: [i] Title: Text
+            title = meta.get('title', 'Untitled')
+            context_part = f"[{i}] {title}: {text}\n"
             
             # Check if adding this would exceed max length
             if total_length + len(context_part) > max_context_length:
@@ -810,7 +868,7 @@ Combined Response:"""
             context_parts.append(context_part)
             total_length += len(context_part)
         
-        return "\n---\n".join(context_parts)
+        return "\n".join(context_parts)
     
     def _generate_answer(
         self,

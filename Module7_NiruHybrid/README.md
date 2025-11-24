@@ -83,7 +83,12 @@ print(result["answer"])
    - Stream buffer management
    - Real-time processing
 
-6. **Integration** (`integration/`)
+6. **Distillation** (`distillation/`)
+   - Teacher-Student cascade
+   - Knowledge distillation
+   - Adaptive retrieval
+
+7. **Integration** (`integration/`)
    - RAG pipeline integration
    - Vector store adapter
 
@@ -96,6 +101,7 @@ See `config.py` for detailed configuration options. Key settings:
 - `DiffusionConfig`: Diffusion model parameters
 - `RetentionConfig`: Retention and learning settings
 - `StreamingConfig`: Streaming pipeline settings
+- `DistillationConfig`: Teacher-Student cascade settings
 
 ## API Endpoints
 
@@ -105,6 +111,7 @@ The module adds the following endpoints to the FastAPI server:
 - `POST /diffusion/generate` - Generate synthetic documents
 - `POST /retention/update` - Trigger retention update
 - `POST /stream/query` - Real-time streaming query
+- `POST /distillation/cascade` - Distillation cascade query
 - `GET /hybrid/stats` - Get pipeline statistics
 
 See [API_REFERENCE.md](API_REFERENCE.md) for detailed API documentation.

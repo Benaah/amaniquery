@@ -38,8 +38,9 @@ class WebSearchTool:
             Search results with sources
         """
         try:
+            # Updated API: query is now a positional argument
             results = list(self.ddgs.text(
-                keywords=query,
+                query,
                 max_results=max_results,
                 region=region
             ))

@@ -103,6 +103,20 @@ class VectorStore:
                         else:
                             raise
                 
+                # OPTIMIZATION: Dynamic Quantization for CPU
+                if device == 'cpu':
+                    try:
+                        import torch
+                        logger.info("🚀 Applying Dynamic Quantization to Embedding Model for CPU speedup...")
+                        self._embedding_model = torch.quantization.quantize_dynamic(
+                            self._embedding_model, 
+                            {torch.nn.Linear}, 
+                            dtype=torch.qint8
+                        )
+                        logger.info("✅ Model Quantized Successfully")
+                    except Exception as q_e:
+                        logger.warning(f"Quantization failed: {q_e}")
+
                 logger.info(f"Loaded embedding model: {self.embedding_model_name} on {device}")
             except ImportError as e:
                 logger.error(f"Failed to import SentenceTransformer: {e}")
@@ -691,6 +705,16 @@ class VectorStore:
                 stats["elasticsearch_docs"] = 0
         return stats
 
+    def warmup(self):
+        """Warmup the embedding model to prevent latency on first request"""
+        try:
+            logger.info("🔥 Warming up embedding model...")
+            # Encode a dummy sentence to trigger model loading and JIT compilation
+            self.embedding_model.encode("Warmup query for AmaniQuery optimization")
+            logger.info("✅ Embedding model warmed up")
+        except Exception as e:
+            logger.warning(f"Warmup failed: {e}")
+
 
 class QDrantCollectionWrapper:
     """Wrapper to make QDrant collection work like ChromaDB collection"""
@@ -713,10 +737,52 @@ class QDrantCollectionWrapper:
             ))
         self.client.upsert(collection_name=self.collection_name, points=points)
     
-    def query(self, query_texts=None, n_results=5, where=None):
+    def query(self, query_embeddings=None, n_results=5, where=None):
         """Query QDrant collection"""
-        # This is a simplified version - full implementation would need embedding
-        return {"documents": [[]], "metadatas": [[]], "distances": [[]]}
+        if not query_embeddings:
+            return {"ids": [[]], "documents": [[]], "metadatas": [[]], "distances": [[]]}
+        
+        # Assume query_embeddings is a list, take the first one
+        query_embedding = query_embeddings[0]
+        
+        scroll_filter = None
+        if where:
+            conditions = []
+            for k, v in where.items():
+                conditions.append(models.FieldCondition(key=k, match=models.MatchValue(value=str(v))))
+            scroll_filter = models.Filter(must=conditions)
+        
+        query_result = self.client.query_points(
+            collection_name=self.collection_name, 
+            query=query_embedding, 
+            limit=n_results, 
+            query_filter=scroll_filter, 
+            with_payload=True
+        )
+        
+        ids = []
+        documents = []
+        metadatas = []
+        distances = []
+        
+        if hasattr(query_result, 'points'):
+            points = query_result.points
+        elif hasattr(query_result, '__iter__'):
+            points = query_result
+        else:
+            points = []
+        
+        for hit in points:
+            payload = hit.payload if hasattr(hit, 'payload') else {}
+            metadata = {k: str(v) if not isinstance(v, str) else v for k, v in payload.items()}
+            point_id = hit.id if hasattr(hit, 'id') else None
+            score = hit.score if hasattr(hit, 'score') else 0.0
+            ids.append(metadata.get("chunk_id", str(point_id) if point_id else ""))
+            documents.append(metadata.get("text", ""))
+            metadatas.append(metadata)
+            distances.append(score)
+        
+        return {"ids": [ids], "documents": [documents], "metadatas": [metadatas], "distances": [distances]}
 
 
 class UpstashCollectionWrapper:
@@ -739,7 +805,40 @@ class UpstashCollectionWrapper:
             })
         self.client.upsert(vectors=vectors)
     
-    def query(self, query_texts=None, n_results=5, where=None):
+    def query(self, query_embeddings=None, n_results=5, where=None):
         """Query Upstash index"""
-        # This is a simplified version - full implementation would need embedding
-        return {"documents": [[]], "metadatas": [[]], "distances": [[]]}
+        if not query_embeddings:
+            return {"ids": [[]], "documents": [[]], "metadatas": [[]], "distances": [[]]}
+        
+        # Assume query_embeddings is a list, take the first one
+        query_embedding = query_embeddings[0]
+        
+        filter_dict = {}
+        # Add collection filter
+        filter_dict["metadata.collection"] = self.collection_name
+        
+        if where:
+            for k, v in where.items():
+                filter_dict[f"metadata.{k}"] = str(v)
+                
+        results = self.client.query(
+            vector=query_embedding, 
+            top_k=n_results, 
+            filter=filter_dict, 
+            include_metadata=True, 
+            include_data=True
+        )
+        
+        ids = []
+        documents = []
+        metadatas = []
+        distances = []
+        
+        for hit in results:
+            metadata = {k: str(v) if not isinstance(v, str) else v for k, v in hit.metadata.items()}
+            ids.append(hit.id)
+            documents.append(metadata.get("text", ""))
+            metadatas.append(metadata)
+            distances.append(hit.score)
+            
+        return {"ids": [ids], "documents": [documents], "metadatas": [metadatas], "distances": [distances]}

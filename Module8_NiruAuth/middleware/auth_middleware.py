@@ -201,35 +201,15 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if session_token:
             import logging
             logger = logging.getLogger(__name__)
-            logger.info(f"Attempting session authentication for {request.url.path}, token_length={len(session_token)}, header={bool(request.headers.get('X-Session-Token'))}, cookie={bool(request.cookies.get('session_token'))}")
+            logger.debug(f"Attempting session authentication for {request.url.path}")
             
             try:
-                # Refresh the database session to ensure we see latest data
-                # First, ensure any pending transactions are committed
-                try:
-                    db.commit()
-                except:
-                    pass
-                db.expire_all()
-                
-                # Verify we can see the session before validation
-                from ..models.auth_models import UserSession
-                token_hash = SessionProvider.hash_token(session_token)
-                test_session = db.query(UserSession).filter(
-                    UserSession.session_token == token_hash
-                ).first()
-                if test_session:
-                    logger.debug(f"Session visible in middleware DB session: id={test_session.id}, is_active={test_session.is_active}")
-                else:
-                    logger.warning(f"Session NOT visible in middleware DB session before validation: token_hash={token_hash[:16]}...")
-                
                 session = SessionProvider.validate_session(db, session_token)
                 if session:
-                    # Refresh to get user and attach to context
-                    db.expire_all()
+                    # Get user for this session
                     user = db.query(User).filter(User.id == session.user_id).first()
                     if user:
-                        logger.info(f"Session authentication successful for user {user.id} on {request.url.path}")
+                        logger.debug(f"Session authentication successful for user {user.id}")
                         return AuthContext(
                             auth_method="session",
                             user_id=user.id,
@@ -237,37 +217,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
                             user=user  # Attach user object to avoid re-querying
                         )
                     else:
-                        # Log warning if session exists but user doesn't
                         logger.warning(f"Session found but user not found: session.user_id={session.user_id}")
                 else:
-                    # Log detailed warning if session token provided but not valid
-                    from ..models.auth_models import UserSession
-                    from sqlalchemy import and_
-                    from datetime import datetime
-                    token_hash = SessionProvider.hash_token(session_token)
-                    existing_session = db.query(UserSession).filter(
-                        UserSession.session_token == token_hash
-                    ).first()
-                    if existing_session:
-                        now = datetime.utcnow()
-                        expires_at = existing_session.expires_at
-                        # Handle timezone-aware datetimes from database
-                        if expires_at and hasattr(expires_at, 'tzinfo') and expires_at.tzinfo is not None:
-                            from datetime import timezone
-                            expires_at = expires_at.astimezone(timezone.utc).replace(tzinfo=None)
-                        is_expired = expires_at < now if expires_at else None
-                        time_diff = (expires_at - now).total_seconds() if expires_at and not is_expired else 'N/A'
-                        logger.warning(
-                            f"Session validation failed for {request.url.path}: "
-                            f"is_active={existing_session.is_active}, "
-                            f"expires_at={existing_session.expires_at}, "
-                            f"now={now}, "
-                            f"expired={is_expired}, "
-                            f"user_id={existing_session.user_id}, "
-                            f"time_diff={time_diff} seconds"
-                        )
-                    else:
-                        logger.warning(f"No session found in database for token (path: {request.url.path}, token_length: {len(session_token)})")
+                    logger.debug(f"Session validation failed for {request.url.path}")
             except Exception as e:
                 logger.error(f"Error during session authentication for {request.url.path}: {e}", exc_info=True)
                 # Continue to try other auth methods or return None

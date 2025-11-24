@@ -432,6 +432,15 @@ export function MessageList({
                         <Button
                           variant="ghost"
                           size="sm"
+                          onClick={() => onCopy(message.content)}
+                          className="h-9 md:h-9 rounded-full px-2.5 md:px-3 text-xs text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity min-w-[44px]"
+                        >
+                          <Copy className="w-4 h-4 md:mr-1" />
+                          <span className="hidden sm:inline">Copy</span>
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
                           onClick={() => onStartEdit(message)}
                           className="h-9 md:h-9 rounded-full px-2.5 md:px-3 text-xs text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity min-w-[44px]"
                         >

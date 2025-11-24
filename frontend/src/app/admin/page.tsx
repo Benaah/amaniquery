@@ -338,7 +338,8 @@ export default function AdminDashboard() {
     fetchConfigs()
     fetchDatabaseStats()
     fetchDatabaseStorageStats()
-  }, [isAuthenticated, isAdmin, loading, fetchCrawlers])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated, isAdmin, loading])
 
   // Separate effect for interval - only runs once when component mounts and auth is ready
   useEffect(() => {

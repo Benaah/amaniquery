@@ -39,8 +39,8 @@ export function ChatSidebar({
   return (
     <>
       {/* Desktop Sidebar */}
-      <div className="hidden md:flex w-72 border-r border-white/5 bg-black/20 backdrop-blur-xl overflow-y-auto flex-col transition-all duration-300 ease-in-out h-full [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-        <div className="p-4 border-b border-white/5">
+      <div className="hidden md:flex w-72 border-r border-white/5 bg-black/20 backdrop-blur-xl flex-col transition-all duration-300 ease-in-out h-full">
+        <div className="p-4 border-b border-white/5 flex-shrink-0">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-xs uppercase tracking-widest text-muted-foreground">Sessions</p>
@@ -51,7 +51,7 @@ export function ChatSidebar({
             </Button>
           </div>
         </div>
-        <div className="p-3 space-y-2 flex-1">
+        <div className="p-3 space-y-2 flex-1 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
           {chatHistory.map((session) => (
             <div key={session.id} className="flex items-center space-x-2 p-1 group min-w-0">
               <Button
@@ -94,7 +94,7 @@ export function ChatSidebar({
       {showHistory && (
         <div className="md:hidden fixed inset-0 z-[60] bg-black/70 backdrop-blur-sm" onClick={onCloseHistory}>
           <div className="absolute left-0 top-0 h-full w-[85%] max-w-sm bg-background border-r border-white/10 shadow-2xl z-[61] flex flex-col" onClick={(e) => e.stopPropagation()}>
-            <div className="p-3 md:p-4 border-b border-white/10">
+            <div className="p-3 md:p-4 border-b border-white/10 flex-shrink-0">
               <div className="flex items-center justify-between mb-2">
                 <h3 className="font-semibold text-sm md:text-base">Chat History</h3>
                 <Button variant="ghost" size="sm" className="h-9 w-9 rounded-full" onClick={onCloseHistory}>

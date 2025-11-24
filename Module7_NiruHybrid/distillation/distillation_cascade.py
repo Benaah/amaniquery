@@ -79,28 +79,49 @@ class DistillationCascade:
         # Step 2: Teacher Re-ranking (Accurate)
         scored_candidates = []
         
-        # Prepare batch for efficiency if Teacher supports it
-        # For now, we loop (simple but slower). 
-        # TODO: Batch processing for CrossEncoderWrapper
+        # Prepare batch for efficiency
+        pairs_to_score = []
+        valid_candidates = []
         
         for doc in candidates:
             text = doc.get('text') or doc.get('content') or ""
             if not text:
                 continue
-                
+            pairs_to_score.append((query, text))
+            valid_candidates.append(doc)
+            
+        if pairs_to_score:
             try:
-                # Teacher scores the (query, doc) pair
-                score = self.pair.teacher.get_score(query, text)
+                # Teacher scores the batch of pairs
+                # CrossEncoderWrapper.predict returns a list/array of scores
+                scores = self.pair.teacher.predict(pairs_to_score)
                 
-                # Create new dict to avoid mutating original too much
-                new_doc = doc.copy()
-                new_doc['teacher_score'] = score
-                new_doc['student_score'] = doc.get('score', 0.0) # Keep original score
-                new_doc['score'] = score # Update main score for downstream compatibility
-                scored_candidates.append(new_doc)
+                # Ensure scores is iterable (handle single float return)
+                if isinstance(scores, (float, int)):
+                    scores = [scores]
+                
+                for doc, score in zip(valid_candidates, scores):
+                    new_doc = doc.copy()
+                    new_doc['teacher_score'] = float(score)
+                    new_doc['student_score'] = doc.get('score', 0.0)
+                    new_doc['score'] = float(score) # Update main score for downstream compatibility
+                    scored_candidates.append(new_doc)
+                    
             except Exception as e:
-                logger.warning(f"Scoring failed for doc: {e}")
-                continue
+                logger.warning(f"Batch scoring failed: {e}. Falling back to sequential scoring.")
+                # Fallback to sequential scoring
+                for doc in valid_candidates:
+                    try:
+                        text = doc.get('text') or doc.get('content') or ""
+                        score = self.pair.teacher.get_score(query, text)
+                        new_doc = doc.copy()
+                        new_doc['teacher_score'] = score
+                        new_doc['student_score'] = doc.get('score', 0.0)
+                        new_doc['score'] = score
+                        scored_candidates.append(new_doc)
+                    except Exception as inner_e:
+                        logger.warning(f"Sequential scoring failed for doc: {inner_e}")
+                        continue
             
         # Sort by teacher score
         scored_candidates.sort(key=lambda x: x['teacher_score'], reverse=True)
@@ -119,10 +140,3 @@ class DistillationCascade:
                 "strategy": "student-retrieve-teacher-rerank"
             }
         }
-
-    def adaptive_retrieval(self, query: str, confidence_threshold: float = 0.85) -> Any:
-        """
-        Placeholder for more complex adaptive logic.
-        Currently integrated into retrieve_and_rerank.
-        """
-        pass

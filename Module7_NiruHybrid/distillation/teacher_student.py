@@ -43,9 +43,10 @@ class BiEncoderWrapper(ModelWrapper):
     Wrapper for Bi-Encoders (like HybridEncoder or SentenceTransformers).
     Produces embeddings for query and doc separately.
     """
-    def __init__(self, model: nn.Module, device: str = "cpu"):
+    def __init__(self, model: nn.Module, device: str = "cpu", tokenizer: Any = None):
         self.model = model
         self.device = device
+        self.tokenizer = tokenizer
         self.model.to(device)
         
     def predict(self, input_data: Any) -> Any:
@@ -69,10 +70,33 @@ class BiEncoderWrapper(ModelWrapper):
             return embeddings.to(self.device)
             
         # Fallback to forward pass if no encode method (Raw PyTorch)
-        # This assumes input_data is already tokenized or model handles it
-        # For production, we'd need a tokenizer here. 
-        # Assuming 'encode' exists for now as per HybridEncoder definition.
-        raise NotImplementedError("Model must implement 'encode' method")
+        if self.tokenizer:
+            inputs = self.tokenizer(
+                text, 
+                padding=True, 
+                truncation=True, 
+                return_tensors="pt", 
+                max_length=512
+            )
+            inputs = {k: v.to(self.device) for k, v in inputs.items()}
+            
+            with torch.set_grad_enabled(self.model.training):
+                outputs = self.model(**inputs)
+            
+            # Mean Pooling
+            if hasattr(outputs, 'last_hidden_state'):
+                token_embeddings = outputs.last_hidden_state
+                input_mask_expanded = inputs['attention_mask'].unsqueeze(-1).expand(token_embeddings.size()).float()
+                sum_embeddings = torch.sum(token_embeddings * input_mask_expanded, 1)
+                sum_mask = torch.clamp(input_mask_expanded.sum(1), min=1e-9)
+                return sum_embeddings / sum_mask
+            elif hasattr(outputs, 'pooler_output'):
+                return outputs.pooler_output
+            else:
+                # Assume output is already embeddings
+                return outputs
+
+        raise NotImplementedError("Model must implement 'encode' method or provide a tokenizer")
 
     def get_score(self, query: str, doc: str) -> float:
         """
@@ -93,28 +117,50 @@ class CrossEncoderWrapper(ModelWrapper):
     Wrapper for Cross-Encoders (e.g., BERT for sequence classification).
     Scores (query, doc) pairs directly.
     """
-    def __init__(self, model: Any, device: str = "cpu"):
+    def __init__(self, model: Any, device: str = "cpu", tokenizer: Any = None):
         self.model = model
         self.device = device
+        self.tokenizer = tokenizer
         if isinstance(model, nn.Module):
             self.model.to(device)
             
     def predict(self, input_data: Any) -> Any:
         # input_data expected to be list of (query, doc) pairs
-        return self.model.predict(input_data)
+        # Expects model to have a predict method taking list of pairs
+        # e.g. sentence_transformers.CrossEncoder
+        if hasattr(self.model, 'predict'):
+            return self.model.predict(input_data)
         
+        # Fallback for raw HF model
+        if self.tokenizer and isinstance(self.model, nn.Module):
+            queries, docs = zip(*input_data)
+            inputs = self.tokenizer(
+                list(queries), 
+                list(docs), 
+                padding=True, 
+                truncation=True, 
+                return_tensors="pt", 
+                max_length=512
+            )
+            inputs = {k: v.to(self.device) for k, v in inputs.items()}
+            
+            with torch.no_grad():
+                outputs = self.model(**inputs)
+                if hasattr(outputs, 'logits'):
+                    logits = outputs.logits
+                    # If binary classification, take positive class score
+                    if logits.shape[1] == 2:
+                        return F.softmax(logits, dim=1)[:, 1].cpu().numpy()
+                    # If regression, take scalar
+                    return logits.view(-1).cpu().numpy()
+                
+        raise NotImplementedError("Model must implement 'predict' method for pairs or provide a tokenizer")
+
     def get_embeddings(self, text: Union[str, List[str]]) -> torch.Tensor:
         raise NotImplementedError("Cross-Encoders do not produce independent embeddings.")
 
     def get_score(self, query: str, doc: str) -> float:
-        # Expects model to have a predict method taking list of pairs
-        # e.g. sentence_transformers.CrossEncoder
-        if hasattr(self.model, 'predict'):
-            return float(self.model.predict([(query, doc)])[0])
-        else:
-            # Fallback for raw HF model
-            # TODO: Implement raw HF forward pass if needed
-            raise NotImplementedError("Model must implement 'predict' method for pairs")
+        return float(self.predict([(query, doc)])[0])
 
     def train_mode(self):
         if isinstance(self.model, nn.Module):
@@ -136,6 +182,7 @@ class TeacherStudentPair:
         student_model: ModelWrapper,
         temperature: float = 2.0,
         alpha: float = 0.5,
+        distillation_loss: str = "mse",
         device: str = "cpu"
     ):
         """
@@ -146,12 +193,14 @@ class TeacherStudentPair:
             student_model: The small, fast model (Student).
             temperature: Softmax temperature for distillation loss.
             alpha: Weight for the distillation loss (vs student's original loss).
+            distillation_loss: 'mse' or 'kldiv'.
             device: 'cpu' or 'cuda'.
         """
         self.teacher = teacher_model
         self.student = student_model
         self.temperature = temperature
         self.alpha = alpha
+        self.distillation_loss_type = distillation_loss
         self.device = device
         
         self.kl_div_loss = nn.KLDivLoss(reduction="batchmean")
@@ -203,14 +252,35 @@ class TeacherStudentPair:
         
         # 3. Calculate Losses
         
-        # Distillation Loss (MSE between scores for regression/similarity)
-        # For classification (logits), we'd use KLDiv with temperature
-        # Here we assume regression/similarity scores [-1, 1] or [0, 1]
-        distillation_loss = self.mse_loss(student_scores, teacher_scores)
+        if self.distillation_loss_type == "kldiv":
+            # KL Divergence: Treat batch as a distribution (List-wise distillation)
+            # Softmax over the batch dimension
+            # Note: This assumes the batch contains candidates for the SAME query 
+            # or we treat the whole batch as a ranking list.
+            # For mixed batches, this is an approximation.
+            
+            # LogSoftmax for Student (Input)
+            student_log_probs = F.log_softmax(student_scores / self.temperature, dim=0)
+            
+            # Softmax for Teacher (Target)
+            teacher_probs = F.softmax(teacher_scores / self.temperature, dim=0)
+            
+            distillation_loss = self.kl_div_loss(student_log_probs, teacher_probs) * (self.temperature ** 2)
+            
+        else:
+            # MSE: Point-wise regression
+            # Ensure shapes match
+            if teacher_scores.shape != student_scores.shape:
+                teacher_scores = teacher_scores.view_as(student_scores)
+                
+            distillation_loss = self.mse_loss(student_scores, teacher_scores)
         
         # Student Loss (Ground Truth)
         # If we have hard labels (e.g., 0 or 1), use MSE or Margin loss
         labels = labels.to(self.device)
+        if labels.shape != student_scores.shape:
+            labels = labels.view_as(student_scores)
+            
         student_loss = self.mse_loss(student_scores, labels)
         
         # Combined Loss

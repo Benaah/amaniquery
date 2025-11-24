@@ -44,7 +44,7 @@ ITEM_PIPELINES = {
     "niruspider.pipelines.DeduplicationPipeline": 50,  # Run first to filter duplicates
     "niruspider.pipelines.DataValidationPipeline": 100,
     "niruspider.pipelines.QualityScoringPipeline": 110,  # Score and filter by quality
-    "niruspider.pipelines.VectorStorePipeline": 150,
+    # "niruspider.pipelines.VectorStorePipeline": 150,  # Disabled - process separately with process_all.py
     "niruspider.pipelines.PDFDownloadPipeline": 200,
     "niruspider.pipelines.FileStoragePipeline": 300,
 }

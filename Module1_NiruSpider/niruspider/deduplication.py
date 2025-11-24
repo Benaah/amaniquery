@@ -62,7 +62,13 @@ class DeduplicationEngine:
                 database_url = unpooled_url
         
         self.database_url = database_url
-        self.engine = create_engine(database_url, echo=False)
+        
+        # Configure SSL for Neon and other cloud databases
+        connect_args = {}
+        if "neon.tech" in database_url or "sslmode=require" in database_url:
+            connect_args["connect_args"] = {"sslmode": "require"}
+        
+        self.engine = create_engine(database_url, echo=False, **connect_args)
         self.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=self.engine)
         
         # Create tables

@@ -203,6 +203,29 @@ async def lifespan(app: FastAPI):
     try:
         cache_manager = get_cache_manager(config_manager)
         logger.info("Cache manager initialized")
+        
+        # Start Redis Pub/Sub listener for invalidation
+        if cache_manager and cache_manager.redis_client and hasattr(cache_manager.redis_client, 'pubsub'):
+            def redis_listener():
+                try:
+                    pubsub = cache_manager.redis_client.pubsub()
+                    pubsub.subscribe('bill_updated')
+                    logger.info("🎧 Listening for cache invalidation events on 'bill_updated'")
+                    for message in pubsub.listen():
+                        if message['type'] == 'message':
+                            bill_name = message['data']
+                            if isinstance(bill_name, bytes):
+                                bill_name = bill_name.decode('utf-8')
+                            logger.info(f"🧹 Invalidation event received for: {bill_name}")
+                            # Invalidate related keys
+                            cache_manager.delete_pattern(f"*{bill_name}*")
+                except Exception as e:
+                    logger.error(f"Redis listener error: {e}")
+
+            invalidation_thread = threading.Thread(target=redis_listener, daemon=True)
+            invalidation_thread.start()
+            logger.info("Redis invalidation listener started")
+            
     except Exception as e:
         logger.warning(f"Failed to initialize cache manager: {e}")
         cache_manager = None
@@ -816,111 +839,134 @@ async def query(request: QueryRequest):
                 use_vision_rag = True
                 logger.info(f"Using Vision RAG for session {request.session_id} with {len(session_images)} image(s)")
         
-        if use_vision_rag:
-            # Use Vision RAG
-            result = vision_rag_service.query(
-                question=request.query,
-                session_images=session_images,
-                top_k=min(request.top_k, 3),  # Limit to 3 images for Vision RAG
-                temperature=request.temperature,
-                max_tokens=request.max_tokens,
-            )
-            
-            # Convert vision sources to Source format
-            sources = []
-            for src in result.get("sources", []):
-                sources.append(Source(
-                    title=src.get("filename", "Image"),
-                    url="",  # No URL for uploaded images
-                    source_name=src.get("source_file", "Uploaded Image"),
-                    category="vision",
-                    excerpt=f"Image similarity: {src.get('similarity', 0):.2f}",
-                ))
-        
-        # Try Amaniq v1 local agents if available (for non-vision queries)
-        elif amaniq_v1_graph is not None:
-            logger.info(f"[Amaniq v1] Using local agent orchestration for query")
-            
-            try:
-                from Module4_NiruAPI.agents.amaniq_v1 import execute_pipeline
-                
-                # Get conversation history if session exists
-                conversation_history = []
-                if request.session_id and chat_manager:
-                    try:
-                        messages = chat_manager.get_messages(request.session_id, limit=5)
-                        conversation_history = [
-                            {"role": msg.role, "content": msg.content}
-                            for msg in messages
-                        ]
-                    except:
-                        conversation_history = []
-                
-                # Execute Amaniq v1 pipeline
-                amaniq_result = execute_pipeline(
-                    graph=amaniq_v1_graph,
-                    user_query=request.query,
-                    conversation_history=conversation_history
+        # Define computation function for caching
+        async def compute_response():
+            if use_vision_rag:
+                # Use Vision RAG
+                result = vision_rag_service.query(
+                    question=request.query,
+                    session_images=session_images,
+                    top_k=min(request.top_k, 3),  # Limit to 3 images for Vision RAG
+                    temperature=request.temperature,
+                    max_tokens=request.max_tokens,
                 )
                 
-                # Extract response and metadata
-                final_response = amaniq_result.get('final_response', {})
-                metadata = amaniq_result.get('metadata', {})
+                # Convert vision sources to Source format
+                sources = []
+                for src in result.get("sources", []):
+                    sources.append(Source(
+                        title=src.get("filename", "Image"),
+                        url="",  # No URL for uploaded images
+                        source_name=src.get("source_file", "Uploaded Image"),
+                        category="vision",
+                        excerpt=f"Image similarity: {src.get('similarity', 0):.2f}",
+                    ))
                 
-                # Build answer from response structure
-                if response_data and 'response' in response_data:
-                    resp = response_data['response']
+                # Add sources to result for consistency
+                result["sources"] = [s.model_dump() for s in sources]
+                return result
+            
+            # Try Amaniq v1 local agents if available (for non-vision queries)
+            elif amaniq_v1_graph is not None:
+                logger.info(f"[Amaniq v1] Using local agent orchestration for query")
+                
+                try:
+                    from Module4_NiruAPI.agents.amaniq_v1 import execute_pipeline
                     
-                    # Build comprehensive answer
-                    answer_parts = []
+                    # Get conversation history if session exists
+                    conversation_history = []
+                    if request.session_id and chat_manager:
+                        try:
+                            messages = chat_manager.get_messages(request.session_id, limit=5)
+                            conversation_history = [
+                                {"role": msg.role, "content": msg.content}
+                                for msg in messages
+                            ]
+                        except:
+                            conversation_history = []
                     
-                    # Summary card
-                    if 'summary_card' in resp:
-                        summary = resp['summary_card']
-                        answer_parts.append(f"**{summary.get('title', '')}**\n\n{summary.get('content', '')}")
+                    # Execute Amaniq v1 pipeline
+                    amaniq_result = execute_pipeline(
+                        graph=amaniq_v1_graph,
+                        user_query=request.query,
+                        conversation_history=conversation_history
+                    )
                     
-                    # Detailed breakdown
-                    if 'detailed_breakdown' in resp and 'points' in resp['detailed_breakdown']:
-                        answer_parts.append("\n\n**Details:**")
-                        for i, point in enumerate(resp['detailed_breakdown']['points'], 1):
-                            answer_parts.append(f"{i}. {point}")
+                    # Extract response and metadata
+                    final_response = amaniq_result.get('final_response', {})
+                    metadata = amaniq_result.get('metadata', {})
+                    response_data = amaniq_result.get('response', {})
                     
-                    # Kenyan context
-                    if 'kenyan_context' in resp and 'impact' in resp['kenyan_context']:
-                        answer_parts.append(f"\n\n**🇰🇪 Kenyan Context:** {resp['kenyan_context']['impact']}")
-                    
-                    answer = "\n".join(answer_parts)
-                    
-                    # Format sources from citations
-                    sources = []
-                    if 'citations' in resp:
-                        for i, citation in enumerate(resp['citations'], 1):
-                            sources.append(Source(
-                                title=citation.get('source', f'Source {i}'),
-                                url=citation.get('url', 'N/A'),
-                                source_name=citation.get('source', 'Unknown'),
-                                category=metadata.get('query_type', 'public_interest'),
-                                excerpt=citation.get('quote', '')[:200] if citation.get('quote') else ''
-                            ))
-                    
-                    result = {
-                        "answer": answer,
-                        "sources": [s.model_dump() for s in sources],
-                        "query_time": metadata.get('total_time_seconds', 0),
-                        "retrieved_chunks": metadata.get('num_docs_retrieved', 0),
-                        "model_used": f"AK-RAG-{metadata.get('persona', 'wanjiku')}-local",
-                        "structured_data": response_data
-                    }
-                    
-                    logger.info(f"[AK-RAG] Query completed in {metadata.get('total_time_seconds', 0):.2f}s using {metadata.get('persona')} persona")
-                else:
-                    # AK-RAG failed, fall back to standard pipeline
-                    logger.warning("[AK-RAG] Response structure invalid, falling back to standard RAG")
-                    raise Exception("Invalid AK-RAG response structure")
-                    
-            except Exception as e:
-                # Fall back to standard RAG pipeline
-                logger.warning(f"[AK-RAG] Error: {e}, falling back to standard RAG pipeline")
+                    # Build answer from response structure
+                    if response_data and 'response' in response_data:
+                        resp = response_data['response']
+                        
+                        # Build comprehensive answer
+                        answer_parts = []
+                        
+                        # Summary card
+                        if 'summary_card' in resp:
+                            summary = resp['summary_card']
+                            answer_parts.append(f"**{summary.get('title', '')}**\n\n{summary.get('content', '')}")
+                        
+                        # Detailed breakdown
+                        if 'detailed_breakdown' in resp and 'points' in resp['detailed_breakdown']:
+                            answer_parts.append("\n\n**Details:**")
+                            for i, point in enumerate(resp['detailed_breakdown']['points'], 1):
+                                answer_parts.append(f"{i}. {point}")
+                        
+                        # Kenyan context
+                        if 'kenyan_context' in resp and 'impact' in resp['kenyan_context']:
+                            answer_parts.append(f"\n\n**🇰🇪 Kenyan Context:** {resp['kenyan_context']['impact']}")
+                        
+                        answer = "\n".join(answer_parts)
+                        
+                        # Format sources from citations
+                        sources = []
+                        if 'citations' in resp:
+                            for i, citation in enumerate(resp['citations'], 1):
+                                sources.append(Source(
+                                    title=citation.get('source', f'Source {i}'),
+                                    url=citation.get('url', 'N/A'),
+                                    source_name=citation.get('source', 'Unknown'),
+                                    category=metadata.get('query_type', 'public_interest'),
+                                    excerpt=citation.get('quote', '')[:200] if citation.get('quote') else ''
+                                ))
+                        
+                        result = {
+                            "answer": answer,
+                            "sources": [s.model_dump() for s in sources],
+                            "query_time": metadata.get('total_time_seconds', 0),
+                            "retrieved_chunks": metadata.get('num_docs_retrieved', 0),
+                            "model_used": f"AK-RAG-{metadata.get('persona', 'wanjiku')}-local",
+                            "structured_data": response_data
+                        }
+                        
+                        logger.info(f"[AK-RAG] Query completed in {metadata.get('total_time_seconds', 0):.2f}s using {metadata.get('persona')} persona")
+                        return result
+                    else:
+                        # AK-RAG failed, fall back to standard pipeline
+                        logger.warning("[AK-RAG] Response structure invalid, falling back to standard RAG")
+                        raise Exception("Invalid AK-RAG response structure")
+                        
+                except Exception as e:
+                    # Fall back to standard RAG pipeline
+                    logger.warning(f"[AK-RAG] Error: {e}, falling back to standard RAG pipeline")
+                    result = rag_pipeline.query(
+                        query=request.query,
+                        top_k=request.top_k,
+                        category=request.category,
+                        source=request.source,
+                        temperature=request.temperature,
+                        max_tokens=request.max_tokens,
+                        session_id=request.session_id
+                    )
+                    # result["sources"] is already a list of dicts in rag_pipeline.query
+                    return result
+            
+            else:
+                # Use regular RAG (AK-RAG not available)
+                logger.info("[RAG] Using standard RAG pipeline")
                 result = rag_pipeline.query(
                     query=request.query,
                     top_k=request.top_k,
@@ -930,27 +976,34 @@ async def query(request: QueryRequest):
                     max_tokens=request.max_tokens,
                     session_id=request.session_id
                 )
-                sources = [Source(**src) for src in result["sources"]]
-        
-        else:
-            # Use regular RAG (AK-RAG not available)
-            logger.info("[RAG] Using standard RAG pipeline")
-            result = rag_pipeline.query(
-                query=request.query,
-                top_k=request.top_k,
-                category=request.category,
-                source=request.source,
-                temperature=request.temperature,
-                max_tokens=request.max_tokens,
-                session_id=request.session_id
-            )
+                return result
+
+        # Execute with caching
+        if cache_manager and not use_vision_rag:
+            # Determine TTL type based on query content
+            ttl_type = "default"
+            q_lower = request.query.lower()
+            if "finance bill" in q_lower or "tax" in q_lower:
+                ttl_type = "trending"
+            elif "constitution" in q_lower or "act" in q_lower or "law" in q_lower:
+                ttl_type = "wakili"
+            elif "news" in q_lower or "update" in q_lower:
+                ttl_type = "mwanahabari"
+            elif "how to" in q_lower or "calculate" in q_lower:
+                ttl_type = "widget"
             
-            # Format sources
-            sources = [Source(**src) for src in result["sources"]]
+            # Use get_or_compute for stampede protection
+            result = await cache_manager.get_or_compute(request.query, compute_response, ttl_type)
+        else:
+            result = await compute_response()
         
-        # Save to chat if session_id provided
+        # Save to chat if session_id provided (always save, even if cached)
         if request.session_id:
             save_query_to_chat(request.session_id, request.query, result)
+        
+        # Format sources for response
+        sources_data = result.get("sources", [])
+        sources = [Source(**src) for src in sources_data]
         
         return QueryResponse(
             answer=result["answer"],

@@ -38,8 +38,11 @@ services:
       - LLM_PROVIDER=moonshot
       - DEFAULT_MODEL=moonshot-v1-8k
       - EMBEDDING_MODEL=all-MiniLM-L6-v2
+      - REDIS_URL=redis://redis:6379/0
     depends_on:
       chroma:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     volumes:
       - ./data:/app/data
@@ -80,6 +83,22 @@ services:
     networks:
       - amaniquery_network
     restart: unless-stopped
+
+  # Redis Cache
+  redis:
+    image: redis:alpine
+    container_name: amaniquery_redis
+    command: redis-server --maxmemory 2gb --maxmemory-policy allkeys-lru --save "" --appendonly no --tcp-keepalive 300 --timeout 0
+    ports:
+      - "6379:6379"
+    networks:
+      - amaniquery_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
 volumes:
   chroma_data:

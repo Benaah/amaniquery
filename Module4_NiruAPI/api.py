@@ -992,8 +992,28 @@ async def query(request: QueryRequest):
             elif "how to" in q_lower or "calculate" in q_lower:
                 ttl_type = "widget"
             
-            # Use get_or_compute for stampede protection
-            result = await cache_manager.get_or_compute(request.query, compute_response, ttl_type)
+            # Compute embedding for semantic caching if vector store is available
+            query_embedding = None
+            if vector_store:
+                try:
+                    # Run in thread pool to avoid blocking
+                    import asyncio
+                    loop = asyncio.get_running_loop()
+                    # Accessing embedding_model property triggers lazy load if needed
+                    query_embedding = await loop.run_in_executor(
+                        None, 
+                        lambda: vector_store.embedding_model.encode(request.query).tolist()
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to compute embedding for cache: {e}")
+
+            # Use get_or_compute for stampede protection and semantic caching
+            result = await cache_manager.get_or_compute(
+                request.query, 
+                compute_response, 
+                ttl_type,
+                embedding=query_embedding
+            )
         else:
             result = await compute_response()
         

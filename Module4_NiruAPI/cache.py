@@ -8,10 +8,11 @@ import hashlib
 import re
 import time
 import asyncio
-from typing import Optional, Any, Callable, Dict, Union
+from typing import Optional, Any, Callable, Dict, Union, List
 from functools import wraps
 from collections import OrderedDict
 from loguru import logger
+import numpy as np
 
 # Try importing standard redis first (preferred for local), then upstash
 try:
@@ -62,12 +63,59 @@ class LRUCache:
     def clear(self):
         self.cache.clear()
 
+class SemanticCache:
+    """In-Memory Semantic Cache using Cosine Similarity"""
+    def __init__(self, capacity: int = 100, threshold: float = 0.92):
+        self.capacity = capacity
+        self.threshold = threshold
+        # Store as list of tuples: (embedding_vector, result_dict, timestamp)
+        self.entries = [] 
+
+    def get_similar(self, query_embedding: List[float]) -> Optional[Dict]:
+        if not self.entries:
+            return None
+            
+        # Convert to numpy for fast calculation if not already
+        query_vec = np.array(query_embedding)
+        norm_query = np.linalg.norm(query_vec)
+        if norm_query == 0:
+            return None
+            
+        best_score = -1
+        best_result = None
+        
+        for cached_emb, result, _ in self.entries:
+            cached_vec = np.array(cached_emb)
+            norm_cached = np.linalg.norm(cached_vec)
+            if norm_cached == 0:
+                continue
+                
+            score = np.dot(query_vec, cached_vec) / (norm_query * norm_cached)
+            
+            if score > best_score:
+                best_score = score
+                best_result = result
+        
+        if best_score >= self.threshold:
+            logger.info(f"🧠 Semantic Cache Hit! Score: {best_score:.4f}")
+            return best_result
+            
+        return None
+
+    def set(self, embedding: List[float], result: Dict):
+        # Evict if full (Simple FIFO for now, or remove oldest)
+        if len(self.entries) >= self.capacity:
+            self.entries.pop(0)
+            
+        self.entries.append((embedding, result, time.time()))
+
 class CacheManager:
     """Manages Redis caching with advanced strategies"""
     
     def __init__(self, config_manager=None):
         self.redis_client = None
         self.local_cache = LRUCache(capacity=5000)
+        self.semantic_cache = SemanticCache(capacity=50) # Keep small for speed
         self.config_manager = config_manager
         self._init_redis()
     
@@ -188,9 +236,9 @@ class CacheManager:
             logger.warning(f"Redis set error: {e}")
             return False
 
-    async def get_or_compute(self, query: str, compute_func: Callable, ttl_type: str = "default") -> Any:
+    async def get_or_compute(self, query: str, compute_func: Callable, ttl_type: str = "default", embedding: List[float] = None) -> Any:
         """
-        Get from cache or compute with Stampede Protection
+        Get from cache or compute with Stampede Protection and Semantic Caching
         """
         keys = self.generate_keys(query)
         exact_key = keys["exact"]
@@ -208,9 +256,19 @@ class CacheManager:
             logger.info(f"🎯 Cache Hit (Normalized): {query[:30]}...")
             return cached
 
-        # 3. Cache Miss - Stampede Protection
+        # 3. Try Semantic Match (if embedding provided)
+        if embedding is not None:
+            semantic_cached = self.semantic_cache.get_similar(embedding)
+            if semantic_cached:
+                return semantic_cached
+
+        # 4. Cache Miss - Stampede Protection
         if not self.redis_client:
-            return await compute_func()
+            result = await compute_func()
+            # Update semantic cache locally
+            if embedding is not None:
+                self.semantic_cache.set(embedding, result)
+            return result
 
         stampede_key = f"computing:{exact_key}"
         try:
@@ -237,6 +295,10 @@ class CacheManager:
             ttl = self.get_smart_ttl(ttl_type)
             await self.set(exact_key, result, ttl)
             await self.set(norm_key, result, ttl)
+            
+            # Update semantic cache locally
+            if embedding is not None:
+                self.semantic_cache.set(embedding, result)
             
             # Release lock
             self.redis_client.delete(stampede_key)

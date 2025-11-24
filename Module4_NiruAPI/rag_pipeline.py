@@ -839,7 +839,7 @@ Combined Response:"""
             }
     
     def _prepare_context(self, docs: List[Dict], max_context_length: int = 3000) -> str:
-        """Prepare context from retrieved documents"""
+        """Prepare context from retrieved documents with Prompt Pruning"""
         context_parts = []
         total_length = 0
         
@@ -847,15 +847,19 @@ Combined Response:"""
             meta = doc["metadata"]
             text = doc["text"]
             
-            # Truncate individual document text if too long
-            if len(text) > 500:
-                text = text[:500] + "..."
+            # Optimization: Prune very short chunks
+            if len(text) < 50:
+                continue
+
+            # Optimization: Tighter truncation
+            chunk_limit = 400
+            if len(text) > chunk_limit:
+                text = text[:chunk_limit] + "..."
             
-            # Format: [Source #] Title - Category\nText
-            context_part = (
-                f"[Source {i}] {meta.get('title', 'Untitled')} "
-                f"({meta.get('category', 'Unknown')})\n{text}\n"
-            )
+            # Optimization: Minimal metadata format
+            # Format: [i] Title: Text
+            title = meta.get('title', 'Untitled')
+            context_part = f"[{i}] {title}: {text}\n"
             
             # Check if adding this would exceed max length
             if total_length + len(context_part) > max_context_length:
@@ -864,7 +868,7 @@ Combined Response:"""
             context_parts.append(context_part)
             total_length += len(context_part)
         
-        return "\n---\n".join(context_parts)
+        return "\n".join(context_parts)
     
     def _generate_answer(
         self,

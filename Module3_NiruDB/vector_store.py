@@ -781,7 +781,40 @@ class UpstashCollectionWrapper:
             })
         self.client.upsert(vectors=vectors)
     
-    def query(self, query_texts=None, n_results=5, where=None):
+    def query(self, query_embeddings=None, n_results=5, where=None):
         """Query Upstash index"""
-        # This is a simplified version - full implementation would need embedding
-        return {"documents": [[]], "metadatas": [[]], "distances": [[]]}
+        if not query_embeddings:
+            return {"ids": [[]], "documents": [[]], "metadatas": [[]], "distances": [[]]}
+        
+        # Assume query_embeddings is a list, take the first one
+        query_embedding = query_embeddings[0]
+        
+        filter_dict = {}
+        # Add collection filter
+        filter_dict["metadata.collection"] = self.collection_name
+        
+        if where:
+            for k, v in where.items():
+                filter_dict[f"metadata.{k}"] = str(v)
+                
+        results = self.client.query(
+            vector=query_embedding, 
+            top_k=n_results, 
+            filter=filter_dict, 
+            include_metadata=True, 
+            include_data=True
+        )
+        
+        ids = []
+        documents = []
+        metadatas = []
+        distances = []
+        
+        for hit in results:
+            metadata = {k: str(v) if not isinstance(v, str) else v for k, v in hit.metadata.items()}
+            ids.append(hit.id)
+            documents.append(metadata.get("text", ""))
+            metadatas.append(metadata)
+            distances.append(hit.score)
+            
+        return {"ids": [ids], "documents": [documents], "metadatas": [metadatas], "distances": [distances]}

@@ -22,7 +22,7 @@ def run_spider(spider_name):
 
     # Map spider names to classes
     spider_mapping = {
-        "kenya_law_spider": ("Kenya Law", "niruspider.spiders.kenya_law_spider.KenyaLawSpider"),
+        "kenya_law": ("Kenya Law", "niruspider.spiders.kenya_law_new_spider.KenyaLawNewSpider"),
         "parliament_spider": ("Parliament", "niruspider.spiders.parliament_spider.ParliamentSpider"),
         "news_rss_spider": ("Kenyan News (RSS)", "niruspider.spiders.news_rss_spider.NewsRSSSpider"),
         "global_trends_spider": ("Global Trends (RSS)", "niruspider.spiders.global_trends_spider.GlobalTrendsSpider"),
@@ -59,7 +59,11 @@ def run_spider(spider_name):
 if __name__ == "__main__":
     if len(sys.argv) != 2:
         print("Usage: python crawl_spider.py <spider_name>")
-        print("Available spiders: kenya_law_spider, parliament_spider, news_rss_spider, global_trends_spider")
+        print("Available spiders:")
+        print("  - kenya_law (new.kenyalaw.org - comprehensive legal database)")
+        print("  - parliament_spider")
+        print("  - news_rss_spider")
+        print("  - global_trends_spider")
         sys.exit(1)
 
     spider_name = sys.argv[1]

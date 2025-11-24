@@ -583,7 +583,7 @@ async def health_check():
     # Try to get from cache
     cache_key = "cache:health"
     if cache_manager:
-        cached_result = cache_manager.get(cache_key)
+        cached_result = await cache_manager.get(cache_key)
         if cached_result is not None:
             logger.debug("Cache hit for health check")
             return HealthResponse(**cached_result)
@@ -606,7 +606,7 @@ async def health_check():
     
     # Cache for 30 seconds
     if cache_manager:
-        cache_manager.set(cache_key, result.model_dump(), ttl=30)
+        await cache_manager.set(cache_key, result.model_dump(), ttl=30)
     
     return result
 
@@ -699,7 +699,7 @@ async def get_stats():
         # Try to get from cache
         cache_key = "cache:stats"
         if cache_manager:
-            cached_result = cache_manager.get(cache_key)
+            cached_result = await cache_manager.get(cache_key)
             if cached_result is not None:
                 logger.debug("Cache hit for stats")
                 return StatsResponse(**cached_result)
@@ -757,7 +757,7 @@ async def get_stats():
         
         # Cache for 60 seconds
         if cache_manager:
-            cache_manager.set(cache_key, result.model_dump(), ttl=60)
+            await cache_manager.set(cache_key, result.model_dump(), ttl=60)
         
         return result
     except HTTPException:
@@ -2440,7 +2440,7 @@ async def get_crawler_status(
     # Try to get from cache
     cache_key = "cache:admin:crawlers"
     if cache_manager:
-        cached_result = cache_manager.get(cache_key)
+        cached_result = await cache_manager.get(cache_key)
         if cached_result is not None:
             logger.debug("Cache hit for crawler status")
             return cached_result
@@ -2451,7 +2451,7 @@ async def get_crawler_status(
         
         # Cache for 5 seconds (crawler status changes frequently)
         if cache_manager:
-            cache_manager.set(cache_key, result, ttl=5)
+            await cache_manager.set(cache_key, result, ttl=5)
         
         return result
     except Exception as e:
@@ -2674,7 +2674,7 @@ async def get_config_list(
     # Try to get from cache
     cache_key = "cache:admin:config"
     if cache_manager:
-        cached_result = cache_manager.get(cache_key)
+        cached_result = await cache_manager.get(cache_key)
         if cached_result is not None:
             logger.debug("Cache hit for config list")
             return cached_result
@@ -2684,7 +2684,7 @@ async def get_config_list(
         
         # Cache for 5 minutes (configs don't change often)
         if cache_manager:
-            cache_manager.set(cache_key, result, ttl=300)
+            await cache_manager.set(cache_key, result, ttl=300)
         
         return result
     except Exception as e:
@@ -2716,7 +2716,7 @@ async def set_config(
         
         # Invalidate config cache
         if cache_manager:
-            cache_manager.delete("cache:admin:config")
+            await cache_manager.delete("cache:admin:config")
         
         return {"message": f"Config {config.key} set successfully"}
     except Exception as e:
@@ -2745,7 +2745,7 @@ async def update_config_entry(
         
         # Invalidate config cache
         if cache_manager:
-            cache_manager.delete("cache:admin:config")
+            await cache_manager.delete("cache:admin:config")
         
         return {"message": f"Config {key} updated successfully"}
     except Exception as e:
@@ -2771,7 +2771,7 @@ async def delete_config_entry(
         
         # Invalidate config cache
         if cache_manager:
-            cache_manager.delete("cache:admin:config")
+            await cache_manager.delete("cache:admin:config")
         
         return {"message": f"Config {key} deleted successfully"}
     except Exception as e:
@@ -2791,7 +2791,7 @@ async def get_database_stats(
     # Try to get from cache
     cache_key = "cache:admin:databases"
     if cache_manager:
-        cached_result = cache_manager.get(cache_key)
+        cached_result = await cache_manager.get(cache_key)
         if cached_result is not None:
             logger.debug("Cache hit for database stats")
             return cached_result
@@ -2851,7 +2851,7 @@ async def get_database_stats(
         
         # Cache for 60 seconds
         if cache_manager:
-            cache_manager.set(cache_key, result, ttl=60)
+            await cache_manager.set(cache_key, result, ttl=60)
         
         return result
         
@@ -2893,7 +2893,7 @@ async def get_database_storage_stats(
         # Try to get from cache
         cache_key = "cache:admin:database-storage"
         if cache_manager:
-            cached_result = cache_manager.get(cache_key)
+            cached_result = await cache_manager.get(cache_key)
             if cached_result is not None:
                 logger.debug("Cache hit for database storage stats")
                 return cached_result
@@ -2905,7 +2905,7 @@ async def get_database_storage_stats(
         
         # Cache for 60 seconds
         if cache_manager:
-            cache_manager.set(cache_key, stats, ttl=60)
+            await cache_manager.set(cache_key, stats, ttl=60)
         
         return stats
     except Exception as e:

@@ -365,10 +365,10 @@ async def lifespan(app: FastAPI):
         logger.warning(f"Database storage not available: {e}")
         database_storage = None
     
-    # Initialize AK-RAG Agent Orchestration Graph (local agents)
-    ak_rag_graph = None
+    # Initialize Amaniq v1 Agent Orchestration Graph (local agents)
+    amaniq_v1_graph = None
     try:
-        from Module4_NiruAPI.agents.ak_rag_graph import create_ak_rag_graph
+        from Module4_NiruAPI.agents.amaniq_v1 import create_amaniq_v1_graph
         from Module4_NiruAPI.agents.retrieval_strategies import UnifiedRetriever
         
         # Create unified retriever using vector store
@@ -386,7 +386,7 @@ async def lifespan(app: FastAPI):
             
             backend = backend_map.get(vector_backend, "qdrant")
             
-            logger.info(f"Initializing AK-RAG with backend: {backend} (vector_backend: {vector_backend})")
+            logger.info(f"Initializing Amaniq v1 with backend: {backend} (vector_backend: {vector_backend})")
             
             try:
                 # Get the actual client from vector store
@@ -405,83 +405,13 @@ async def lifespan(app: FastAPI):
                     embedder=vector_store.embedding_model
                 )
                 
-                # Create AK-RAG graph with local agents
+                # Create Amaniq v1 graph with local agents
                 if rag_pipeline and rag_pipeline.llm_service:
                     
                     # Initialize Fast LLM Client for Agents (Intent Router / Sheng)
                     fast_llm_callable = None
                     try:
-                        # Priority 1: Gemini 1.5 Flash
-                        gemini_key = os.getenv("GEMINI_API_KEY")
-                        if gemini_key:
-                            import google.generativeai as genai
-                            genai.configure(api_key=gemini_key)
-                            # Use flash model
-                            flash_model = genai.GenerativeModel('gemini-1.5-flash')
-                            
-                            def gemini_wrapper(prompt, **kwargs):
-                                response = flash_model.generate_content(prompt)
-                                return response.text
-                                
-                            fast_llm_callable = gemini_wrapper
-                            logger.info("🚀 Fast LLM initialized: Gemini 1.5 Flash")
-                        
-                        # Priority 2: OpenRouter (Llama 3 70B)
-                        if not fast_llm_callable:
-                            openrouter_key = os.getenv("OPENROUTER_API_KEY")
-                            if openrouter_key:
-                                from openai import OpenAI
-                                or_client = OpenAI(
-                                    api_key=openrouter_key,
-                                    base_url="https://openrouter.ai/api/v1",
-                                    default_headers={
-                                        "HTTP-Referer": "https://amaniquery.vercel.app",
-                                        "X-Title": "AmaniQuery",
-                                    }
-                                )
-                                
-                                def openrouter_wrapper(prompt, **kwargs):
-                                    response = or_client.chat.completions.create(
-                                        model="meta-llama/llama-3-70b-instruct",
-                                        messages=[{"role": "user", "content": prompt}],
-                                        temperature=0.1
-                                    )
-                                    return response.choices[0].message.content
-                                    
-                                fast_llm_callable = openrouter_wrapper
-                                logger.info("🚀 Fast LLM initialized: Llama 3 70B (OpenRouter)")
-                                
-                    except Exception as e:
-                        logger.warning(f"Failed to initialize fast LLM: {e}")
-                        fast_llm_callable = None
-
-                    ak_rag_graph = create_ak_rag_graph(
-                        llm_client=rag_pipeline.llm_service,
-                        vector_db_client=unified_retriever,
-                        enable_persistence=False,
-                        fast_llm_client=fast_llm_callable
-                    )
-                    logger.info("✅ AK-RAG agent orchestration graph initialized (local agents)")
-                    logger.info(f"Using backend: {backend}, collection: amaniquery_docs")
-                    logger.info("Agents: IntentRouter, ShengTranslator, Retrieval, Kenyanizer, Synthesis, Validation")
-                    if fast_llm_callable:
-                        logger.info("⚡ Edge Optimization: Using Fast LLM for Routing & Translation")
-                else:
-                    logger.warning("AK-RAG graph not initialized: LLM service not available")
-            except Exception as e:
-                logger.warning(f"Could not create unified retriever: {e}")
-                ak_rag_graph = None
-        else:
-            logger.warning("AK-RAG graph not initialized: vector store not available")
-    except Exception as e:
-        logger.warning(f"AK-RAG agent orchestration not available: {e}")
-        logger.info("Will use standard RAG pipeline for queries")
-        ak_rag_graph = None
-    
-    logger.info("AmaniQuery API ready")
-    
-    yield
-    
+                        # Priority 1: Gemini 2.5 Flash
     # Shutdown cleanup
     logger.info("Shutting down AmaniQuery API")
 

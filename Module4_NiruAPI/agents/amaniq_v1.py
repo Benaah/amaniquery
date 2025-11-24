@@ -155,12 +155,18 @@ class AmaniqV1State(TypedDict):
 
 def generate_llm_response(client, prompt: str, max_tokens: int = 1000, temperature: float = 0.3) -> str:
     """
-    Helper to generate text from LLM client (OpenAI-compatible).
-    Handles both new (v1.0+) and old OpenAI client patterns.
+    Helper to generate text from LLM client (supports OpenAI, Moonshot, and Gemini).
+    Handles both new (v1.0+) and old OpenAI client patterns, plus Gemini API.
     """
     try:
+        # Try Gemini API pattern first (google.generativeai)
+        if hasattr(client, "generate_content"):
+            # This is a Gemini model object
+            response = client.generate_content(prompt)
+            return response.text
+        
         # Try new OpenAI v1.0+ pattern
-        if hasattr(client, "chat") and hasattr(client.chat, "completions"):
+        elif hasattr(client, "chat") and hasattr(client.chat, "completions"):
             response = client.chat.completions.create(
                 model="moonshot-v1-8k",  # Default to moonshot-v1-8k
                 messages=[
@@ -172,7 +178,7 @@ def generate_llm_response(client, prompt: str, max_tokens: int = 1000, temperatu
             )
             return response.choices[0].message.content
         
-        # Try old OpenAI pattern or custom client with generate()
+        # Try custom client with generate() method
         elif hasattr(client, "generate"):
             return client.generate(prompt, max_tokens=max_tokens, temperature=temperature)
             
@@ -181,7 +187,7 @@ def generate_llm_response(client, prompt: str, max_tokens: int = 1000, temperatu
             return client(prompt)
             
         else:
-            raise AttributeError("LLM client has no 'chat.completions.create' or 'generate' method")
+            raise AttributeError("LLM client has no 'generate_content', 'chat.completions.create', or 'generate' method")
             
     except Exception as e:
         logger.error(f"LLM generation error: {e}")
@@ -387,9 +393,19 @@ class WebSearchAgent:
             query = state['retrieval_query']
             logger.info(f"[WebSearch] Searching web for: {query}")
             
-            results = self.search_tool.run(query)
-            state['web_results'] = results
-            logger.info(f"[WebSearch] Found results")
+            # Use execute() method and format results properly
+            search_results = self.search_tool.execute(query)
+            
+            # Format results as a string for the synthesis agent
+            if search_results.get('results'):
+                formatted = f"Web search found {search_results['count']} results:\n\n"
+                for i, result in enumerate(search_results['results'][:5], 1):
+                    formatted += f"{i}. {result['title']}\n{result['snippet']}\nSource: {result['url']}\n\n"
+                state['web_results'] = formatted
+            else:
+                state['web_results'] = ""
+            
+            logger.info(f"[WebSearch] Found {search_results.get('count', 0)} results")
             
         except Exception as e:
             logger.error(f"[WebSearch] Error: {e}")
@@ -599,49 +615,75 @@ def should_retry_validation(state: AmaniqV1State) -> Literal["synthesis", "end"]
     return "end"
 
 
-# ============================================================================
-# FALLBACK HANDLER
-# ============================================================================
-
-def fallback_response(state: AmaniqV1State) -> AmaniqV1State:
-    """Generate simple fallback response when main pipeline fails"""
-    logger.info("[Fallback] Generating simple fallback response")
+def should_use_web_search(state: AmaniqV1State) -> Literal["web_search", "kenyanizer"]:
+    """
+    Decide whether to use web search based on retrieval quality.
     
-    # Create minimal valid response
-    state['final_response'] = {
-        "query_type": "public_interest",
-        "language_detected": state.get('detected_language', 'mixed'),
-        "response": {
-            "summary_card": {
-                "title": "Query Received",
-                "content": f"Tumepokea swali lako kuhusu: {state['user_query'][:100]}..."
-            },
-            "detailed_breakdown": {
-                "points": [
-                    "Tafadhali jaribu tena baadaye",
-                    "Kama tatizo linaendelea, wasiliana na msaada"
-                ]
-            },
-            "kenyan_context": {
-                "impact": "Tunahitaji taarifa zaidi ili kujibu swali hili vizuri.",
-                "related_topic": None
-            },
-            "citations": []
-        },
-        "follow_up_suggestions": [
-            "Jaribu kuuliza kwa maneno rahisi zaidi",
-            "Toa maelezo zaidi kuhusu unachohitaji"
-        ]
-    }
+    Web search is used when:
+    1. Few or no documents retrieved (< 3 docs)
+    2. Low average retrieval score (< 0.3)
+    3. Query type is 'mwanahabari' (research needs current info)
+    4. Query mentions recent events/dates
     
-    state['is_valid'] = True
-    state['error_message'] = "Used fallback response due to pipeline errors"
+    Otherwise, skip web search to save time and use vector context only.
+    """
+    retrieved_docs = state.get('retrieved_docs', [])
+    retrieval_metadata = state.get('retrieval_metadata', {})
+    query_type = state.get('query_type', 'wanjiku')
     
-    return state
+    # Check 1: Not enough documents retrieved
+    if len(retrieved_docs) < 3:
+        logger.info(f"[Router] Low doc count ({len(retrieved_docs)}), using web search")
+        return "web_search"
+    
+    # Check 2: Low quality scores
+    avg_score = retrieval_metadata.get('avg_score', 0)
+    if avg_score < 0.3:
+        logger.info(f"[Router] Low avg score ({avg_score:.2f}), using web search")
+        return "web_search"
+    
+    # Check 3: Research queries always get web search
+    if query_type == 'mwanahabari':
+        logger.info(f"[Router] Research query, using web search")
+        return "web_search"
+    
+    # Check 4: Recent events/dates in query
+    query = state.get('user_query', '').lower()
+    recent_keywords = ['latest', 'recent', 'new', '2024', '2025', 'today', 'yesterday', 'now']
+    if any(keyword in query for keyword in recent_keywords):
+        logger.info(f"[Router] Recent event query, using web search")
+        return "web_search"
+    
+    # Sufficient context from vectors, skip web search
+    logger.info(f"[Router] Sufficient context ({len(retrieved_docs)} docs, score {avg_score:.2f}), skipping web search")
+    return "kenyanizer"
+
+
+class FallbackHandler:
+    """Fallback node for when synthesis/validation fails"""
+    
+    def __call__(self, state: AmaniqV1State) -> AmaniqV1State:
+        """Generate fallback response when pipeline fails"""
+        logger.warning("[Fallback] Using fallback response mechanism")
+        
+        # Generate a minimal valid response
+        fallback_response = {
+            "answer": "I apologize, but I encountered difficulties generating a proper response. Please try rephrasing your question or contact support.",
+            "sources": [],
+            "confidence": "low",
+            "follow_up_questions": ["Could you rephrase your question?"],
+            "query_type": state.get('query_type', 'wanjiku')
+        }
+        
+        state['final_response'] = fallback_response
+        state['is_valid'] = True
+        state['error_message'] = "Used fallback response due to pipeline errors"
+        
+        return state
 
 
 # ============================================================================
-# GRAPH CONSTRUCTION
+# GRAPH CREATION
 # ============================================================================
 
 def create_amaniq_v1_graph(llm_client, vector_db_client, enable_persistence: bool = False, fast_llm_client = None):
@@ -649,17 +691,17 @@ def create_amaniq_v1_graph(llm_client, vector_db_client, enable_persistence: boo
     Create the complete Amaniq v1 agent orchestration graph.
     
     Args:
-        llm_client: Main LLM client (Moonshot/Claude) for synthesis
-        vector_db_client: Vector DB retriever (UnifiedRetriever instance)
-        enable_persistence: Enable state persistence with SQLite
-        fast_llm_client: Optional fast LLM (Gemini Flash/Llama 3) for routing/translation
+        llm_client: LLM client for synthesis (OpenAI-compatible)
+        vector_db_client: Vector database client (UnifiedRetriever)
+        enable_persistence: Whether to enable state persistence (default: False)
+        fast_llm_client: Optional fast LLM client for intent routing and translation
     
     Returns:
-        Compiled LangGraph
+        Compiled LangGraph StateGraph
     """
-    logger.info("[Graph] Creating Amaniq v1 orchestration graph")
+    logger.info("Creating Amaniq v1 Agent Graph...")
     
-    # Use fast client for router and translator if available, otherwise fallback to main
+    # Use fast LLM for router/translator if provided, otherwise use main LLM
     router_llm = fast_llm_client if fast_llm_client else llm_client
     
     # Initialize agents
@@ -668,139 +710,141 @@ def create_amaniq_v1_graph(llm_client, vector_db_client, enable_persistence: boo
     retrieval = RetrievalAgent(vector_db_client)
     web_search = WebSearchAgent()
     kenyanizer = KenyanizerPreambleAgent()
-    synthesis = SynthesisAgent(llm_client)  # Always use main LLM for synthesis
+    synthesis = SynthesisAgent(llm_client)
     validation = ValidationAgent()
+    fallback = FallbackHandler()
     
     # Create graph
-    graph = StateGraph(AmaniqV1State)
+    workflow = StateGraph(AmaniqV1State)
     
     # Add nodes
-    graph.add_node("intent_router", intent_router)
-    graph.add_node("sheng_translator", sheng_translator)
-    graph.add_node("retrieval", retrieval)
-    graph.add_node("web_search", web_search)
-    graph.add_node("kenyanizer", kenyanizer)
-    graph.add_node("synthesis", synthesis)
-    graph.add_node("validation", validation)
-    graph.add_node("fallback", fallback_response)
+    workflow.add_node("intent_router", intent_router)
+    workflow.add_node("sheng_translator", sheng_translator)
+    workflow.add_node("retrieval", retrieval)
+    workflow.add_node("web_search", web_search)
+    workflow.add_node("kenyanizer", kenyanizer)
+    workflow.add_node("synthesis", synthesis)
+    workflow.add_node("validation", validation)
+    workflow.add_node("fallback", fallback)
     
     # Define edges
-    graph.set_entry_point("intent_router")
+    workflow.set_entry_point("intent_router")
     
-    # Linear flow for main pipeline with parallel search/retrieval
-    # Note: LangGraph doesn't support true parallel nodes in simple linear edges easily without map/reduce
-    # For simplicity, we'll run them sequentially or use a fan-out pattern if needed.
-    # Let's run web search after retrieval for now to keep it simple.
+    # Linear flow for main pipeline
+    workflow.add_edge("intent_router", "sheng_translator")
+    workflow.add_edge("sheng_translator", "retrieval")
     
-    graph.add_edge("intent_router", "sheng_translator")
-    graph.add_edge("sheng_translator", "retrieval")
-    graph.add_edge("retrieval", "web_search") # Added web search step
-    graph.add_edge("web_search", "kenyanizer")
-    graph.add_edge("kenyanizer", "synthesis")
+    # Conditional routing after retrieval: use web search only if needed
+    workflow.add_conditional_edges(
+        "retrieval",
+        should_use_web_search,
+        {
+            "web_search": "web_search",    # Use web search
+            "kenyanizer": "kenyanizer"     # Skip web search, go directly to kenyanizer
+        }
+    )
     
-    # Conditional edge after synthesis (retry or validate)
-    graph.add_conditional_edges(
+    # Web search goes to kenyanizer when used
+    workflow.add_edge("web_search", "kenyanizer")
+    workflow.add_edge("kenyanizer", "synthesis")
+    
+    # Conditional routing after synthesis
+    workflow.add_conditional_edges(
         "synthesis",
         should_retry_synthesis,
         {
             "synthesis": "synthesis",      # Retry synthesis
-            "validation": "validation",     # Move to validation
+            "validation": "validation",    # Move to validation
             "fallback": "fallback"         # Use fallback
         }
     )
     
-    # Conditional edge after validation (retry or end)
-    graph.add_conditional_edges(
+    # Conditional routing after validation
+    workflow.add_conditional_edges(
         "validation",
         should_retry_validation,
         {
-            "synthesis": "synthesis",  # Retry synthesis
-            "end": END                 # Finish
+            "synthesis": "synthesis",      # Retry synthesis
+            "end": END                     # Done
         }
     )
     
-    # Fallback goes to end
-    graph.add_edge("fallback", END)
+    # Fallback always goes to end
+    workflow.add_edge("fallback", END)
     
     # Compile with optional persistence
     if enable_persistence:
         memory = SqliteSaver.from_conn_string(":memory:")
-        compiled_graph = graph.compile(checkpointer=memory)
+        graph = workflow.compile(checkpointer=memory)
+        logger.info("✓ Amaniq v1 Graph compiled with persistence enabled")
     else:
-        compiled_graph = graph.compile()
+        graph = workflow.compile()
+        logger.info("✓ Amaniq v1 Graph compiled (no persistence)")
     
-    logger.info("[Graph] ✓ Amaniq v1 Graph compiled successfully")
-    
-    return compiled_graph
+    return graph
 
 
 # ============================================================================
-# CONVENIENCE FUNCTIONS
+# EXECUTION HELPER
 # ============================================================================
 
-def initialize_state(user_query: str, conversation_history: List[Dict] = None) -> AmaniqV1State:
-    """Initialize state for a new query"""
-    return {
+def execute_pipeline(graph, user_query: str, conversation_history: List[Dict] = None) -> Dict[str, Any]:
+    """
+    Execute the Amaniq v1 pipeline with a user query.
+    
+    Args:
+        graph: Compiled LangGraph
+        user_query: User's input query
+        conversation_history: Optional conversation history
+    
+    Returns:
+        Dict containing final_response and metadata
+    """
+    import time
+    
+    # Initialize state
+    initial_state = {
         "user_query": user_query,
         "conversation_history": conversation_history or [],
-        "pipeline_start_time": datetime.now().timestamp(),
-        "total_tokens_used": 0,
-        "node_execution_times": {},
         "has_sheng": False,
         "synthesis_attempts": 0,
         "validation_attempts": 0,
         "is_valid": False,
         "validation_errors": [],
-        "web_results": ""
+        "pipeline_start_time": time.time(),
+        "total_tokens_used": 0,
+        "node_execution_times": {}
     }
-
-
-def execute_pipeline(
-    graph,
-    user_query: str,
-    conversation_history: List[Dict] = None
-) -> Dict[str, Any]:
-    """
-    Execute the complete Amaniq v1 pipeline.
-    
-    Args:
-        graph: Compiled LangGraph
-        user_query: User's question
-        conversation_history: Previous conversation messages
-    
-    Returns:
-        Final response dictionary
-    """
-    # Initialize state
-    initial_state = initialize_state(user_query, conversation_history)
     
     # Execute graph
-    logger.info(f"[Pipeline] Starting execution for: {user_query}")
-    final_state = graph.invoke(initial_state)
+    logger.info(f"[Pipeline] Starting execution for query: {user_query}")
+    result = graph.invoke(initial_state)
     
     # Calculate total time
-    total_time = datetime.now().timestamp() - final_state['pipeline_start_time']
+    total_time = time.time() - result['pipeline_start_time']
     
-    logger.info(f"[Pipeline] ✓ Completed in {total_time:.2f}s")
-    logger.info(f"[Pipeline] Node times: {final_state.get('node_execution_times', {})}")
-    
-    return {
-        "response": final_state.get('final_response'),
+    # Build response
+    response = {
+        "final_response": result.get('final_response', {}),
         "metadata": {
-            "query_type": final_state.get('query_type'),
-            "persona": final_state.get('persona_name'),
-            "confidence": final_state.get('confidence'),
-            "has_sheng": final_state.get('has_sheng'),
-            "num_docs_retrieved": len(final_state.get('retrieved_docs', [])),
-            "web_search_used": bool(final_state.get('web_results')),
-            "synthesis_attempts": final_state.get('synthesis_attempts'),
-            "validation_attempts": final_state.get('validation_attempts'),
-            "is_valid": final_state.get('is_valid'),
-            "total_time_seconds": total_time,
-            "node_execution_times": final_state.get('node_execution_times', {}),
-            "error": final_state.get('error_message')
+            "query_type": result.get('query_type'),
+            "persona": result.get('persona_name'),
+            "detected_language": result.get('detected_language'),
+            "has_sheng": result.get('has_sheng', False),
+            "confidence": result.get('confidence'),
+            "retrieval_count": len(result.get('retrieved_docs', [])),
+            "web_search_used": bool(result.get('web_results')),
+            "synthesis_attempts": result.get('synthesis_attempts', 0),
+            "validation_attempts": result.get('validation_attempts', 0),
+            "is_valid": result.get('is_valid', False),
+            "total_time_seconds": round(total_time, 2),
+            "node_times": result.get('node_execution_times', {}),
+            "error": result.get('error_message')
         }
     }
+    
+    logger.info(f"[Pipeline] ✓ Completed in {total_time:.2f}s")
+    return response
 
 
 # ============================================================================
@@ -808,57 +852,9 @@ def execute_pipeline(
 # ============================================================================
 
 if __name__ == "__main__":
-    print("""
-AmaniQuery v1.0 (amaniq-v1) - Agent Orchestration Graph
-=======================================================
-
-Usage Example:
-
-```python
-from amaniq_v1 import create_amaniq_v1_graph, execute_pipeline
-from your_llm_client import LLMClient
-from retrieval_strategies import UnifiedRetriever
-
-# Initialize clients
-llm_client = LLMClient(api_key="...")
-vector_db = UnifiedRetriever(backend="weaviate", client=weaviate_client)
-
-# Create graph
-graph = create_amaniq_v1_graph(llm_client, vector_db)
-
-# Execute query
-result = execute_pipeline(
-    graph=graph,
-    user_query="Kanjo wameongeza parking fees aje?",
-    conversation_history=[]
-)
-print(result)
-```
-""")print(result['response'])
-print(result['metadata'])
-```
-
-Pipeline Flow:
-==============
-User Query
-    ↓
-IntentRouter (classify: wanjiku/wakili/mwanahabari)
-    ↓
-ShengTranslator (convert Sheng → formal)
-    ↓
-Retrieval (persona-optimized search)
-    ↓
-Kenyanizer (generate system prompt)
-    ↓
-Synthesis (LLM generation + JSON enforcement) ←┐
-    ↓                                            │
-Validation (check schema + citations)          │
-    ↓                                            │
-    ├─ Valid? → Final Response                  │
-    └─ Invalid? → Retry (max 3x) ───────────────┘
-
-Self-Correction:
-- Synthesis retries up to 3x if parsing fails
-- Validation retries up to 2x if schema invalid
-- Fallback response if all retries exhausted
-    """)
+    print("AmaniQuery v1.0 (amaniq-v1) - Agent Orchestration Graph")
+    print("Import this module to use the graph.")
+    print("\nExample usage:")
+    print("  from Module4_NiruAPI.agents.amaniq_v1 import create_amaniq_v1_graph, execute_pipeline")
+    print("  graph = create_amaniq_v1_graph(llm_client, vector_db)")
+    print("  result = execute_pipeline(graph, 'Parking fees iko ngapi?')")

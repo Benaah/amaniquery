@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 # Add project root to path
 sys.path.insert(0, os.getcwd())
 
-from Module4_NiruAPI.agents.ak_rag_graph import create_ak_rag_graph, execute_pipeline
+from Module4_NiruAPI.agents.amaniq_v1 import create_amaniq_v1_graph, execute_pipeline
 from Module4_NiruAPI.rag_pipeline import RAGPipeline
 from Module3_NiruDB.vector_store import VectorStore
 from Module4_NiruAPI.agents.retrieval_strategies import UnifiedRetriever
@@ -15,7 +15,7 @@ from Module4_NiruAPI.agents.retrieval_strategies import UnifiedRetriever
 load_dotenv()
 
 async def verify_router():
-    print("🚀 Verifying Fast Intent Router...")
+    print("🚀 Verifying Fast Intent Router (Amaniq v1)...")
     
     # Check keys
     gemini_key = os.getenv("GEMINI_API_KEY")
@@ -30,20 +30,16 @@ async def verify_router():
         return
 
     # Initialize Fast LLM
-    fast_llm_callable = None
+    fast_llm_client = None
     try:
         if gemini_key:
             import google.generativeai as genai
             genai.configure(api_key=gemini_key)
-            flash_model = genai.GenerativeModel('gemini-1.5-flash')
-            def gemini_wrapper(prompt, **kwargs):
-                try:
-                    return flash_model.generate_content(prompt).text
-                except Exception as e:
-                    print(f"❌ Gemini Wrapper Error: {e}")
-                    raise e
-            fast_llm_callable = gemini_wrapper
-            print("✅ Initialized Gemini 1.5 Flash wrapper")
+            # Using 2.0 Flash Experimental for best speed
+            flash_model = genai.GenerativeModel('gemini-2.0-flash-exp')
+            # Pass the model object directly (it has generate_content method)
+            fast_llm_client = flash_model
+            print("✅ Initialized Gemini 2.0 Flash (Experimental)")
         elif openrouter_key:
             from openai import OpenAI
             or_client = OpenAI(
@@ -55,7 +51,7 @@ async def verify_router():
                     model="meta-llama/llama-3-70b-instruct",
                     messages=[{"role": "user", "content": prompt}]
                 ).choices[0].message.content
-            fast_llm_callable = openrouter_wrapper
+            fast_llm_client = openrouter_wrapper
             print("✅ Initialized OpenRouter wrapper")
     except Exception as e:
         print(f"❌ Failed to init fast LLM: {e}")
@@ -71,35 +67,49 @@ async def verify_router():
         def retrieve(self, *args, **kwargs): return []
 
     # Create graph with fast LLM
-    print("\nCreating graph with fast_llm_client...")
-    graph = create_ak_rag_graph(
+    print("\nCreating Amaniq v1 graph with fast_llm_client...")
+    graph = create_amaniq_v1_graph(
         llm_client=MockLLM(),
         vector_db_client=MockVectorDB(),
-        fast_llm_client=fast_llm_callable
+        fast_llm_client=fast_llm_client
     )
     
-    # Test Query
-    query = "Naskia kuna tax mpya kwa bodaboda?"
-    print(f"\nTesting Query: '{query}'")
+    # Test Query 1: Wanjiku/Sheng
+    query1 = "Naskia kuna tax mpya kwa bodaboda?"
+    print(f"\nTesting Query 1: '{query1}'")
     
-    result = execute_pipeline(graph, query)
+    result1 = execute_pipeline(graph, query1)
     
-    print("\n📊 Results:")
-    print(f"Query Type: {result['metadata']['query_type']}")
-    print(f"Confidence: {result['metadata']['confidence']}")
-    print(f"Reasoning: {result['response'].get('routing_reasoning', 'N/A')}")
-    print(f"Pipeline Error: {result['metadata'].get('error')}")
+    print("\n📊 Results 1:")
+    print(f"Query Type: {result1['metadata']['query_type']}")
+    print(f"Confidence: {result1['metadata']['confidence']}")
+    print(f"Pipeline Error: {result1['metadata'].get('error')}")
+    print(f"Web Search Used: {result1['metadata'].get('web_search_used')}")
     
-    # Check if we got a real classification or fallback
-    if result['metadata']['confidence'] == 0.5:
-        print("❌ Router failed (Fallback used)")
-    else:
+    if result1['metadata']['confidence'] > 0.6:
         print("✅ Router worked")
+    else:
+        print("❌ Router failed (Low confidence/Fallback)")
 
-    print(f"Language: {result['metadata'].get('has_sheng')}")
-    print(f"Total Time: {result['metadata']['total_time_seconds']:.2f}s")
+    # Test Query 2: Mwanahabari (Should trigger search/research intent)
+    query2 = "What are the latest amendments to the Finance Bill 2024?"
+    print(f"\nTesting Query 2: '{query2}'")
     
-    if result['metadata']['total_time_seconds'] < 2.0:
+    result2 = execute_pipeline(graph, query2)
+    
+    print("\n📊 Results 2:")
+    print(f"Query Type: {result2['metadata']['query_type']}")
+    print(f"Confidence: {result2['metadata']['confidence']}")
+    print(f"Web Search Used: {result2['metadata'].get('web_search_used')}")
+    
+    if result2['metadata']['query_type'] == 'mwanahabari':
+        print("✅ Correctly classified as mwanahabari")
+    else:
+        print(f"⚠️ Classified as {result2['metadata']['query_type']}")
+
+    print(f"\nTotal Time (Q1): {result1['metadata']['total_time_seconds']:.2f}s")
+    
+    if result1['metadata']['total_time_seconds'] < 2.0:
         print("\n✅ Speed Test PASSED (< 2s)")
     else:
         print("\n⚠️ Speed Test WARNING (> 2s)")

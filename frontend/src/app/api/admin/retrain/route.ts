@@ -5,16 +5,16 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 export async function POST(request: NextRequest) {
   try {
     const sessionToken = request.headers.get("x-session-token")
-    
+
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
     }
-    
+
     if (sessionToken) {
       headers["X-Session-Token"] = sessionToken
     }
 
-    const response = await fetch(`${API_BASE_URL}/admin/retrain`, {
+    const response = await fetch(`${API_BASE_URL}/api/admin/retrain`, {
       method: "POST",
       headers,
     })

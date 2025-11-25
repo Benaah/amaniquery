@@ -91,13 +91,7 @@ export function AgentMonitoring() {
   const [filterPersona, setFilterPersona] = useState<string>("all")
   const [filterConfidence, setFilterConfidence] = useState<string>("all")
 
-  // Fetch data
-  useEffect(() => {
-    fetchMetrics()
-    fetchQueryLogs()
-    fetchReviewQueue()
-  }, [])
-
+  // Fetch functions
   const fetchMetrics = async () => {
     try {
       const response = await fetch("/api/admin/agent-metrics")
@@ -187,6 +181,14 @@ export function AgentMonitoring() {
       console.error("Error initiating retrain:", error)
     }
   }
+
+  // Fetch data on mount
+  useEffect(() => {
+    fetchMetrics()
+    fetchQueryLogs()
+    fetchReviewQueue()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Filter logs
   const filteredLogs = queryLogs.filter(log => {
@@ -499,7 +501,7 @@ function QueryLogsView({
                 <div>
                   <Label className="text-xs font-semibold">Agent Path</Label>
                   <div className="mt-2 flex flex-wrap gap-1">
-                    {selectedLog.agent_path.map((node, idx) => (
+                    {selectedLog.agent_path.map((node: string, idx: number) => (
                       <span key={idx}>
                         <Badge variant="outline" className="text-xs">{node}</Badge>
                         {idx < selectedLog.agent_path.length - 1 && " → "}
@@ -512,7 +514,7 @@ function QueryLogsView({
                   <div>
                     <Label className="text-xs font-semibold">Quality Issues</Label>
                     <ul className="mt-2 space-y-1">
-                      {selectedLog.quality_issues.map((issue, idx) => (
+                      {selectedLog.quality_issues.map((issue: string, idx: number) => (
                         <li key={idx} className="text-sm text-orange-600 flex items-start gap-2">
                           <AlertTriangle className="h-4 w-4 mt-0.5" />
                           {issue}

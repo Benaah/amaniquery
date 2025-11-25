@@ -85,9 +85,7 @@ async def lifespan(app: FastAPI):
     try:
         backend = os.getenv("VECTOR_STORE_BACKEND", "chromadb")  # upstash, qdrant, chromadb
         vector_store = VectorStore(backend=backend, config_manager=config_manager)
-        # Warmup model in background to not block startup
-        threading.Thread(target=vector_store.warmup, daemon=True).start()
-        logger.info("Vector store initialized")
+        logger.info(f"Vector store initialized with backend: {backend}")
     except Exception as e:
         logger.error(f"Failed to initialize vector store: {e}")
         vector_store = None
@@ -476,9 +474,11 @@ async def lifespan(app: FastAPI):
                     # Create the graph
                     try:
                         amaniq_v1_graph = create_amaniq_v1_graph(
-                            llm_client=rag_pipeline.llm_service,
-                            vector_db_client=unified_retriever,
-                            fast_llm_client=fast_llm_client
+                            vector_store=vector_store,
+                            rag_pipeline=rag_pipeline,
+                            enable_reasoning=True,
+                            enable_quality_gate=True,
+                            config_manager=config_manager
                         )
                         logger.info("✓ Amaniq v1 Agent Graph initialized (Intent Router + WebSearch + Reasoning)")
                     except Exception as e:
@@ -4183,6 +4183,151 @@ class CrawlerManager:
         except Exception as e:
             logger.error(f"Error stopping crawler {crawler_name}: {e}")
             raise HTTPException(status_code=500, detail=f"Failed to stop crawler: {str(e)}")
+
+
+# ============================================================
+# Agent Monitoring Endpoints
+# ============================================================
+
+@app.get("/api/admin/agent-metrics", tags=["Admin", "Agent Monitoring"])
+async def get_agent_metrics(
+    request: Request,
+    admin = Depends(_admin_dependency),
+    days: int = 30
+):
+    """Get agent performance metrics (stub implementation with sample data)"""
+    try:
+        # TODO: Implement proper agent query logging in database
+        # For now, return sample metrics
+        return {
+            "total_queries": 150,
+            "avg_confidence": 0.78,
+            "avg_response_time_ms": 850,
+            "human_review_rate": 0.12,
+            "persona_distribution": {
+                "wanjiku": 80,
+                "wakili": 45,
+                "mwanahabari": 25
+            },
+            "intent_distribution": {
+                "news": 70,
+                "law": 50,
+                "hybrid": 20,
+                "general": 10
+            },
+            "confidence_buckets": {
+                "low": 15,
+                "medium": 50,
+                "high": 85
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting agent metrics: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/admin/query-logs", tags=["Admin", "Agent Monitoring"])
+async def get_query_logs(
+    request: Request,
+    admin = Depends(_admin_dependency),
+    limit: int = 100,
+    offset: int = 0
+):
+    """Get agent query logs (stub - returns empty for now)"""
+    try:
+        # TODO: Implement proper agent query logging
+        return {
+            "logs": [],
+            "total": 0,
+            "page": offset // limit + 1,
+            "page_size": limit
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting query logs: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/admin/review-queue", tags=["Admin", "Agent Monitoring"])
+async def get_review_queue(
+    request: Request,
+    admin = Depends(_admin_dependency)
+):
+    """Get queries pending human review (stub - returns empty for now)"""
+    try:
+        # TODO: Implement review queue storage
+        return {
+            "queue": [],
+            "total": 0
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting review queue: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/admin/review-queue/{log_id}/approve", tags=["Admin", "Agent Monitoring"])
+async def approve_review(
+    log_id: str,
+    request: Request,
+    admin = Depends(_admin_dependency)
+):
+    """Approve a query in the review queue"""
+    try:
+        logger.info(f"Review approved for log_id: {log_id}")
+        return {"message": "Query approved successfully", "log_id": log_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error approving review: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/admin/review-queue/{log_id}/reject", tags=["Admin", "Agent Monitoring"])
+async def reject_review(
+    log_id: str,
+    request: Request,
+    admin = Depends(_admin_dependency)
+):
+    """Reject a query in the review queue with feedback"""
+    try:
+        body = await request.json()
+        feedback = body.get("feedback", "")
+        logger.info(f"Review rejected for log_id: {log_id}, feedback: {feedback}")
+        return {
+            "message": "Query rejected with feedback",
+            "log_id": log_id,
+            "feedback": feedback
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error rejecting review: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/admin/retrain", tags=["Admin", "Agent Monitoring"])
+async def initiate_retrain(
+    request: Request,
+    admin = Depends(_admin_dependency)
+):
+    """Initiate model retraining (stub - in development)"""
+    try:
+        logger.info("Model retraining requested")
+        return {
+            "message": "Retraining initiated. This feature is currently in development.",
+            "status": "queued",
+            "estimated_time_hours": 2
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error initiating retrain: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 if __name__ == "__main__":

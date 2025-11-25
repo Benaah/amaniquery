@@ -9,17 +9,17 @@ export async function POST(
   try {
     const sessionToken = request.headers.get("x-session-token")
     const body = await request.json()
-    
+
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
     }
-    
+
     if (sessionToken) {
       headers["X-Session-Token"] = sessionToken
     }
 
     const response = await fetch(
-      `${API_BASE_URL}/admin/review-queue/${params.id}/reject`,
+      `${API_BASE_URL}/api/admin/review-queue/${params.id}/reject`,
       {
         method: "POST",
         headers,

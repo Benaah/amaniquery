@@ -4,8 +4,9 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params
   try {
     const sessionToken = request.headers.get("x-session-token")
     const body = await request.json()
@@ -19,7 +20,7 @@ export async function POST(
     }
 
     const response = await fetch(
-      `${API_BASE_URL}/api/admin/review-queue/${params.id}/reject`,
+      `${API_BASE_URL}/api/admin/review-queue/${id}/reject`,
       {
         method: "POST",
         headers,

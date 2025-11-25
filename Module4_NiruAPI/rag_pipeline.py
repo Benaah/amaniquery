@@ -330,6 +330,41 @@ class RAGPipeline:
         """Expose LLM client for other components"""
         return self.client
     
+    def generate_answer(
+        self,
+        query: str,
+        context: str,
+        system_prompt: Optional[str] = None,
+        temperature: float = 0.7,
+        max_tokens: int = 1500
+    ) -> str:
+        """
+        Generate answer from context (public wrapper for _generate_answer)
+        
+        Args:
+            query: User question
+            context: Retrieved context
+            system_prompt: Optional system prompt override
+            temperature: LLM temperature
+            max_tokens: Max tokens
+            
+        Returns:
+            Generated answer string
+        """
+        # Use the internal method which now supports system_prompt override
+        result = self._generate_answer(
+            query=query,
+            context=context,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            system_prompt=system_prompt
+        )
+        
+        # Return just the answer text as expected by callers
+        if isinstance(result, dict):
+            return result.get("answer", "")
+        return str(result)
+
     def query(
         self,
         query: str,
@@ -977,11 +1012,13 @@ Combined Response:"""
         context: str,
         temperature: float,
         max_tokens: int,
+        system_prompt: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Generate answer using LLM, potentially with interactive widgets"""
         
-        # System prompt with Impact Agent instructions
-        system_prompt = """You are AmaniQuery, an AI assistant specialized in Kenyan law, parliamentary proceedings, and current affairs.
+        # System prompt with Impact Agent instructions (default if not provided)
+        if system_prompt is None:
+            system_prompt = """You are AmaniQuery, an AI assistant specialized in Kenyan law, parliamentary proceedings, and current affairs.
 
 CRITICAL INSTRUCTION: DETECT QUANTITATIVE POLICY QUERIES
 If the user's query involves calculating costs, levies, taxes, fines, or statutory deductions (Housing Levy, NSSF, NHIF/SHIF, PAYE, Fuel Levy, Parking Fees, etc.), you MUST output a JSON response containing an interactive widget definition.

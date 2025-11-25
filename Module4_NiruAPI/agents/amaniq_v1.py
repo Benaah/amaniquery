@@ -35,13 +35,19 @@ import re
 from pathlib import Path
 import sys
 import json
+from openai import OpenAI
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 # Import existing AmaniQuery components
 from .intent_router import classify_query
-from .sheng_translator import detect_sheng, full_translation_pipeline
+from .sheng_translator import (
+    detect_sheng, 
+    full_translation_pipeline, 
+    translate_to_formal, 
+    translate_to_sheng
+)
 from .kenyanizer import (
     get_system_prompt,
     SYSTEM_PROMPT_WANJIKU,
@@ -203,6 +209,11 @@ class AmaniqV1State(TypedDict):
     agent_path: List[str]
     error_log: List[str]
     max_iterations: int
+    
+    # Enhancements
+    compressed_context: Optional[str]
+    fact_check_results: List[Dict[str, Any]]
+    skip_llm_synthesis: bool
 
 # ============================================================================
 # NODE FUNCTIONS
@@ -307,9 +318,24 @@ def sheng_translator_node(state: AmaniqV1State) -> AmaniqV1State:
     # Only translate if Sheng or informal Swahili detected
     if state["detected_language"] in ["sheng", "swahili"]:
         try:
-            # Use existing translation pipeline
-            translation_result = full_translation_pipeline(query)
-            translated = translation_result.get("formal_swahili", query)
+            # Define LLM wrapper for translation
+            def llm_wrapper(prompt: str) -> str:
+                if _RAG_PIPELINE:
+                    # Use generate_answer with the prompt as system prompt
+                    return _RAG_PIPELINE.generate_answer(
+                        query="",
+                        context="",
+                        system_prompt=prompt,
+                        max_tokens=500
+                    )
+                return prompt
+
+            # Use translate_to_formal with LLM wrapper
+            translation_result = translate_to_formal(
+                user_query=query,
+                llm_function=llm_wrapper
+            )
+            translated = translation_result.get("formal_query", query)
             
             logger.info(f"Translated: {query} → {translated}")
             
@@ -435,51 +461,62 @@ def tool_executor_node(state: AmaniqV1State) -> AmaniqV1State:
         logger.info(f"Executing step {step['step']}: {step['action']}")
         
         try:
-            # Execute the appropriate tool
-            if tool_name == "kb_search" and _KB_SEARCH_TOOL:
-                result = _KB_SEARCH_TOOL.execute(**tool_args)
-                
-                # Process search results into evidence
-                search_results = result.get("search_results", [])
-                for idx, item in enumerate(search_results):
-                    evidence = Evidence(
-                        source_id=f"kb_{step['step']}_{idx}",
-                        content=item.get("content", ""),
-                        source_type=_infer_source_type(item.get("metadata", {})),
-                        timestamp=item.get("metadata", {}).get("date_published"),
-                        url=item.get("metadata", {}).get("url", ""),
-                        confidence=float(item.get("score", 0.5)),
-                        metadata=item.get("metadata", {})
-                    )
-                    evidence_list.append(evidence)
+            # Execute the appropriate tool with retries
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    if tool_name == "kb_search" and _KB_SEARCH_TOOL:
+                        result = _KB_SEARCH_TOOL.execute(**tool_args)
+                        
+                        # Process search results into evidence
+                        search_results = result.get("search_results", [])
+                        for idx, item in enumerate(search_results):
+                            evidence = Evidence(
+                                source_id=f"kb_{step['step']}_{idx}",
+                                content=item.get("content", ""),
+                                source_type=_infer_source_type(item.get("metadata", {})),
+                                timestamp=item.get("metadata", {}).get("date_published"),
+                                url=item.get("metadata", {}).get("url", ""),
+                                confidence=float(item.get("score", 0.5)),
+                                metadata=item.get("metadata", {})
+                            )
+                            evidence_list.append(evidence)
+                            
+                            # Create source attribution
+                            source = Source(
+                                id=evidence["source_id"],
+                                title=item.get("metadata", {}).get("title", "Knowledge Base Document"),
+                                url=evidence["url"],
+                                source_type=evidence["source_type"],
+                                retrieved_at=datetime.now().isoformat()
+                            )
+                            sources_list.append(source)
+                        
+                        tool_call["result"] = result
+                        logger.info(f"KB search returned {len(search_results)} results")
+                        break  # Success, exit retry loop
                     
-                    # Create source attribution
-                    source = Source(
-                        id=evidence["source_id"],
-                        title=item.get("metadata", {}).get("title", "Knowledge Base Document"),
-                        url=evidence["url"],
-                        source_type=evidence["source_type"],
-                        retrieved_at=datetime.now().isoformat()
-                    )
-                    sources_list.append(source)
-                
-                tool_call["result"] = result
-                logger.info(f"KB search returned {len(search_results)} results")
-            
-            elif tool_name == "web_search" and _WEB_SEARCH_TOOL:
-                result = _WEB_SEARCH_TOOL.execute(**tool_args)
-                tool_call["result"] = result
-                # Process web results if needed
-            
-            elif tool_name == "news_search" and _NEWS_SEARCH_TOOL:
-                result = _NEWS_SEARCH_TOOL.execute(**tool_args)
-                tool_call["result"] = result
-                # Process news results if needed
-            
-            elif tool_name == "twitter_search" and _TWITTER_TOOL:
-                result = _TWITTER_TOOL.execute(**tool_args)
-                tool_call["result"] = result
-                # Process Twitter results if needed
+                    elif tool_name == "web_search" and _WEB_SEARCH_TOOL:
+                        result = _WEB_SEARCH_TOOL.execute(**tool_args)
+                        tool_call["result"] = result
+                        break
+                    
+                    elif tool_name == "news_search" and _NEWS_SEARCH_TOOL:
+                        result = _NEWS_SEARCH_TOOL.execute(**tool_args)
+                        tool_call["result"] = result
+                        break
+                    
+                    elif tool_name == "twitter_search" and _TWITTER_TOOL:
+                        result = _TWITTER_TOOL.execute(**tool_args)
+                        tool_call["result"] = result
+                        break
+                        
+                except Exception as inner_e:
+                    if attempt < max_retries - 1:
+                        logger.warning(f"Tool {tool_name} failed (attempt {attempt+1}/{max_retries}): {inner_e}. Retrying...")
+                        continue
+                    else:
+                        raise inner_e
             
             step["completed"] = True
             
@@ -495,6 +532,59 @@ def tool_executor_node(state: AmaniqV1State) -> AmaniqV1State:
     state["agent_path"].append("tool_executor")
     
     logger.info(f"Tool execution completed: {len(evidence_list)} evidence items retrieved")
+    
+    return state
+
+
+def compress_context_node(state: AmaniqV1State) -> AmaniqV1State:
+    """
+    Context Compression Node: Optimize evidence for context window
+    
+    - Groups evidence by relevance and type
+    - Extracts key citations (Case numbers, Acts)
+    - Truncates less relevant content
+    - Prioritizes 'Law' sources for Wakili persona
+    """
+    logger.info("=== CONTEXT COMPRESSION ===")
+    
+    evidence = state["retrieved_evidence"]
+    persona = state["persona"]
+    
+    if not evidence:
+        state["compressed_context"] = ""
+        return state
+        
+    # Extract citations
+    citations = []
+    for e in evidence:
+        content = e["content"]
+        # Simple regex for Kenyan legal citations
+        found_citations = re.findall(r'(?:Case No\.|Civil Appeal|Petition|Act No\.|Cap\.|Article)\s+[0-9A-Za-z\s\/]+', content)
+        citations.extend(found_citations)
+    
+    # Sort evidence by confidence
+    sorted_evidence = sorted(evidence, key=lambda x: x.get("confidence", 0), reverse=True)
+    
+    compressed_parts = []
+    
+    # Always include top 3 chunks fully
+    for i, e in enumerate(sorted_evidence[:3]):
+        compressed_parts.append(f"Source {i+1} ({e['source_type']}): {e['content']}")
+    
+    # For the rest, summarize or extract citations
+    for i, e in enumerate(sorted_evidence[3:], 3):
+        if persona == "wakili" and e["source_type"] == "law":
+            # Keep more legal context
+            compressed_parts.append(f"Source {i+1} ({e['source_type']}): {e['content'][:300]}...")
+        else:
+            # Aggressive truncation
+            compressed_parts.append(f"Source {i+1} ({e['source_type']}): {e['content'][:150]}...")
+            
+    if citations:
+        compressed_parts.append("\nKey Citations Found: " + ", ".join(set(citations[:10])))
+        
+    state["compressed_context"] = "\n\n".join(compressed_parts)
+    state["agent_path"].append("compress_context")
     
     return state
 
@@ -667,7 +757,12 @@ def persona_synthesis_node(state: AmaniqV1State) -> AmaniqV1State:
     
     # If RAG pipeline available, use it for synthesis
     synthesis = None
-    if _RAG_PIPELINE:
+    
+    # Check if LLM synthesis is skipped (for "pure response" mode)
+    if state.get("skip_llm_synthesis", False):
+        logger.info("Skipping LLM synthesis as requested")
+        synthesis = None  # Will trigger fallback below
+    elif _RAG_PIPELINE:
         try:
             # Use RAG pipeline with persona prompt
             synthesis = _RAG_PIPELINE.generate_answer(
@@ -675,6 +770,25 @@ def persona_synthesis_node(state: AmaniqV1State) -> AmaniqV1State:
                 context=context,
                 system_prompt=system_prompt
             )
+            
+            # If original query was Sheng, translate back
+            if state["detected_language"] == "sheng":
+                def llm_wrapper(prompt: str) -> str:
+                    return _RAG_PIPELINE.generate_answer(
+                        query="",
+                        context="",
+                        system_prompt=prompt,
+                        max_tokens=1000
+                    )
+                
+                sheng_result = translate_to_sheng(
+                    user_query=query,
+                    formal_answer=synthesis,
+                    llm_function=llm_wrapper
+                )
+                synthesis = sheng_result.get("sheng_response", synthesis)
+                logger.info("Re-injected Sheng style into response")
+                
         except Exception as e:
             logger.error(f"RAG pipeline synthesis error: {e}")
             state["error_log"].append(f"Synthesis error: {str(e)}")
@@ -693,6 +807,95 @@ def persona_synthesis_node(state: AmaniqV1State) -> AmaniqV1State:
     
     logger.info(f"Generated {persona} synthesis: {len(synthesis)} chars")
     
+    return state
+
+
+    logger.info(f"Generated {persona} synthesis: {len(synthesis)} chars")
+    
+    return state
+
+
+def fact_check_node(state: AmaniqV1State) -> AmaniqV1State:
+    """
+    Fact Check Node: Verify generated answer against evidence using Moonshot AI
+    
+    - Checks for hallucinated citations
+    - Verifies key claims against retrieved evidence
+    - Loops back if critical failures found (Reflexion)
+    """
+    logger.info("=== FACT CHECK (MOONSHOT) ===")
+    
+    synthesis = state.get("synthesis_result", "")
+    evidence = state["retrieved_evidence"]
+    
+    if not synthesis:
+        return state
+        
+    # Initialize Moonshot client
+    api_key = os.getenv("MOONSHOT_API_KEY")
+    base_url = os.getenv("MOONSHOT_BASE_URL") or "https://api.moonshot.ai/v1"
+    
+    if not api_key:
+        logger.warning("MOONSHOT_API_KEY not found, skipping AI fact check")
+        state["fact_check_results"] = [{"issues": [], "status": "skipped"}]
+        return state
+        
+    try:
+        client = OpenAI(api_key=api_key, base_url=base_url)
+        
+        # Prepare evidence text
+        evidence_text = ""
+        for i, e in enumerate(evidence[:5]): # Top 5 sources
+            evidence_text += f"Source {i+1}: {e['content'][:1000]}\n\n"
+            
+        prompt = f"""You are a strict fact-checker for a legal AI assistant.
+        
+Evidence:
+{evidence_text}
+
+Generated Answer:
+{synthesis}
+
+Task:
+1. Verify if the Generated Answer is supported by the Evidence.
+2. Identify any hallucinations or unsupported claims.
+3. Check if citations (e.g., "Source 1") match the actual content.
+
+Output JSON format:
+{{
+    "is_accurate": boolean,
+    "issues": ["list of specific inaccuracies or hallucinations"],
+    "correction_needed": boolean
+}}"""
+
+        response = client.chat.completions.create(
+            model="moonshot-v1-8k",
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant designed to output JSON."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.1,
+            response_format={"type": "json_object"}
+        )
+        
+        result_json = response.choices[0].message.content
+        fact_check_result = json.loads(result_json)
+        
+        issues = fact_check_result.get("issues", [])
+        if fact_check_result.get("correction_needed"):
+            state["quality_issues"].extend(issues)
+            logger.warning(f"Moonshot Fact Check Issues: {issues}")
+            
+            # Reduce confidence if issues found
+            state["confidence_score"] = max(0.0, state["confidence_score"] - 0.2)
+            
+        state["fact_check_results"] = [fact_check_result]
+        
+    except Exception as e:
+        logger.error(f"Moonshot fact check failed: {e}")
+        state["fact_check_results"] = [{"error": str(e)}]
+        
+    state["agent_path"].append("fact_check")
     return state
 
 
@@ -931,7 +1134,13 @@ def exit_gate(state: AmaniqV1State) -> AmaniqV1State:
             "agent_path": state["agent_path"],
             "quality_issues": state["quality_issues"],
             "timestamp": datetime.now().isoformat(),
-            "iteration_count": state["iteration_count"]
+            "iteration_count": state["iteration_count"],
+            "reasoning_path": {
+                "query": state["user_query"],
+                "thoughts": reasoning,
+                "total_duration_ms": 0, # Placeholder
+                "final_conclusion": "Analysis complete"
+            }
         }
     }
     
@@ -1098,10 +1307,12 @@ def create_amaniq_v1_graph(
     workflow.add_node("sheng_translator", sheng_translator_node)
     workflow.add_node("planner", planner_node)
     workflow.add_node("tool_executor", tool_executor_node)
+    workflow.add_node("compress_context", compress_context_node)  # NEW
     
     if enable_reasoning:
         workflow.add_node("reasoning_engine", reasoning_engine)
         workflow.add_node("persona_synthesis", persona_synthesis_node)
+        workflow.add_node("fact_check", fact_check_node)  # NEW
     
     if enable_quality_gate:
         workflow.add_node("quality_gate", quality_gate)
@@ -1128,13 +1339,17 @@ def create_amaniq_v1_graph(
     # From planner to tool executor
     workflow.add_edge("planner", "tool_executor")
     
-    # From tool executor to reasoning
+    # From tool executor to compression
+    workflow.add_edge("tool_executor", "compress_context")
+    
+    # From compression to reasoning
     if enable_reasoning:
-        workflow.add_edge("tool_executor", "reasoning_engine")
+        workflow.add_edge("compress_context", "reasoning_engine")
         workflow.add_edge("reasoning_engine", "persona_synthesis")
+        workflow.add_edge("persona_synthesis", "fact_check")
         
         if enable_quality_gate:
-            workflow.add_edge("persona_synthesis", "quality_gate")
+            workflow.add_edge("fact_check", "quality_gate")
             
             # From quality gate - conditional for iteration
             workflow.add_conditional_edges(
@@ -1146,11 +1361,11 @@ def create_amaniq_v1_graph(
                 }
             )
         else:
-            workflow.add_edge("persona_synthesis", "exit_gate")
+            workflow.add_edge("fact_check", "exit_gate")
     else:
         # Direct path if no reasoning
         if enable_quality_gate:
-            workflow.add_edge("tool_executor", "quality_gate")
+            workflow.add_edge("compress_context", "quality_gate")
             workflow.add_conditional_edges(
                 "quality_gate",
                 route_from_quality_gate,
@@ -1160,7 +1375,7 @@ def create_amaniq_v1_graph(
                 }
             )
         else:
-            workflow.add_edge("tool_executor", "exit_gate")
+            workflow.add_edge("compress_context", "exit_gate")
     
     # Exit gate is the final node
     workflow.add_edge("exit_gate", END)
@@ -1193,7 +1408,8 @@ def query_amaniq(
     graph: Optional[StateGraph] = None,
     vector_store: Optional[VectorStore] = None,
     rag_pipeline: Optional[RAGPipeline] = None,
-    config_manager: Optional[Any] = None
+    config_manager: Optional[Any] = None,
+    skip_llm_synthesis: bool = False
 ) -> Dict[str, Any]:
     """
     Convenience function to query AmaniQ agent
@@ -1217,11 +1433,19 @@ def query_amaniq(
             config_manager=config_manager
         )
     
+    # Check env var for default synthesis setting (default to True if not set)
+    # If ENABLE_LLM_SYNTHESIS is "false", then skip_llm_synthesis should be True
+    env_enable_synthesis = os.getenv("ENABLE_LLM_SYNTHESIS", "true").lower() == "true"
+    
+    # Logic: skip if explicitly requested OR if env var disables it
+    should_skip = skip_llm_synthesis or (not env_enable_synthesis)
+    
     initial_state = {
         "user_query": query,
         "session_context": session_context or {},
         "conversation_history": conversation_history or [],
-        "max_iterations": 2  # Limit iterations for efficiency
+        "max_iterations": 2,  # Limit iterations for efficiency
+        "skip_llm_synthesis": should_skip
     }
     
     try:

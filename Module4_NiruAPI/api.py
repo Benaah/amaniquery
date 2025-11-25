@@ -2212,6 +2212,65 @@ async def get_chat_attachment(session_id: str, attachment_id: str, request: Requ
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/chat/sessions/{session_id}/attachments/{attachment_id}/content", tags=["Chat"])
+async def get_attachment_content(session_id: str, attachment_id: str, request: Request):
+    """Get attachment content file"""
+    if chat_manager is None:
+        raise HTTPException(status_code=503, detail="Chat service not initialized")
+    
+    try:
+        # Verify session ownership
+        user_id = get_current_user_id(request)
+        if not verify_session_ownership(session_id, user_id, chat_manager):
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        # Get messages to find filename
+        messages = chat_manager.get_messages(session_id)
+        filename = None
+        for message in messages:
+            if message.attachments:
+                for attachment in message.attachments:
+                    if attachment.get("id") == attachment_id:
+                        filename = attachment.get("filename")
+                        break
+            if filename:
+                break
+        
+        if not filename:
+            raise HTTPException(status_code=404, detail="Attachment not found")
+            
+        # Construct file path
+        # Note: This assumes DocumentProcessor uses "amaniquery_uploads" in current dir
+        upload_dir = Path("amaniquery_uploads")
+        # Try to find the file - it has a UUID prefix we might not know exactly
+        # But we know it starts with session_id and contains attachment_id
+        # Actually DocumentProcessor saves as: {session_id}_{file_id}_{filename}
+        # where file_id is the attachment_id
+        
+        expected_filename = f"{session_id}_{attachment_id}_{filename}"
+        file_path = upload_dir / expected_filename
+        
+        if not file_path.exists():
+            # Try searching for it if exact name match fails
+            found = list(upload_dir.glob(f"*{attachment_id}*"))
+            if found:
+                file_path = found[0]
+            else:
+                raise HTTPException(status_code=404, detail="File not found on server")
+        
+        return FileResponse(
+            path=file_path, 
+            filename=filename,
+            media_type="application/octet-stream"
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting attachment content: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/chat/sessions/{session_id}/vision-content", tags=["Chat"])
 async def get_vision_content(session_id: str, request: Request):
     """Get vision content (images/PDF pages) for a session"""
@@ -2338,6 +2397,44 @@ async def share_chat_session(session_id: str, request: Request, share_type: str 
         raise
     except Exception as e:
         logger.error(f"Error sharing chat session: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/chat/shared/{session_id}", tags=["Chat"])
+async def get_shared_session(session_id: str):
+    """Get a shared chat session (public access)"""
+    if chat_manager is None:
+        raise HTTPException(status_code=503, detail="Chat service not initialized")
+    
+    try:
+        session = chat_manager.get_session(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+            
+        # Get messages
+        messages = chat_manager.get_messages(session_id)
+        
+        # Filter sensitive data if needed, but for now return full history
+        # You might want to hide system prompts or internal metadata
+        
+        return {
+            "title": session.title,
+            "created_at": session.created_at,
+            "messages": [
+                {
+                    "id": msg.id,
+                    "role": msg.role,
+                    "content": msg.content,
+                    "created_at": msg.created_at,
+                    "model_used": msg.model_used,
+                    "sources": msg.sources,
+                    "attachments": msg.attachments
+                }
+                for msg in messages
+            ]
+        }
+    except Exception as e:
+        logger.error(f"Error getting shared session: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -2568,19 +2665,15 @@ async def get_document(
         raise HTTPException(status_code=503, detail="Vector store not initialized")
     
     try:
-        # This would need a method to get document by ID
-        # For now, return mock data
-        return {
-            "id": doc_id,
-            "content": "Document content would be here...",
-            "metadata": {
-                "title": "Sample Document",
-                "url": "https://example.com",
-                "source": "Sample Source",
-                "category": "Legal",
-                "date": "2024-01-15"
-            }
-        }
+        # Get document from vector store
+        document = vector_store.get_document(doc_id)
+        
+        if not document:
+            raise HTTPException(status_code=404, detail=f"Document {doc_id} not found")
+            
+        return document
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error getting document {doc_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -2964,7 +3057,7 @@ async def sms_webhook(
     2. Get API key and username
     3. Set environment variables: AT_USERNAME, AT_API_KEY
     4. Configure webhook URL in Africa's Talking dashboard
-    5. Webhook URL: https://your-domain.com/sms-webhook
+    5. Webhook URL: https://amaniquery.com/sms-webhook
     """
     if sms_pipeline is None or sms_service is None:
         logger.error("SMS services not initialized")

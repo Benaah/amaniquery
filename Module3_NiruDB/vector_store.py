@@ -519,7 +519,7 @@ class VectorStore:
                     # Temporarily switch to ChromaDB for this operation
                     original_backend = self.backend
                     original_client = self.client
-                    original_collection = self.collection
+                    original_collection = getattr(self, "collection", None)
                     
                     self.backend = "chromadb"
                     self.client = self.chromadb_client
@@ -901,6 +901,81 @@ class VectorStore:
         except Exception as e:
             logger.error(f"Error querying vector store: {e}")
             return []
+
+    def get_document(self, doc_id: str) -> Optional[Dict]:
+        """
+        Get a specific document by ID
+        
+        Args:
+            doc_id: Document ID
+            
+        Returns:
+            Document dictionary or None if not found
+        """
+        try:
+            if self.backend == "chromadb":
+                result = self.collection.get(ids=[doc_id])
+                if result and result["ids"]:
+                    metadata = result["metadatas"][0]
+                    return {
+                        "id": result["ids"][0],
+                        "content": result["documents"][0],
+                        "metadata": metadata
+                    }
+            elif self.backend == "qdrant":
+                # Handle both integer and string IDs for Qdrant
+                try:
+                    # Try as is first (could be UUID string or int)
+                    points = self.client.retrieve(
+                        collection_name=self.collection_name,
+                        ids=[doc_id]
+                    )
+                except:
+                    # If that fails, it might be a hashed ID issue or format issue
+                    # For now return None if direct retrieval fails
+                    points = []
+                
+                if points:
+                    point = points[0]
+                    payload = point.payload
+                    return {
+                        "id": str(point.id),
+                        "content": payload.get("text", ""),
+                        "metadata": payload
+                    }
+            elif self.backend == "upstash":
+                # Upstash fetch
+                result = self.client.fetch(ids=[doc_id], include_metadata=True)
+                if result:
+                    vector = result[0]
+                    if vector:
+                        metadata = vector.metadata
+                        return {
+                            "id": vector.id,
+                            "content": metadata.get("text", ""),
+                            "metadata": metadata
+                        }
+            
+            # Try Elasticsearch if available and not found in vector store
+            if self.es_client:
+                try:
+                    res = self.es_client.get(index=self.collection_name, id=doc_id)
+                    if res and res["found"]:
+                        source = res["_source"]
+                        return {
+                            "id": res["_id"],
+                            "content": source.get("text", ""),
+                            "metadata": source
+                        }
+                except:
+                    pass
+                    
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error getting document {doc_id}: {e}")
+            return None
+
     
     def _query_upstash(self, query_embedding: List[float], n_results: int, filter: Optional[Dict], namespace: str = None) -> List[Dict]:
         """Query Upstash Vector"""

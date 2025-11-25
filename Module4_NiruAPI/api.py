@@ -1732,6 +1732,34 @@ async def delete_chat_session(session_id: str, request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.patch("/chat/sessions/{session_id}", response_model=ChatSessionResponse, tags=["Chat"])
+async def rename_chat_session(session_id: str, payload: Dict[str, str], request: Request):
+    """Rename a chat session"""
+    if chat_manager is None:
+        raise HTTPException(status_code=503, detail="Chat service not initialized")
+    
+    try:
+        # Verify session ownership
+        user_id = get_current_user_id(request)
+        if not verify_session_ownership(session_id, user_id, chat_manager):
+            raise HTTPException(status_code=403, detail="Access denied: You don't have permission to update this session")
+        
+        title = payload.get("title")
+        if not title:
+            raise HTTPException(status_code=400, detail="Title is required")
+            
+        chat_manager.update_session_title(session_id, title)
+        
+        # Return updated session
+        session = chat_manager.get_session(session_id)
+        return session
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error renaming chat session: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/chat/sessions/{session_id}/messages", response_model=ChatMessageResponse, tags=["Chat"])
 async def add_chat_message(session_id: str, message: ChatMessageCreate, request: Request):
     """Add a message to a chat session"""
@@ -1745,9 +1773,39 @@ async def add_chat_message(session_id: str, message: ChatMessageCreate, request:
             raise HTTPException(status_code=403, detail="Access denied: You don't have permission to access this session")
         
         # If this is the first user message and session has no title, generate one
-        session = chat_manager.get_session(session_id)
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
+            
+        # Auto-name session if it's the first user message and has no title (or default title)
+        if message.role == "user":
+            # Check if this is the first message (message_count might be 0 or 1 depending on when this runs)
+            # Actually, let's just check if title is None or "New Chat"
+            if not session.title or session.title == "New Chat":
+                # We'll generate title after adding the message, or use the content now
+                # Using the content now is better to avoid a separate DB call if possible, 
+                # but chat_manager.generate_session_title does it well.
+                # Let's do it asynchronously or just call it.
+                # Since we haven't added the message yet, we can't use generate_session_title which queries the DB.
+                # We'll do it AFTER adding the message.
+                pass
+        
+        # Add message to database
+        message_id = chat_manager.add_message(
+            session_id=session_id,
+            content=message.content,
+            role=message.role,
+            model_used=message.model_used
+        )
+        
+        # Auto-name session if needed (after adding message so it can be queried)
+        if message.role == "user" and (not session.title or session.title == "New Chat"):
+            try:
+                # Run in background to avoid blocking
+                # For now, just run it synchronously as it's fast
+                new_title = chat_manager.generate_session_title(session_id)
+                logger.info(f"Auto-named session {session_id} to: {new_title}")
+            except Exception as e:
+                logger.error(f"Failed to auto-name session: {e}")
         
         if message.role == "user":
             # Check if streaming is requested
@@ -1770,26 +1828,26 @@ async def add_chat_message(session_id: str, message: ChatMessageCreate, request:
                 # Use streaming RAG
                 if use_vision_rag:
                     # Use Vision RAG with streaming
-                    result = vision_rag_service.query(
-                        question=message.content,
-                        session_images=session_images,
-                        top_k=3,
-                        temperature=0.7,
-                        max_tokens=1000,
-                        stream=True,  # Enable streaming
-                    )
-                    # Convert vision sources to standard format
-                    vision_sources = []
-                    for src in result.get("sources", []):
-                        vision_sources.append({
-                            "title": src.get("filename", "Image"),
-                            "url": "",
-                            "source_name": src.get("source_file", "Uploaded Image"),
-                            "category": "vision",
-                            "excerpt": f"Image similarity: {src.get('similarity', 0):.2f}",
-                        })
-                    result["sources"] = vision_sources
-                            raise Exception("Invalid AmaniQ response")
+                    try:
+                        result = vision_rag_service.query(
+                            question=message.content,
+                            session_images=session_images,
+                            top_k=3,
+                            temperature=0.7,
+                            max_tokens=1000,
+                            stream=True,  # Enable streaming
+                        )
+                        # Convert vision sources to standard format
+                        vision_sources = []
+                        for src in result.get("sources", []):
+                            vision_sources.append({
+                                "title": src.get("filename", "Image"),
+                                "url": "",
+                                "source_name": src.get("source_file", "Uploaded Image"),
+                                "category": "vision",
+                                "excerpt": f"Image similarity: {src.get('similarity', 0):.2f}",
+                            })
+                        result["sources"] = vision_sources
                     except Exception as e:
                         logger.warning(f"[AmaniQ] Error in chat: {e}, falling back to standard RAG")
                         result = rag_pipeline.query_stream(
@@ -1829,6 +1887,15 @@ async def add_chat_message(session_id: str, message: ChatMessageCreate, request:
                     role="user",
                     attachments=attachments_data
                 )
+                
+                # Auto-generate title if needed
+                if not session.title or session.title == "New Chat":
+                    try:
+                        # We just added the message, so generate_session_title will find it
+                        new_title = chat_manager.generate_session_title(session_id)
+                        logger.info(f"Auto-generated title for session {session_id}: {new_title}")
+                    except Exception as e:
+                        logger.warning(f"Failed to auto-generate session title: {e}")
                 
                 # Return streaming response
                 from fastapi.responses import StreamingResponse
@@ -2212,6 +2279,65 @@ async def get_chat_attachment(session_id: str, attachment_id: str, request: Requ
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/chat/sessions/{session_id}/attachments/{attachment_id}/content", tags=["Chat"])
+async def get_attachment_content(session_id: str, attachment_id: str, request: Request):
+    """Get attachment content file"""
+    if chat_manager is None:
+        raise HTTPException(status_code=503, detail="Chat service not initialized")
+    
+    try:
+        # Verify session ownership
+        user_id = get_current_user_id(request)
+        if not verify_session_ownership(session_id, user_id, chat_manager):
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        # Get messages to find filename
+        messages = chat_manager.get_messages(session_id)
+        filename = None
+        for message in messages:
+            if message.attachments:
+                for attachment in message.attachments:
+                    if attachment.get("id") == attachment_id:
+                        filename = attachment.get("filename")
+                        break
+            if filename:
+                break
+        
+        if not filename:
+            raise HTTPException(status_code=404, detail="Attachment not found")
+            
+        # Construct file path
+        # Note: This assumes DocumentProcessor uses "amaniquery_uploads" in current dir
+        upload_dir = Path("amaniquery_uploads")
+        # Try to find the file - it has a UUID prefix we might not know exactly
+        # But we know it starts with session_id and contains attachment_id
+        # Actually DocumentProcessor saves as: {session_id}_{file_id}_{filename}
+        # where file_id is the attachment_id
+        
+        expected_filename = f"{session_id}_{attachment_id}_{filename}"
+        file_path = upload_dir / expected_filename
+        
+        if not file_path.exists():
+            # Try searching for it if exact name match fails
+            found = list(upload_dir.glob(f"*{attachment_id}*"))
+            if found:
+                file_path = found[0]
+            else:
+                raise HTTPException(status_code=404, detail="File not found on server")
+        
+        return FileResponse(
+            path=file_path, 
+            filename=filename,
+            media_type="application/octet-stream"
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting attachment content: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/chat/sessions/{session_id}/vision-content", tags=["Chat"])
 async def get_vision_content(session_id: str, request: Request):
     """Get vision content (images/PDF pages) for a session"""
@@ -2338,6 +2464,44 @@ async def share_chat_session(session_id: str, request: Request, share_type: str 
         raise
     except Exception as e:
         logger.error(f"Error sharing chat session: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/chat/shared/{session_id}", tags=["Chat"])
+async def get_shared_session(session_id: str):
+    """Get a shared chat session (public access)"""
+    if chat_manager is None:
+        raise HTTPException(status_code=503, detail="Chat service not initialized")
+    
+    try:
+        session = chat_manager.get_session(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+            
+        # Get messages
+        messages = chat_manager.get_messages(session_id)
+        
+        # Filter sensitive data if needed, but for now return full history
+        # You might want to hide system prompts or internal metadata
+        
+        return {
+            "title": session.title,
+            "created_at": session.created_at,
+            "messages": [
+                {
+                    "id": msg.id,
+                    "role": msg.role,
+                    "content": msg.content,
+                    "created_at": msg.created_at,
+                    "model_used": msg.model_used,
+                    "sources": msg.sources,
+                    "attachments": msg.attachments
+                }
+                for msg in messages
+            ]
+        }
+    except Exception as e:
+        logger.error(f"Error getting shared session: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -2568,19 +2732,15 @@ async def get_document(
         raise HTTPException(status_code=503, detail="Vector store not initialized")
     
     try:
-        # This would need a method to get document by ID
-        # For now, return mock data
-        return {
-            "id": doc_id,
-            "content": "Document content would be here...",
-            "metadata": {
-                "title": "Sample Document",
-                "url": "https://example.com",
-                "source": "Sample Source",
-                "category": "Legal",
-                "date": "2024-01-15"
-            }
-        }
+        # Get document from vector store
+        document = vector_store.get_document(doc_id)
+        
+        if not document:
+            raise HTTPException(status_code=404, detail=f"Document {doc_id} not found")
+            
+        return document
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error getting document {doc_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -2964,7 +3124,7 @@ async def sms_webhook(
     2. Get API key and username
     3. Set environment variables: AT_USERNAME, AT_API_KEY
     4. Configure webhook URL in Africa's Talking dashboard
-    5. Webhook URL: https://your-domain.com/sms-webhook
+    5. Webhook URL: https://amaniquery.com/sms-webhook
     """
     if sms_pipeline is None or sms_service is None:
         logger.error("SMS services not initialized")

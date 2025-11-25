@@ -326,19 +326,22 @@ export function MessageList({
                                   attachment.filename.toLowerCase().endsWith(".pdf")
                                 
                                 return (
-                                  <div
+                                  <a
                                     key={attachment.id}
-                                    className="flex items-start gap-2 p-2 rounded-lg border border-white/10 bg-white/5"
+                                    href={`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/chat/sessions/${message.session_id}/attachments/${attachment.id}/content`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="flex items-start gap-2 p-2 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 transition-colors cursor-pointer group/att"
                                   >
                                     {isImage ? (
-                                      <ImageIcon className="w-4 h-4 text-muted-foreground mt-1" />
+                                      <ImageIcon className="w-4 h-4 text-muted-foreground mt-1 group-hover/att:text-primary transition-colors" />
                                     ) : isPDF ? (
-                                      <FileText className="w-4 h-4 text-muted-foreground mt-1" />
+                                      <FileText className="w-4 h-4 text-muted-foreground mt-1 group-hover/att:text-primary transition-colors" />
                                     ) : (
-                                      <FileText className="w-4 h-4 text-muted-foreground mt-1" />
+                                      <FileText className="w-4 h-4 text-muted-foreground mt-1 group-hover/att:text-primary transition-colors" />
                                     )}
                                     <div className="flex-1 min-w-0">
-                                      <p className="text-sm font-medium truncate">{attachment.filename}</p>
+                                      <p className="text-sm font-medium truncate group-hover/att:text-primary transition-colors">{attachment.filename}</p>
                                       <p className="text-xs text-muted-foreground">
                                         {(attachment.file_size / 1024).toFixed(1)} KB • {attachment.file_type}
                                       </p>
@@ -358,7 +361,8 @@ export function MessageList({
                                         Processed
                                       </Badge>
                                     )}
-                                  </div>
+                                    <Download className="w-4 h-4 text-muted-foreground opacity-0 group-hover/att:opacity-100 transition-opacity" />
+                                  </a>
                                 )
                               })}
                           </div>

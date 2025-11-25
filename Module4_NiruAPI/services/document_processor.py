@@ -56,7 +56,8 @@ class DocumentProcessor:
             model_name=self.config.EMBEDDING_MODEL,
             batch_size=self.config.EMBEDDING_BATCH_SIZE,
         )
-        self.upload_dir = Path(tempfile.gettempdir()) / "amaniquery_uploads"
+        # Use a persistent directory for uploads
+        self.upload_dir = Path("amaniquery_uploads")
         self.upload_dir.mkdir(parents=True, exist_ok=True)
         
         # Initialize Cloudinary service if available
@@ -213,11 +214,11 @@ class DocumentProcessor:
             # Update result with modified attachment metadata
             result["attachment"] = attachment_metadata
             
-            # Clean up temporary file after all processing
-            try:
-                file_path.unlink()
-            except Exception as e:
-                logger.warning(f"Failed to delete temp file: {e}")
+            # Keep file for download
+            # try:
+            #     file_path.unlink()
+            # except Exception as e:
+            #     logger.warning(f"Failed to delete temp file: {e}")
             
             return result
             

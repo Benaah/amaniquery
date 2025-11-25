@@ -1772,6 +1772,8 @@ async def add_chat_message(session_id: str, message: ChatMessageCreate, request:
         if not verify_session_ownership(session_id, user_id, chat_manager):
             raise HTTPException(status_code=403, detail="Access denied: You don't have permission to access this session")
         
+        session = chat_manager.get_session(session_id)
+
         # If this is the first user message and session has no title, generate one
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
@@ -1901,7 +1903,7 @@ async def add_chat_message(session_id: str, message: ChatMessageCreate, request:
                 from fastapi.responses import StreamingResponse
                 import json
                 
-                async def generate_stream():
+                async def generate_stream(session=session):
                     full_answer = ""
                     try:
                         # First send sources
@@ -2108,7 +2110,8 @@ async def add_chat_message(session_id: str, message: ChatMessageCreate, request:
                 )
                 
                 # Generate session title if needed
-                if not session.title:
+                session = chat_manager.get_session(session_id)
+                if session and not session.title:
                     title = chat_manager.generate_session_title(session_id)
                     chat_manager.update_session_title(session_id, title)
                 

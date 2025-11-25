@@ -139,6 +139,8 @@ class SessionProvider:
         if cached_session:
             # Attach cached session instance to current session to avoid DetachedInstanceError
             cached_session = db.merge(cached_session)
+            # Refresh the merged session to ensure it's up to date
+            db.refresh(cached_session)
             logger.debug(f"Session found in cache: session_id={cached_session.id}")
             # Still check if session is expired (quick in-memory check)
             if cached_session.expires_at:

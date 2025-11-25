@@ -19,6 +19,56 @@ from Module3_NiruDB.vector_store import VectorStore
 from Module4_NiruAPI.config_manager import ConfigManager
 
 
+def determine_namespace(category: str, publication_date: str) -> str:
+    """Determine the appropriate namespace based on category and publication date"""
+    # Check for historical data (pre-2010)
+    if publication_date:
+        try:
+            # Extract year from publication date
+            if isinstance(publication_date, str):
+                # Handle various date formats
+                import re
+                year_match = re.search(r'(\d{4})', publication_date)
+                if year_match:
+                    year = int(year_match.group(1))
+                    if year < 2010:
+                        return "historical"
+        except (ValueError, AttributeError):
+            pass
+    
+    # Map categories to namespaces
+    category_lower = category.lower()
+    
+    # Kenya Law namespace
+    if any(keyword in category_lower for keyword in [
+        'kenyan law', 'case law', 'kenya gazette', 'kenya law blog', 
+        'cause lists', 'constitution', 'act', 'legislation', 'judgment'
+    ]):
+        return "kenya_law"
+    
+    # Kenya News namespace
+    elif any(keyword in category_lower for keyword in [
+        'kenyan news', 'news'
+    ]):
+        return "kenya_news"
+    
+    # Kenya Parliament namespace
+    elif any(keyword in category_lower for keyword in [
+        'parliament', 'parliamentary record', 'bill', 'hansard', 'budget'
+    ]):
+        return "kenya_parliament"
+    
+    # Global Trends namespace (default for global content)
+    elif any(keyword in category_lower for keyword in [
+        'global trend'
+    ]):
+        return "global_trends"
+    
+    # Default fallback
+    else:
+        return "kenya_law"  # Default to kenya_law for legal content
+
+
 def main():
     """Load processed data into vector databases and Elasticsearch"""
     print("=" * 60)
@@ -118,10 +168,12 @@ def main():
         if chunks:
             print(f"   Adding {len(chunks)} chunks to databases...")
 
-            # Group the chunks by category (used as namespace)
+            # Group the chunks by proper namespace (not just category)
             namespace_map = {}
             for chunk in chunks:
-                ns = chunk.get("category", "default").lower().replace(" ", "_")
+                category = chunk.get("category", "Unknown")
+                publication_date = chunk.get("publication_date", "")
+                ns = determine_namespace(category, publication_date)
                 if ns not in namespace_map:
                     namespace_map[ns] = []
                 namespace_map[ns].append(chunk)

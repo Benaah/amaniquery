@@ -14,6 +14,7 @@ from niruspider.spiders.kenya_law_new_spider import KenyaLawNewSpider
 from niruspider.spiders.parliament_spider import ParliamentSpider
 from niruspider.spiders.news_rss_spider import NewsRSSSpider
 from niruspider.spiders.global_trends_spider import GlobalTrendsSpider
+from niruspider.spiders.parliament_video_spider import ParliamentVideoSpider
 
 
 def main():
@@ -32,6 +33,7 @@ def main():
     spiders = [
         ("Kenya Law", KenyaLawNewSpider),
         ("Parliament", ParliamentSpider),
+        ("Parliament Videos", ParliamentVideoSpider),
         ("Kenyan News (RSS)", NewsRSSSpider),
         ("Global Trends (RSS)", GlobalTrendsSpider),
     ]

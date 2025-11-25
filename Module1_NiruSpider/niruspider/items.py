@@ -70,6 +70,7 @@ class DocumentItem(scrapy.Item):
     metadata_tags = scrapy.Field()          # List: ["explainer", "summary", "analysis"]
     keywords = scrapy.Field()               # Extracted keywords
     language = scrapy.Field()               # Detected language
+    quality_score = scrapy.Field()          # Quality score from QualityScoringPipeline (0-1)
     
     # ========================================================================
     # TECHNICAL FIELDS

@@ -3705,7 +3705,8 @@ class CrawlerManager:
             "kenya_law": {"status": "idle", "last_run": None},
             "parliament": {"status": "idle", "last_run": None},
             "news_rss": {"status": "idle", "last_run": None},
-            "global_trends": {"status": "idle", "last_run": None}
+            "global_trends": {"status": "idle", "last_run": None},
+            "parliament_videos": {"status": "idle", "last_run": None}
         }
         
         if self.db_manager and self.db_manager._initialized:
@@ -3955,7 +3956,8 @@ class CrawlerManager:
             "kenya_law": {"status": "idle", "last_run": None},
             "parliament": {"status": "idle", "last_run": None},
             "news_rss": {"status": "idle", "last_run": None},
-            "global_trends": {"status": "idle", "last_run": None}
+            "global_trends": {"status": "idle", "last_run": None},
+            "parliament_videos": {"status": "idle", "last_run": None}
         }
         
         # Load from database if available
@@ -4010,7 +4012,8 @@ class CrawlerManager:
                 "kenya_law": {"category": "Kenyan Law"},
                 "parliament": {"category": "Parliament"},
                 "news_rss": {"source_name": "News RSS"},
-                "global_trends": {"category": "Global Trend"}
+                "global_trends": {"category": "Global Trend"},
+                "parliament_videos": {"category": "Parliamentary Record"}
             }
             
             with database_storage.get_db_session() as db:
@@ -4057,10 +4060,11 @@ class CrawlerManager:
             
             # Map crawler names to spider names
             spider_mapping = {
-                "kenya_law": "kenya_law_spider",
+                "kenya_law": "kenya_law_new_spider",
                 "parliament": "parliament_spider", 
                 "news_rss": "news_rss_spider",
-                "global_trends": "global_trends_spider"
+                "global_trends": "global_trends_spider",
+                "parliament_videos": "parliament_video_spider"
             }
             
             if crawler_name not in spider_mapping:

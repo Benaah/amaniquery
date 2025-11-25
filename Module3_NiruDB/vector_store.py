@@ -361,11 +361,11 @@ class VectorStore:
         else:
             return None
     
-    def _add_upstash(self, chunks: List[Dict], client=None):
+    def _add_upstash(self, chunks: List[Dict], client=None, namespace: str = None):
         """Add to Upstash Vector"""
         if client is None:
             client = self.client
-            
+
         vectors = []
         for chunk in chunks:
             metadata = {
@@ -377,12 +377,14 @@ class VectorStore:
                 "total_chunks": str(chunk.get("total_chunks", 1)),
                 "text": str(chunk["text"])
             }
+            if namespace:
+                metadata["namespace"] = namespace
             vectors.append({
                 "id": str(chunk["chunk_id"]),
                 "vector": chunk["embedding"],
                 "metadata": metadata
             })
-        
+
         client.upsert(vectors=vectors)
         logger.info(f"Added {len(chunks)} chunks to Upstash")
     
@@ -444,19 +446,32 @@ class VectorStore:
                 logger.error(f"Error adding batch: {e}")
         logger.info(f"Total documents in collection: {self.collection.count()}")
     
-    def add_documents(self, chunks: List[Dict], batch_size: int = 100):
+    def add_documents(self, chunks: List[Dict], batch_size: int = 100, namespace: str = None):
         """Add documents to vector store (public method)
         
         Args:
             chunks: List of chunk dictionaries with 'text', 'embedding', and metadata
             batch_size: Batch size for processing (default: 100)
+            namespace: Optional namespace for collection separation
         """
         if not chunks:
             logger.warning("No chunks provided to add_documents")
             return
+
+        # Modify collection name based on namespace for supported backends
+        original_collection = self.collection_name
+        if namespace:
+            if self.backend in ["qdrant", "chromadb"]:
+                self.collection_name = f"{original_collection}_{namespace}"
+            elif self.backend == "upstash":
+                # Namespace will be used as metadata filter during upsert/query
+                pass
+            elif self.es_client:
+                # ElasticSearch index name changed by namespace
+                self.collection_name = f"{original_collection}_{namespace}"
         
         if self.backend == "upstash":
-            self._add_upstash(chunks)
+            self._add_upstash(chunks, namespace=namespace)
         elif self.backend == "qdrant":
             self._add_qdrant(chunks, batch_size)
         elif self.backend == "chromadb":
@@ -464,13 +479,22 @@ class VectorStore:
         else:
             logger.error(f"Unsupported backend for add_documents: {self.backend}")
             raise ValueError(f"Unsupported backend: {self.backend}")
+
+        # Restore original collection name
+        self.collection_name = original_collection
     
-    def index_document(self, doc_id: str, document: Dict):
+    def index_document(self, doc_id: str, document: Dict, namespace: str = None):
         """Index document in Elasticsearch"""
         if self.es_client:
             try:
-                self.es_client.index(index=self.collection_name, id=doc_id, document=document)
-                logger.info(f"Indexed document: {doc_id}")
+                index_name = self.collection_name
+                if namespace:
+                    index_name = f"{index_name}_{namespace}"
+                # Ensure index existence for namespace-based index
+                if not self.es_client.indices.exists(index=index_name):
+                    self.es_client.indices.create(index=index_name)
+                self.es_client.index(index=index_name, id=doc_id, document=document)
+                logger.info(f"Indexed document: {doc_id} in index: {index_name}")
             except Exception as e:
                 logger.error(f"Failed to index document {doc_id}: {e}")
     

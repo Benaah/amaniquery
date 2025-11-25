@@ -1,3 +1,4 @@
+
 """
 Populate vector database from processed data
 """
@@ -104,7 +105,6 @@ def main():
 
     total_chunks = 0
     total_files = 0
-
     for jsonl_file in tqdm(jsonl_files, desc="Processing files"):
         print(f"\n📄 Processing: {jsonl_file.name}")
 
@@ -118,14 +118,32 @@ def main():
         if chunks:
             print(f"   Adding {len(chunks)} chunks to databases...")
 
-            # Add to each vector store
-            for store_name, vector_store in vector_stores:
-                try:
-                    print(f"     → Adding to {store_name}...")
-                    vector_store.add_documents(chunks)
-                    print(f"     ✔ Added to {store_name}")
-                except Exception as e:
-                    print(f"     ✗ Failed to add to {store_name}: {e}")
+            # Group the chunks by category (used as namespace)
+            namespace_map = {}
+            for chunk in chunks:
+                ns = chunk.get("category", "default").lower().replace(" ", "_")
+                if ns not in namespace_map:
+                    namespace_map[ns] = []
+                namespace_map[ns].append(chunk)
+
+            # Add documents per namespace per vector store
+            for namespace, ns_chunks in namespace_map.items():
+                print(f"   → Processing namespace: {namespace} with {len(ns_chunks)} chunks")
+                for store_name, vector_store in vector_stores:
+                    try:
+                        print(f"     → Adding to {store_name} in namespace '{namespace}'...")
+                        vector_store.add_documents(ns_chunks, namespace=namespace)
+                        
+                        # Also index in elasticsearch if available and enabled
+                        if vector_store.es_client is not None:
+                            for chunk in ns_chunks:
+                                doc_id = str(chunk.get("chunk_id"))
+                                vector_store.index_document(doc_id, chunk, namespace=namespace)
+                        
+                        print(f"     ✔ Added to {store_name} in namespace '{namespace}'")
+                    except Exception as e:
+                        print(f"     ✗ Failed to add to {store_name} in namespace '{namespace}': {e}")
+
 
             total_chunks += len(chunks)
             total_files += 1

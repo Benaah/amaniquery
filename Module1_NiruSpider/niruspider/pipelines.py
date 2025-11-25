@@ -169,7 +169,7 @@ class DeduplicationPipeline:
         # Check if duplicate
         is_dup, reason = self.dedup_engine.is_duplicate(url, content, title)
         if is_dup:
-            spider.logger.debug(f"Dropping duplicate article: {url} (reason: {reason})")
+            spider.logger.info(f"✗ Dropping duplicate article: {title[:50]}... (reason: {reason})")
             raise scrapy.exceptions.DropItem(f"Duplicate article: {reason}")
         
         # Register article
@@ -182,8 +182,11 @@ class DeduplicationPipeline:
         )
         
         if not registered:
-            spider.logger.debug(f"Failed to register article (likely duplicate): {url}")
+            spider.logger.info(f"✗ Failed to register article (likely duplicate): {title[:50]}...")
             raise scrapy.exceptions.DropItem("Failed to register article")
+        
+        # Successfully passed deduplication
+        spider.logger.info(f"✓ New article registered: {title[:50]}...")
         
         return item
 
@@ -213,6 +216,12 @@ class QualityScoringPipeline:
             return item
         
         adapter = ItemAdapter(item)
+        
+        # Skip quality scoring for news_rss spider (make quality_score optional)
+        if spider.name == "news_rss":
+            adapter["quality_score"] = None
+            adapter["quality_breakdown"] = None
+            return item
         
         # Prepare article dict for scoring
         article = {
@@ -283,10 +292,14 @@ class PDFDownloadPipeline(FilesPipeline):
         
         # If content_type is PDF, download it
         if adapter.get("content_type") == "pdf" and adapter.get("url"):
+            info.spider.logger.info(f"📄 Queueing PDF download: {adapter.get('title', '')[:50]}...")
             yield scrapy.Request(
                 adapter["url"],
                 meta={"item": item}
             )
+        else:
+            # Not a PDF, just pass through
+            info.spider.logger.debug(f"Skipping PDF download for non-PDF item: {adapter.get('content_type', 'unknown')}")
     
     def file_path(self, request, response=None, info=None, *, item=None):
         """Generate file path for PDFs"""
@@ -350,6 +363,8 @@ class FileStoragePipeline:
     
     def process_item(self, item, spider):
         """Write item to JSONL file"""
+        adapter = ItemAdapter(item)
         line = json.dumps(dict(item), ensure_ascii=False, default=str) + "\n"
         self.files[spider].write(line)
+        spider.logger.info(f"💾 Saved to file: {adapter['title'][:50]}...")
         return item

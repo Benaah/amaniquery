@@ -14,6 +14,7 @@ class DocumentItem(scrapy.Item):
     url = scrapy.Field()
     title = scrapy.Field()
     content = scrapy.Field()             # Full text or chunk
+    summary = scrapy.Field()             # Brief summary/description
     content_type = scrapy.Field()        # html, pdf, text
     chunk_index = scrapy.Field()         # Position in document (0 for full doc)
     total_chunks = scrapy.Field()        # Total chunks in document

@@ -1770,26 +1770,26 @@ async def add_chat_message(session_id: str, message: ChatMessageCreate, request:
                 # Use streaming RAG
                 if use_vision_rag:
                     # Use Vision RAG with streaming
-                    result = vision_rag_service.query(
-                        question=message.content,
-                        session_images=session_images,
-                        top_k=3,
-                        temperature=0.7,
-                        max_tokens=1000,
-                        stream=True,  # Enable streaming
-                    )
-                    # Convert vision sources to standard format
-                    vision_sources = []
-                    for src in result.get("sources", []):
-                        vision_sources.append({
-                            "title": src.get("filename", "Image"),
-                            "url": "",
-                            "source_name": src.get("source_file", "Uploaded Image"),
-                            "category": "vision",
-                            "excerpt": f"Image similarity: {src.get('similarity', 0):.2f}",
-                        })
-                    result["sources"] = vision_sources
-                            raise Exception("Invalid AmaniQ response")
+                    try:
+                        result = vision_rag_service.query(
+                            question=message.content,
+                            session_images=session_images,
+                            top_k=3,
+                            temperature=0.7,
+                            max_tokens=1000,
+                            stream=True,  # Enable streaming
+                        )
+                        # Convert vision sources to standard format
+                        vision_sources = []
+                        for src in result.get("sources", []):
+                            vision_sources.append({
+                                "title": src.get("filename", "Image"),
+                                "url": "",
+                                "source_name": src.get("source_file", "Uploaded Image"),
+                                "category": "vision",
+                                "excerpt": f"Image similarity: {src.get('similarity', 0):.2f}",
+                            })
+                        result["sources"] = vision_sources
                     except Exception as e:
                         logger.warning(f"[AmaniQ] Error in chat: {e}, falling back to standard RAG")
                         result = rag_pipeline.query_stream(

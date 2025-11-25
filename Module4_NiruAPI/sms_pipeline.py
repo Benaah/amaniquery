@@ -2,7 +2,7 @@
 SMS-Optimized RAG Pipeline
 Handles SMS queries with 160-character response limit and simple language
 """
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 from loguru import logger
 import re
 
@@ -49,7 +49,7 @@ class SMSPipeline:
             results = self.vector_store.query(
                 query_text=query,
                 n_results=3,  # Fewer results for SMS context
-                filter=self._get_category_filter(query_type)
+                namespace=self._get_namespace(query_type)
             )
             
             if not results:
@@ -108,15 +108,15 @@ class SMSPipeline:
         # Default
         return "general"
     
-    def _get_category_filter(self, query_type: str) -> Optional[Dict]:
-        """Get category filter based on query type"""
-        filters = {
-            "legal": {"category": {"$in": ["Kenya Law", "Constitutional Document"]}},
-            "parliament": {"category": "Parliamentary Record"},
-            "news": {"category": {"$in": ["Kenyan News", "Global Trend"]}},
-            "general": None  # No filter for general queries
+    def _get_namespace(self, query_type: str) -> Optional[List[str]]:
+        """Get namespace list based on query type"""
+        namespaces = {
+            "legal": ["kenya_law"],
+            "parliament": ["kenya_parliament"],
+            "news": ["kenya_news", "global_trends"],
+            "general": ["kenya_law", "kenya_news", "kenya_parliament", "historical", "global_trends"]  # Search all for general queries
         }
-        return filters.get(query_type)
+        return namespaces.get(query_type)
     
     def _generate_sms_response(
         self,

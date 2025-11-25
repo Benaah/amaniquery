@@ -498,16 +498,19 @@ class VectorStore:
             except Exception as e:
                 logger.error(f"Failed to index document {doc_id}: {e}")
     
-    def search_documents(self, query: str, n_results: int = 5) -> List[Dict]:
+    def search_documents(self, query: str, n_results: int = 5, namespace: str = None) -> List[Dict]:
         """Search documents in Elasticsearch"""
         if not self.es_client:
             return []
         try:
-            response = self.es_client.search(index=self.collection_name, query={"match": {"content": query}}, size=n_results)
+            index_name = self.collection_name
+            if namespace:
+                index_name = f"{index_name}_{namespace}"
+            response = self.es_client.search(index=index_name, query={"match": {"content": query}}, size=n_results)
             results = []
             for hit in response["hits"]["hits"]:
                 results.append({"id": hit["_id"], "text": hit["_source"].get("content", ""), "metadata": hit["_source"], "score": hit["_score"]})
-            logger.info(f"Elasticsearch search returned {len(results)} results")
+            logger.info(f"Elasticsearch search returned {len(results)} results from index: {index_name}")
             return results
         except Exception as e:
             logger.error(f"Elasticsearch search failed: {e}")
@@ -605,7 +608,7 @@ class VectorStore:
             logger.warning(f"ChromaDB get failed: {e}")
             return []
             
-    def query(self, query_text: str, n_results: int = 5, filter: Optional[Dict] = None) -> List[Dict]:
+    def query(self, query_text: str, n_results: int = 5, filter: Optional[Dict] = None, namespace: str = None) -> List[Dict]:
         """Query vector store for similar documents"""
         try:
             try:
@@ -619,25 +622,45 @@ class VectorStore:
                     query_embedding = self.embedding_model.encode(query_text).tolist()
                 else:
                     raise
+            
+            # Modify collection name based on namespace for supported backends
+            original_collection = self.collection_name
+            if namespace:
+                if self.backend in ["qdrant", "chromadb"]:
+                    self.collection_name = f"{original_collection}_{namespace}"
+                elif self.backend == "upstash":
+                    # Namespace will be used as metadata filter during query
+                    pass
+                elif self.es_client:
+                    # ElasticSearch index name changed by namespace
+                    self.collection_name = f"{original_collection}_{namespace}"
+            
             if self.backend == "upstash":
-                return self._query_upstash(query_embedding, n_results, filter)
+                results = self._query_upstash(query_embedding, n_results, filter, namespace)
             elif self.backend == "qdrant":
-                return self._query_qdrant(query_embedding, n_results, filter)
+                results = self._query_qdrant(query_embedding, n_results, filter)
             elif self.backend == "chromadb":
-                return self._query_chromadb(query_embedding, n_results, filter)
+                results = self._query_chromadb(query_embedding, n_results, filter)
             else:
                 logger.error(f"Unsupported backend for query: {self.backend}")
-                return []
+                results = []
+            
+            # Restore original collection name
+            self.collection_name = original_collection
+            
+            return results
         except Exception as e:
             logger.error(f"Error querying vector store: {e}")
             return []
     
-    def _query_upstash(self, query_embedding: List[float], n_results: int, filter: Optional[Dict]) -> List[Dict]:
+    def _query_upstash(self, query_embedding: List[float], n_results: int, filter: Optional[Dict], namespace: str = None) -> List[Dict]:
         """Query Upstash Vector"""
         filter_dict = {}
         if filter:
             for k, v in filter.items():
                 filter_dict[f"metadata.{k}"] = str(v)
+        if namespace:
+            filter_dict["metadata.namespace"] = namespace
         results = self.client.query(vector=query_embedding, top_k=n_results, filter=filter_dict, include_metadata=True, include_data=True)
         formatted_results = []
         for hit in results:

@@ -24,6 +24,55 @@ class VectorStorePipeline:
         self.vector_store = None
         self.text_embedder = None
     
+    def _determine_namespace(self, category: str, publication_date: str) -> str:
+        """Determine the appropriate namespace based on category and publication date"""
+        # Check for historical data (pre-2010)
+        if publication_date:
+            try:
+                # Extract year from publication date
+                if isinstance(publication_date, str):
+                    # Handle various date formats
+                    import re
+                    year_match = re.search(r'(\d{4})', publication_date)
+                    if year_match:
+                        year = int(year_match.group(1))
+                        if year < 2010:
+                            return "historical"
+            except (ValueError, AttributeError):
+                pass
+        
+        # Map categories to namespaces
+        category_lower = category.lower()
+        
+        # Kenya Law namespace
+        if any(keyword in category_lower for keyword in [
+            'kenyan law', 'case law', 'kenya gazette', 'kenya law blog', 
+            'cause lists', 'constitution', 'act', 'legislation', 'judgment'
+        ]):
+            return "kenya_law"
+        
+        # Kenya News namespace
+        elif any(keyword in category_lower for keyword in [
+            'kenyan news', 'news'
+        ]):
+            return "kenya_news"
+        
+        # Kenya Parliament namespace
+        elif any(keyword in category_lower for keyword in [
+            'parliament', 'parliamentary record', 'bill', 'hansard', 'budget'
+        ]):
+            return "kenya_parliament"
+        
+        # Global Trends namespace (default for global content)
+        elif any(keyword in category_lower for keyword in [
+            'global trend'
+        ]):
+            return "global_trends"
+        
+        # Default fallback
+        else:
+            return "kenya_law"  # Default to kenya_law for legal content
+    
     def open_spider(self, spider):
         """Initialize vector store connection"""
         try:
@@ -61,6 +110,9 @@ class VectorStorePipeline:
                 "content_type": adapter.get("content_type", "html"),
                 "crawl_date": adapter.get("crawl_date", datetime.utcnow().isoformat()),
             }
+            
+            # Determine namespace based on category and publication date
+            namespace = self._determine_namespace(metadata["category"], metadata["publication_date"])
             
             # Prepare content for embedding
             content = adapter.get("content", "")
@@ -117,10 +169,10 @@ class VectorStorePipeline:
                 # Generate embeddings
                 embedded_chunks = self.text_embedder.embed_chunks(chunk_dicts)
                 
-                # Add to vector store
-                self.vector_store.add_documents(embedded_chunks)
+                # Add to vector store with namespace
+                self.vector_store.add_documents(embedded_chunks, namespace=namespace)
                 
-                spider.logger.info(f"Added {len(embedded_chunks)} chunks for: {adapter['title'][:50]}...")
+                spider.logger.info(f"Added {len(embedded_chunks)} chunks for: {adapter['title'][:50]}... (namespace: {namespace})")
             
             return item
             

@@ -1549,11 +1549,12 @@ async def get_topic_sentiment(
             # Only analyze news categories
             filter_dict["category"] = {"$in": ["Kenyan News", "Global Trend"]}
         
-        # Search for relevant articles
+        # Search for relevant articles in news namespaces
         results = vector_store.query(
             query_text=topic,
             n_results=100,  # Get up to 100 articles
-            filter=filter_dict if filter_dict else None
+            filter=filter_dict if filter_dict else None,
+            namespace=["kenya_news", "global_trends"]
         )
         
         if not results:
@@ -2515,6 +2516,7 @@ async def search_documents(
     query: str = "",
     category: Optional[str] = None,
     source: Optional[str] = None,
+    namespace: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
     admin = Depends(_admin_dependency)
@@ -2531,19 +2533,27 @@ async def search_documents(
         if source:
             filter_dict["source"] = source
         
+        # Determine namespace(s) to search
+        search_namespaces = None
+        if namespace:
+            # Allow comma-separated namespaces
+            search_namespaces = [ns.strip() for ns in namespace.split(",")]
+        
         # Search documents
         if query:
             results = vector_store.query(
                 query_text=query,
                 n_results=limit,
-                filter=filter_dict if filter_dict else None
+                filter=filter_dict if filter_dict else None,
+                namespace=search_namespaces
             )
         else:
             # Get all documents if no query
             results = vector_store.query(
                 query_text="",
                 n_results=limit,
-                filter=filter_dict if filter_dict else None
+                filter=filter_dict if filter_dict else None,
+                namespace=search_namespaces
             )
         
         # Format results

@@ -103,8 +103,8 @@ class NewsRSSSpider(scrapy.Spider):
         "ROBOTSTXT_OBEY": False,  # RSS feeds often not in robots.txt
     }
     
-    def start_requests(self):
-        """Generate requests for each RSS feed"""
+    async def start(self):
+        """Generate requests for each RSS feed (async version for Scrapy 2.13+)"""
         for feed in self.rss_feeds:
             yield scrapy.Request(
                 url=feed["url"],

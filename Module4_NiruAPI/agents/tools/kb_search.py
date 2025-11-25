@@ -28,7 +28,8 @@ class KnowledgeBaseSearchTool:
         query: str,
         top_k: int = 5,
         add_content: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: Optional[Dict[str, Any]] = None,
+        namespace: Optional[List[str]] = None
     ) -> Dict[str, Any]:
         """
         Search knowledge base and optionally add content
@@ -38,6 +39,7 @@ class KnowledgeBaseSearchTool:
             top_k: Number of results to return
             add_content: Optional content to add to KB
             metadata: Optional metadata for added content
+            namespace: Optional list of namespaces to search (searches all if None)
             
         Returns:
             Search results and add operation result
@@ -50,7 +52,8 @@ class KnowledgeBaseSearchTool:
         
         try:
             # Search knowledge base
-            search_results = self.vector_store.query(query_text=query, n_results=top_k)
+            search_namespace = namespace or ["kenya_law", "kenya_news", "kenya_parliament", "historical", "global_trends"]
+            search_results = self.vector_store.query(query_text=query, n_results=top_k, namespace=search_namespace)
             
             formatted_results = []
             for item in search_results:

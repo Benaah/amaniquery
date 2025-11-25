@@ -98,6 +98,7 @@ streamlit  # Optional: for monitoring dashboard
 # Agentic AI & LangGraph
 langgraph>=0.2.0
 langchain-core>=0.3.0
+langchain-openai
 
 # External Data Sources
 twikit>=0.1.0

@@ -199,30 +199,21 @@ class AuthMiddleware(BaseHTTPMiddleware):
         # 3. Try session token (Cookie or X-Session-Token header)
         session_token = request.cookies.get("session_token") or request.headers.get("X-Session-Token")
         if session_token:
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.debug(f"Attempting session authentication for {request.url.path}")
-            
             try:
                 session = SessionProvider.validate_session(db, session_token)
                 if session:
                     # Get user for this session
                     user = db.query(User).filter(User.id == session.user_id).first()
-                    if user:
-                        logger.debug(f"Session authentication successful for user {user.id}")
+                    if user and user.status == "active":
                         return AuthContext(
                             auth_method="session",
                             user_id=user.id,
                             integration_id=None,
-                            user=user  # Attach user object to avoid re-querying
+                            user=user
                         )
-                    else:
-                        logger.warning(f"Session found but user not found: session.user_id={session.user_id}")
-                else:
-                    logger.debug(f"Session validation failed for {request.url.path}")
             except Exception as e:
-                logger.error(f"Error during session authentication for {request.url.path}: {e}", exc_info=True)
-                # Continue to try other auth methods or return None
+                logger.error(f"Session authentication error: {e}")
+
         
         # No authentication found - return None (endpoint may be optional auth)
         return None

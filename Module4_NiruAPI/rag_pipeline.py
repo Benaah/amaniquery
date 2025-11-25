@@ -330,6 +330,41 @@ class RAGPipeline:
         """Expose LLM client for other components"""
         return self.client
     
+    def generate_answer(
+        self,
+        query: str,
+        context: str,
+        system_prompt: Optional[str] = None,
+        temperature: float = 0.7,
+        max_tokens: int = 1500
+    ) -> str:
+        """
+        Generate answer from context (public wrapper for _generate_answer)
+        
+        Args:
+            query: User question
+            context: Retrieved context
+            system_prompt: Optional system prompt override
+            temperature: LLM temperature
+            max_tokens: Max tokens
+            
+        Returns:
+            Generated answer string
+        """
+        # Use the internal method which now supports system_prompt override
+        result = self._generate_answer(
+            query=query,
+            context=context,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            system_prompt=system_prompt
+        )
+        
+        # Return just the answer text as expected by callers
+        if isinstance(result, dict):
+            return result.get("answer", "")
+        return str(result)
+
     def query(
         self,
         query: str,
@@ -373,12 +408,33 @@ class RAGPipeline:
             logger.info("Cache hit for query!")
             return cached_result
         
-        # Retrieve from main vector store
-        retrieved_docs = self.vector_store.query(
-            query_text=query,
-            n_results=top_k,
-            filter=filter_dict if filter_dict else None,
-        )
+        # Retrieve from main vector store with namespace support
+        namespaces_to_search = self._determine_namespaces(query, category, source)
+        
+        retrieved_docs = []
+        for namespace in namespaces_to_search:
+            try:
+                namespace_docs = self.vector_store.query(
+                    query_text=query,
+                    n_results=top_k // len(namespaces_to_search),  # Distribute top_k across namespaces
+                    filter=filter_dict if filter_dict else None,
+                    namespace=namespace
+                )
+                retrieved_docs.extend(namespace_docs)
+                logger.info(f"Retrieved {len(namespace_docs)} documents from namespace: {namespace}")
+            except Exception as e:
+                logger.warning(f"Failed to query namespace {namespace}: {e}")
+                # Fallback to default namespace if namespace query fails
+                try:
+                    fallback_docs = self.vector_store.query(
+                        query_text=query,
+                        n_results=top_k // len(namespaces_to_search),
+                        filter=filter_dict if filter_dict else None,
+                    )
+                    retrieved_docs.extend(fallback_docs)
+                    logger.info(f"Fallback: Retrieved {len(fallback_docs)} documents from default namespace")
+                except Exception as fallback_e:
+                    logger.warning(f"Fallback query also failed: {fallback_e}")
         
         # If session_id provided, also retrieve from session-specific collection
         if session_id:
@@ -454,6 +510,64 @@ class RAGPipeline:
         self._set_cache(cache_key, result)
         
         return result
+    
+    def _determine_namespaces(self, query: str, category: Optional[str] = None, source: Optional[str] = None) -> List[str]:
+        """Determine which namespaces to search based on query content and filters"""
+        namespaces = []
+        
+        # If specific category is provided, map to namespace
+        if category:
+            category_lower = category.lower()
+            if any(keyword in category_lower for keyword in ['law', 'constitution', 'act', 'legislation', 'judgment', 'case law']):
+                namespaces.append("kenya_law")
+            elif any(keyword in category_lower for keyword in ['news', 'current affairs']):
+                namespaces.append("kenya_news")
+            elif any(keyword in category_lower for keyword in ['parliament', 'bill', 'hansard', 'budget']):
+                namespaces.append("kenya_parliament")
+            elif any(keyword in category_lower for keyword in ['global', 'trend']):
+                namespaces.append("global_trends")
+        
+        # Analyze query content for keywords
+        query_lower = query.lower()
+        
+        # Legal keywords
+        legal_keywords = ['law', 'constitution', 'act', 'bill', 'legislation', 'court', 'judge', 'judgment', 'case', 'statute', 'amendment', 'clause', 'section', 'article']
+        if any(keyword in query_lower for keyword in legal_keywords):
+            if "kenya_law" not in namespaces:
+                namespaces.append("kenya_law")
+        
+        # News keywords
+        news_keywords = ['news', 'current', 'recent', 'today', 'latest', 'breaking', 'update', 'report']
+        if any(keyword in query_lower for keyword in news_keywords):
+            if "kenya_news" not in namespaces:
+                namespaces.append("kenya_news")
+        
+        # Parliament keywords
+        parliament_keywords = ['parliament', 'mp', 'bill', 'debate', 'hansard', 'budget', 'vote', 'speaker', 'committee']
+        if any(keyword in query_lower for keyword in parliament_keywords):
+            if "kenya_parliament" not in namespaces:
+                namespaces.append("kenya_parliament")
+        
+        # Global/international keywords
+        global_keywords = ['global', 'international', 'world', 'foreign', 'diplomatic', 'treaty']
+        if any(keyword in query_lower for keyword in global_keywords):
+            if "global_trends" not in namespaces:
+                namespaces.append("global_trends")
+        
+        # Historical keywords (check for years before 2010)
+        import re
+        years = re.findall(r'\b(19\d{2}|20[01]\d)\b', query)
+        if years and any(int(year) < 2010 for year in years):
+            if "historical" not in namespaces:
+                namespaces.append("historical")
+        
+        # If no specific namespaces determined, search all relevant ones
+        if not namespaces:
+            # Default search across main namespaces
+            namespaces = ["kenya_law", "kenya_news", "kenya_parliament"]
+        
+        logger.info(f"Query '{query[:50]}...' will search namespaces: {namespaces}")
+        return namespaces
     
     def _query_with_ensemble(
         self,
@@ -760,11 +874,33 @@ Combined Response:"""
             if source:
                 filter_dict["source_name"] = source
             
-            retrieved_docs = self.vector_store.query(
-                query_text=query,
-                n_results=top_k,
-                filter=filter_dict if filter_dict else None,
-            )
+            # Retrieve from main vector store with namespace support
+            namespaces_to_search = self._determine_namespaces(query, category, source)
+            
+            retrieved_docs = []
+            for namespace in namespaces_to_search:
+                try:
+                    namespace_docs = self.vector_store.query(
+                        query_text=query,
+                        n_results=top_k // len(namespaces_to_search),  # Distribute top_k across namespaces
+                        filter=filter_dict if filter_dict else None,
+                        namespace=namespace
+                    )
+                    retrieved_docs.extend(namespace_docs)
+                    logger.info(f"Retrieved {len(namespace_docs)} documents from namespace: {namespace}")
+                except Exception as e:
+                    logger.warning(f"Failed to query namespace {namespace}: {e}")
+                    # Fallback to default namespace if namespace query fails
+                    try:
+                        fallback_docs = self.vector_store.query(
+                            query_text=query,
+                            n_results=top_k // len(namespaces_to_search),
+                            filter=filter_dict if filter_dict else None,
+                        )
+                        retrieved_docs.extend(fallback_docs)
+                        logger.info(f"Fallback: Retrieved {len(fallback_docs)} documents from default namespace")
+                    except Exception as fallback_e:
+                        logger.warning(f"Fallback query also failed: {fallback_e}")
             
             # If session_id provided, also retrieve from session-specific collection
             if session_id:
@@ -876,11 +1012,13 @@ Combined Response:"""
         context: str,
         temperature: float,
         max_tokens: int,
+        system_prompt: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Generate answer using LLM, potentially with interactive widgets"""
         
-        # System prompt with Impact Agent instructions
-        system_prompt = """You are AmaniQuery, an AI assistant specialized in Kenyan law, parliamentary proceedings, and current affairs.
+        # System prompt with Impact Agent instructions (default if not provided)
+        if system_prompt is None:
+            system_prompt = """You are AmaniQuery, an AI assistant specialized in Kenyan law, parliamentary proceedings, and current affairs.
 
 CRITICAL INSTRUCTION: DETECT QUANTITATIVE POLICY QUERIES
 If the user's query involves calculating costs, levies, taxes, fines, or statutory deductions (Housing Levy, NSSF, NHIF/SHIF, PAYE, Fuel Levy, Parking Fees, etc.), you MUST output a JSON response containing an interactive widget definition.

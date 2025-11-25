@@ -10,6 +10,8 @@
 import React, { useState } from 'react';
 import { ChevronDown, ChevronUp, ExternalLink, BookOpen, TrendingUp, Users } from 'lucide-react';
 import { cn } from "@/lib/utils";
+import { ThinkingProcess } from './ThinkingProcess';
+import { FactCheckAlert } from './FactCheckAlert';
 
 // ============================================================================
 // TYPES
@@ -39,6 +41,15 @@ export interface AmaniQueryResponse {
     }>;
   };
   follow_up_suggestions: string[];
+  metadata?: {
+    reasoning_path?: {
+      query: string;
+      thoughts: any[];
+      total_duration_ms: number;
+      final_conclusion: string;
+    };
+    [key: string]: any;
+  };
 }
 
 interface AmaniQueryResponseProps {
@@ -162,6 +173,21 @@ export const AmaniQueryResponse: React.FC<AmaniQueryResponseProps> = ({ data, cl
       theme.classes.container,
       className
     )}>
+      {/* THINKING PROCESS - Display if available */}
+      {data.metadata?.reasoning_path && (
+        <div className="mb-6">
+          <ThinkingProcess 
+            reasoning={data.metadata.reasoning_path} 
+            className="bg-white/50 dark:bg-black/20 backdrop-blur-sm"
+          />
+        </div>
+      )}
+
+      {/* FACT CHECK ALERT - Display if issues found */}
+      {data.metadata?.quality_issues && data.metadata.quality_issues.length > 0 && (
+        <FactCheckAlert issues={data.metadata.quality_issues} />
+      )}
+
       {/* SUMMARY CARD - HUGE AND PROMINENT */}
       <SummaryCard 
         title={data.response.summary_card.title}

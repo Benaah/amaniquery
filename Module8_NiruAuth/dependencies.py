@@ -42,14 +42,20 @@ def get_current_user(
 ) -> User:
     """Get current authenticated user"""
     auth_context = get_auth_context(request)
-    
-    if not auth_context or not auth_context.user_id:
-        # Log for debugging
-        import logging
-        logger = logging.getLogger(__name__)
+
+    import logging
+    logger = logging.getLogger(__name__)
+
+    # Validate auth_context type and presence of user attribute
+    if (
+        not auth_context or
+        not hasattr(auth_context, "user") or
+        not hasattr(auth_context, "user_id") or
+        auth_context.user_id is None
+    ):
         session_token = request.headers.get("X-Session-Token") or request.cookies.get("session_token")
-        logger.warning(f"Authentication failed for {request.url.path}: no auth_context. Has session token: {bool(session_token)}, token length: {len(session_token) if session_token else 0}")
-        
+        logger.warning(f"Authentication failed for {request.url.path}: no valid auth_context or missing user attributes. Has session token: {bool(session_token)}, token length: {len(session_token) if session_token else 0}")
+
         # Check if session token exists in database
         if session_token:
             token_hash = SessionProvider.hash_token(session_token)
@@ -60,37 +66,34 @@ def get_current_user(
                 logger.warning(f"Session found in DB but not validated: is_active={session.is_active}, expires_at={session.expires_at}, user_id={session.user_id}")
             else:
                 logger.warning(f"No session found in DB for token hash")
-        
+
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication required. Please log in again."
         )
-    
+
     # If user is already cached in auth_context, return it directly
-    if auth_context.user is not None:
-        import logging
-        logger = logging.getLogger(__name__)
-        logger.info(f"Using cached user {auth_context.user.id} from auth context")
-        return auth_context.user
-    
+    user_cached = getattr(auth_context, "user", None)
+    if user_cached is not None:
+        logger.info(f"Using cached user {getattr(user_cached, 'id', 'unknown')} from auth context")
+        return user_cached
+
     # Fallback: Query DB if not cached (for backward compatibility)
-    import logging
-    logger = logging.getLogger(__name__)
     logger.warning(f"Auth context missing cached user - querying DB for user {auth_context.user_id}")
-    
+
     user = db.query(User).filter(User.id == auth_context.user_id).first()
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found"
         )
-    
+
     if user.status != "active":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="User account is not active"
         )
-    
+
     return user
 
 

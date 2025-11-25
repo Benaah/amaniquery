@@ -1,5 +1,5 @@
 """
-AmaniQuery Engine v2.0 - Kenyanizer Module
+AmaniQuery Engine v1.0 - Kenyanizer Module
 ===========================================
 
 Persona-specific system prompts for the synthesis stage.

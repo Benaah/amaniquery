@@ -1,3 +1,4 @@
+
 """
 Populate vector database from processed data
 """
@@ -16,6 +17,56 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from Module3_NiruDB.vector_store import VectorStore
 from Module4_NiruAPI.config_manager import ConfigManager
+
+
+def determine_namespace(category: str, publication_date: str) -> str:
+    """Determine the appropriate namespace based on category and publication date"""
+    # Check for historical data (pre-2010)
+    if publication_date:
+        try:
+            # Extract year from publication date
+            if isinstance(publication_date, str):
+                # Handle various date formats
+                import re
+                year_match = re.search(r'(\d{4})', publication_date)
+                if year_match:
+                    year = int(year_match.group(1))
+                    if year < 2010:
+                        return "historical"
+        except (ValueError, AttributeError):
+            pass
+    
+    # Map categories to namespaces
+    category_lower = category.lower()
+    
+    # Kenya Law namespace
+    if any(keyword in category_lower for keyword in [
+        'kenyan law', 'case law', 'kenya gazette', 'kenya law blog', 
+        'cause lists', 'constitution', 'act', 'legislation', 'judgment'
+    ]):
+        return "kenya_law"
+    
+    # Kenya News namespace
+    elif any(keyword in category_lower for keyword in [
+        'kenyan news', 'news'
+    ]):
+        return "kenya_news"
+    
+    # Kenya Parliament namespace
+    elif any(keyword in category_lower for keyword in [
+        'parliament', 'parliamentary record', 'bill', 'hansard', 'budget'
+    ]):
+        return "kenya_parliament"
+    
+    # Global Trends namespace (default for global content)
+    elif any(keyword in category_lower for keyword in [
+        'global trend'
+    ]):
+        return "global_trends"
+    
+    # Default fallback
+    else:
+        return "kenya_law"  # Default to kenya_law for legal content
 
 
 def main():
@@ -104,7 +155,6 @@ def main():
 
     total_chunks = 0
     total_files = 0
-
     for jsonl_file in tqdm(jsonl_files, desc="Processing files"):
         print(f"\n📄 Processing: {jsonl_file.name}")
 
@@ -118,14 +168,34 @@ def main():
         if chunks:
             print(f"   Adding {len(chunks)} chunks to databases...")
 
-            # Add to each vector store
-            for store_name, vector_store in vector_stores:
-                try:
-                    print(f"     → Adding to {store_name}...")
-                    vector_store.add_documents(chunks)
-                    print(f"     ✔ Added to {store_name}")
-                except Exception as e:
-                    print(f"     ✗ Failed to add to {store_name}: {e}")
+            # Group the chunks by proper namespace (not just category)
+            namespace_map = {}
+            for chunk in chunks:
+                category = chunk.get("category", "Unknown")
+                publication_date = chunk.get("publication_date", "")
+                ns = determine_namespace(category, publication_date)
+                if ns not in namespace_map:
+                    namespace_map[ns] = []
+                namespace_map[ns].append(chunk)
+
+            # Add documents per namespace per vector store
+            for namespace, ns_chunks in namespace_map.items():
+                print(f"   → Processing namespace: {namespace} with {len(ns_chunks)} chunks")
+                for store_name, vector_store in vector_stores:
+                    try:
+                        print(f"     → Adding to {store_name} in namespace '{namespace}'...")
+                        vector_store.add_documents(ns_chunks, namespace=namespace)
+                        
+                        # Also index in elasticsearch if available and enabled
+                        if vector_store.es_client is not None:
+                            for chunk in ns_chunks:
+                                doc_id = str(chunk.get("chunk_id"))
+                                vector_store.index_document(doc_id, chunk, namespace=namespace)
+                        
+                        print(f"     ✔ Added to {store_name} in namespace '{namespace}'")
+                    except Exception as e:
+                        print(f"     ✗ Failed to add to {store_name} in namespace '{namespace}': {e}")
+
 
             total_chunks += len(chunks)
             total_files += 1

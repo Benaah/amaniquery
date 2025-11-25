@@ -67,6 +67,26 @@ class VectorStore:
         # Initialize Upstash Redis for caching
         self._init_redis()
         
+        # Always ensure ChromaDB is available as local fallback
+        try:
+            chroma_persist_dir = persist_directory or str(Path(__file__).parent.parent / "data" / "chroma_db")
+            self.chromadb_client = chromadb.PersistentClient(
+                path=chroma_persist_dir,
+                settings=Settings(
+                    anonymized_telemetry=False,
+                    allow_reset=True,
+                )
+            )
+            self.chromadb_collection = self.chromadb_client.get_or_create_collection(
+                name=self.collection_name,
+                metadata={"description": "AmaniQuery local ChromaDB fallback"}
+            )
+            logger.info("ChromaDB initialized as local fallback")
+        except Exception as e:
+            logger.warning(f"Failed to initialize ChromaDB fallback: {e}")
+            self.chromadb_client = None
+            self.chromadb_collection = None
+        
         logger.info(f"Vector store initialized with primary backend: {self.backend}, cloud backends: {list(self.backends.keys())}")
     
     @property
@@ -133,8 +153,8 @@ class VectorStore:
         return self._embedding_model
     
     def _init_with_fallback(self) -> str:
-        """Initialize with fallback: QDrant -> ChromaDB -> Upstash"""
-        backends = ["qdrant", "chromadb", "upstash"]
+        """Initialize with fallback: ChromaDB -> QDrant -> Upstash"""
+        backends = ["chromadb", "qdrant", "upstash"]
         
         for backend in backends:
             try:
@@ -361,11 +381,11 @@ class VectorStore:
         else:
             return None
     
-    def _add_upstash(self, chunks: List[Dict], client=None):
+    def _add_upstash(self, chunks: List[Dict], client=None, namespace: str = None):
         """Add to Upstash Vector"""
         if client is None:
             client = self.client
-            
+
         vectors = []
         for chunk in chunks:
             metadata = {
@@ -377,12 +397,14 @@ class VectorStore:
                 "total_chunks": str(chunk.get("total_chunks", 1)),
                 "text": str(chunk["text"])
             }
+            if namespace:
+                metadata["namespace"] = namespace
             vectors.append({
                 "id": str(chunk["chunk_id"]),
                 "vector": chunk["embedding"],
                 "metadata": metadata
             })
-        
+
         client.upsert(vectors=vectors)
         logger.info(f"Added {len(chunks)} chunks to Upstash")
     
@@ -444,46 +466,254 @@ class VectorStore:
                 logger.error(f"Error adding batch: {e}")
         logger.info(f"Total documents in collection: {self.collection.count()}")
     
-    def add_documents(self, chunks: List[Dict], batch_size: int = 100):
+    def add_documents(self, chunks: List[Dict], batch_size: int = 100, namespace: str = None):
         """Add documents to vector store (public method)
         
         Args:
             chunks: List of chunk dictionaries with 'text', 'embedding', and metadata
             batch_size: Batch size for processing (default: 100)
+            namespace: Optional namespace for collection separation
         """
         if not chunks:
             logger.warning("No chunks provided to add_documents")
             return
+
+        # Modify collection name based on namespace for supported backends
+        original_collection = self.collection_name
+        if namespace:
+            if self.backend in ["qdrant", "chromadb"]:
+                self.collection_name = f"{original_collection}_{namespace}"
+                # Ensure namespaced collection exists for QDrant
+                if self.backend == "qdrant":
+                    try:
+                        self.client.get_collection(self.collection_name)
+                    except:
+                        self.client.create_collection(
+                            collection_name=self.collection_name,
+                            vectors_config=models.VectorParams(size=384, distance=models.Distance.COSINE)
+                        )
+                        logger.info(f"Created QDrant collection: {self.collection_name}")
+            elif self.backend == "upstash":
+                # Namespace will be used as metadata filter during upsert/query
+                pass
+            elif self.es_client:
+                # ElasticSearch index name changed by namespace
+                self.collection_name = f"{original_collection}_{namespace}"
         
-        if self.backend == "upstash":
-            self._add_upstash(chunks)
-        elif self.backend == "qdrant":
-            self._add_qdrant(chunks, batch_size)
-        elif self.backend == "chromadb":
-            self._add_chromadb(chunks, batch_size)
-        else:
-            logger.error(f"Unsupported backend for add_documents: {self.backend}")
-            raise ValueError(f"Unsupported backend: {self.backend}")
+        try:
+            if self.backend == "upstash":
+                self._add_upstash(chunks, namespace=namespace)
+            elif self.backend == "qdrant":
+                self._add_qdrant(chunks, batch_size)
+            elif self.backend == "chromadb":
+                self._add_chromadb(chunks, batch_size)
+            else:
+                logger.error(f"Unsupported backend for add_documents: {self.backend}")
+                raise ValueError(f"Unsupported backend: {self.backend}")
+        except Exception as e:
+            logger.error(f"Failed to add documents to primary backend {self.backend}: {e}")
+            # If primary backend fails and ChromaDB is available, try ChromaDB as fallback
+            if self.is_chromadb_available() and self.backend != "chromadb":
+                logger.warning(f"Primary backend {self.backend} failed, falling back to ChromaDB")
+                try:
+                    # Temporarily switch to ChromaDB for this operation
+                    original_backend = self.backend
+                    original_client = self.client
+                    original_collection = self.collection
+                    
+                    self.backend = "chromadb"
+                    self.client = self.chromadb_client
+                    
+                    # Handle namespace for ChromaDB
+                    if namespace:
+                        self.collection_name = f"{original_collection}_{namespace}"
+                        self.collection = self.chromadb_client.get_or_create_collection(
+                            name=self.collection_name,
+                            metadata={"description": f"AmaniQuery ChromaDB collection: {self.collection_name}"}
+                        )
+                    else:
+                        self.collection = self.chromadb_collection
+                        self.collection_name = original_collection
+                    
+                    self._add_chromadb(chunks, batch_size)
+                    
+                    # Restore original backend
+                    self.backend = original_backend
+                    self.client = original_client
+                    self.collection = original_collection
+                    self.collection_name = original_collection
+                    
+                    logger.info(f"ChromaDB fallback successfully added {len(chunks)} documents")
+                except Exception as fallback_error:
+                    logger.error(f"ChromaDB fallback also failed: {fallback_error}")
+                    raise fallback_error
+            else:
+                raise e
+
+        # Restore original collection name
+        self.collection_name = original_collection
     
-    def index_document(self, doc_id: str, document: Dict):
+    def index_document(self, doc_id: str, document: Dict, namespace: str = None):
         """Index document in Elasticsearch"""
         if self.es_client:
             try:
-                self.es_client.index(index=self.collection_name, id=doc_id, document=document)
-                logger.info(f"Indexed document: {doc_id}")
+                # Create a copy of the document to avoid modifying the original
+                es_document = document.copy()
+                
+                # Parse publication_date if it exists
+                if "publication_date" in es_document and es_document["publication_date"]:
+                    parsed_date = self._parse_publication_date(es_document["publication_date"])
+                    if parsed_date:
+                        es_document["publication_date"] = parsed_date
+                
+                index_name = self.collection_name
+                if namespace:
+                    index_name = f"{index_name}_{namespace}"
+                # Ensure index existence for namespace-based index
+                if not self.es_client.indices.exists(index=index_name):
+                    # Create index with proper mapping for date fields
+                    mapping = {
+                        "mappings": {
+                            "properties": {
+                                "publication_date": {
+                                    "type": "date",
+                                    "format": "yyyy-MM-dd||yyyy-MM-dd'T'HH:mm:ss||epoch_millis||strict_date_optional_time"
+                                },
+                                "content": {"type": "text"},
+                                "title": {"type": "text"},
+                                "source_name": {"type": "keyword"},
+                                "category": {"type": "keyword"},
+                                "author": {"type": "text"},
+                                "source_url": {"type": "keyword"}
+                            }
+                        }
+                    }
+                    self.es_client.indices.create(index=index_name, body=mapping)
+                    logger.info(f"Created Elasticsearch index: {index_name}")
+                self.es_client.index(index=index_name, id=doc_id, document=es_document)
+                logger.info(f"Indexed document: {doc_id} in index: {index_name}")
             except Exception as e:
                 logger.error(f"Failed to index document {doc_id}: {e}")
     
-    def search_documents(self, query: str, n_results: int = 5) -> List[Dict]:
+    def _parse_publication_date(self, date_str: str) -> Optional[str]:
+        """
+        Parse publication date from various formats to ISO format
+        
+        Args:
+            date_str: Date string in various formats
+            
+        Returns:
+            ISO formatted date string or None if parsing fails
+        """
+        if not date_str or not isinstance(date_str, str):
+            return None
+            
+        date_str = date_str.strip()
+        if not date_str:
+            return None
+            
+        try:
+            from datetime import datetime
+            import re
+            
+            # Try ISO format first (already correct)
+            try:
+                # Check if it's already ISO format
+                if re.match(r'^\d{4}-\d{2}-\d{2}', date_str):
+                    datetime.fromisoformat(date_str.replace('Z', '+00:00').split('T')[0])
+                    return date_str.split('T')[0]  # Return just the date part
+            except:
+                pass
+            
+            # Handle "DD Month YYYY" format (e.g., "26 August 2023", "28 July")
+            month_map = {
+                'january': 1, 'february': 2, 'march': 3, 'april': 4, 'may': 5, 'june': 6,
+                'july': 7, 'august': 8, 'september': 9, 'october': 10, 'november': 11, 'december': 12,
+                'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4, 'may': 5, 'jun': 6,
+                'jul': 7, 'aug': 8, 'sep': 9, 'oct': 10, 'nov': 11, 'dec': 12
+            }
+            
+            # Match patterns like "26 August 2023" or "28 July"
+            match = re.match(r'^(\d{1,2})\s+(\w+)\s*(\d{4})?$', date_str.lower())
+            if match:
+                day = int(match.group(1))
+                month_name = match.group(2)
+                year = int(match.group(3)) if match.group(3) else datetime.now().year
+                
+                if month_name in month_map:
+                    month = month_map[month_name]
+                    # Validate date
+                    try:
+                        date_obj = datetime(year, month, day)
+                        return date_obj.strftime('%Y-%m-%d')
+                    except ValueError:
+                        # Invalid date (e.g., Feb 30)
+                        logger.warning(f"Invalid date: {day}/{month}/{year} from '{date_str}'")
+                        return None
+            
+            # Handle "Month DD, YYYY" format (e.g., "August 26, 2023")
+            match = re.match(r'^(\w+)\s+(\d{1,2}),?\s*(\d{4})$', date_str.lower())
+            if match:
+                month_name = match.group(1)
+                day = int(match.group(2))
+                year = int(match.group(3))
+                
+                if month_name in month_map:
+                    month = month_map[month_name]
+                    try:
+                        date_obj = datetime(year, month, day)
+                        return date_obj.strftime('%Y-%m-%d')
+                    except ValueError:
+                        logger.warning(f"Invalid date: {day}/{month}/{year} from '{date_str}'")
+                        return None
+            
+            # Handle "DD/MM/YYYY" or "DD-MM-YYYY" format
+            match = re.match(r'^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$', date_str)
+            if match:
+                day = int(match.group(1))
+                month = int(match.group(2))
+                year = int(match.group(3))
+                try:
+                    date_obj = datetime(year, month, day)
+                    return date_obj.strftime('%Y-%m-%d')
+                except ValueError:
+                    logger.warning(f"Invalid date: {day}/{month}/{year} from '{date_str}'")
+                    return None
+            
+            # Handle "YYYY-MM-DD" format (already ISO)
+            match = re.match(r'^(\d{4})-(\d{2})-(\d{2})$', date_str)
+            if match:
+                year = int(match.group(1))
+                month = int(match.group(2))
+                day = int(match.group(3))
+                try:
+                    date_obj = datetime(year, month, day)
+                    return date_obj.strftime('%Y-%m-%d')
+                except ValueError:
+                    logger.warning(f"Invalid date: {day}/{month}/{year} from '{date_str}'")
+                    return None
+            
+            # If all parsing fails, log warning and return None
+            logger.warning(f"Could not parse publication date: '{date_str}'")
+            return None
+            
+        except Exception as e:
+            logger.warning(f"Error parsing publication date '{date_str}': {e}")
+            return None
+    
+    def search_documents(self, query: str, n_results: int = 5, namespace: str = None) -> List[Dict]:
         """Search documents in Elasticsearch"""
         if not self.es_client:
             return []
         try:
-            response = self.es_client.search(index=self.collection_name, query={"match": {"content": query}}, size=n_results)
+            index_name = self.collection_name
+            if namespace:
+                index_name = f"{index_name}_{namespace}"
+            response = self.es_client.search(index=index_name, query={"match": {"content": query}}, size=n_results)
             results = []
             for hit in response["hits"]["hits"]:
                 results.append({"id": hit["_id"], "text": hit["_source"].get("content", ""), "metadata": hit["_source"], "score": hit["_score"]})
-            logger.info(f"Elasticsearch search returned {len(results)} results")
+            logger.info(f"Elasticsearch search returned {len(results)} results from index: {index_name}")
             return results
         except Exception as e:
             logger.error(f"Elasticsearch search failed: {e}")
@@ -581,7 +811,7 @@ class VectorStore:
             logger.warning(f"ChromaDB get failed: {e}")
             return []
             
-    def query(self, query_text: str, n_results: int = 5, filter: Optional[Dict] = None) -> List[Dict]:
+    def query(self, query_text: str, n_results: int = 5, filter: Optional[Dict] = None, namespace: str = None) -> List[Dict]:
         """Query vector store for similar documents"""
         try:
             try:
@@ -595,25 +825,91 @@ class VectorStore:
                     query_embedding = self.embedding_model.encode(query_text).tolist()
                 else:
                     raise
+            
+            # Modify collection name based on namespace for supported backends
+            original_collection = self.collection_name
+            if namespace:
+                if self.backend in ["qdrant", "chromadb"]:
+                    self.collection_name = f"{original_collection}_{namespace}"
+                    # Ensure namespaced collection exists for QDrant
+                    if self.backend == "qdrant":
+                        try:
+                            self.client.get_collection(self.collection_name)
+                        except:
+                            self.client.create_collection(
+                                collection_name=self.collection_name,
+                                vectors_config=models.VectorParams(size=384, distance=models.Distance.COSINE)
+                            )
+                            logger.info(f"Created QDrant collection: {self.collection_name}")
+                elif self.backend == "upstash":
+                    # Namespace will be used as metadata filter during query
+                    pass
+                elif self.es_client:
+                    # ElasticSearch index name changed by namespace
+                    self.collection_name = f"{original_collection}_{namespace}"
+            
             if self.backend == "upstash":
-                return self._query_upstash(query_embedding, n_results, filter)
+                results = self._query_upstash(query_embedding, n_results, filter, namespace)
             elif self.backend == "qdrant":
-                return self._query_qdrant(query_embedding, n_results, filter)
+                results = self._query_qdrant(query_embedding, n_results, filter)
             elif self.backend == "chromadb":
-                return self._query_chromadb(query_embedding, n_results, filter)
+                results = self._query_chromadb(query_embedding, n_results, filter)
             else:
                 logger.error(f"Unsupported backend for query: {self.backend}")
-                return []
+                results = []
+            
+            # If primary backend failed and ChromaDB is available, try ChromaDB as fallback
+            if not results and self.is_chromadb_available() and self.backend != "chromadb":
+                logger.warning(f"Primary backend {self.backend} returned no results, falling back to ChromaDB")
+                try:
+                    # Temporarily switch to ChromaDB for this query
+                    original_backend = self.backend
+                    original_client = self.client
+                    original_collection = self.collection
+                    original_collection_name = self.collection_name
+                    
+                    self.backend = "chromadb"
+                    self.client = self.chromadb_client
+                    
+                    # Handle namespace for ChromaDB
+                    if namespace:
+                        self.collection_name = f"{original_collection}_{namespace}"
+                        self.collection = self.chromadb_client.get_or_create_collection(
+                            name=self.collection_name,
+                            metadata={"description": f"AmaniQuery ChromaDB collection: {self.collection_name}"}
+                        )
+                    else:
+                        self.collection = self.chromadb_collection
+                        self.collection_name = original_collection
+                    
+                    results = self._query_chromadb(query_embedding, n_results, filter)
+                    
+                    # Restore original backend
+                    self.backend = original_backend
+                    self.client = original_client
+                    self.collection = original_collection
+                    self.collection_name = original_collection_name
+                    
+                    logger.info(f"ChromaDB fallback returned {len(results)} results")
+                except Exception as fallback_error:
+                    logger.error(f"ChromaDB fallback also failed: {fallback_error}")
+            
+            # Restore original collection name
+            self.collection_name = original_collection
+            
+            return results
         except Exception as e:
             logger.error(f"Error querying vector store: {e}")
             return []
     
-    def _query_upstash(self, query_embedding: List[float], n_results: int, filter: Optional[Dict]) -> List[Dict]:
+    def _query_upstash(self, query_embedding: List[float], n_results: int, filter: Optional[Dict], namespace: str = None) -> List[Dict]:
         """Query Upstash Vector"""
         filter_dict = {}
         if filter:
             for k, v in filter.items():
                 filter_dict[f"metadata.{k}"] = str(v)
+        if namespace:
+            filter_dict["metadata.namespace"] = namespace
         results = self.client.query(vector=query_embedding, top_k=n_results, filter=filter_dict, include_metadata=True, include_data=True)
         formatted_results = []
         for hit in results:
@@ -705,15 +1001,9 @@ class VectorStore:
                 stats["elasticsearch_docs"] = 0
         return stats
 
-    def warmup(self):
-        """Warmup the embedding model to prevent latency on first request"""
-        try:
-            logger.info("🔥 Warming up embedding model...")
-            # Encode a dummy sentence to trigger model loading and JIT compilation
-            self.embedding_model.encode("Warmup query for AmaniQuery optimization")
-            logger.info("✅ Embedding model warmed up")
-        except Exception as e:
-            logger.warning(f"Warmup failed: {e}")
+    def is_chromadb_available(self) -> bool:
+        """Check if ChromaDB fallback is available"""
+        return self.chromadb_client is not None and self.chromadb_collection is not None
 
 
 class QDrantCollectionWrapper:

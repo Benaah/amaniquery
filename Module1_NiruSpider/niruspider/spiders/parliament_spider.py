@@ -66,18 +66,24 @@ class ParliamentSpider(scrapy.Spider):
                 link = response.urljoin(link)
             
             # Extract title from link text or nearby text
-            link_element = response.css(f'a[href*="{link.split("/")[-1]}"]').first()
-            if not link_element:
-                # Try exact match
-                link_element = response.css(f'a[href="{link}"]').first()
+            try:
+                link_element = response.css(f'a[href*="{link.split("/")[-1]}"]').get()
+                if not link_element:
+                    # Try exact match
+                    link_element = response.css(f'a[href="{link}"]').get()
+            except Exception:
+                link_element = None
             
             title = None
             if link_element:
-                title = link_element.css('::text').get() or link_element.xpath('./text()').get()
+                # Extract text from the link element
+                from scrapy.selector import Selector
+                sel = Selector(text=link_element)
+                title = sel.css('::text').get()
                 
                 if not title:
-                    # Try to get title from parent element or sibling
-                    title = link_element.xpath('../text()').get() or link_element.xpath('preceding-sibling::text()[1]').get()
+                    # Try to get title from nearby text
+                    title = response.css(f'a[href*="{link.split("/")[-1]}"]::text').get()
             
             if not title:
                 # Use filename as title

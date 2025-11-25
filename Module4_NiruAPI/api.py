@@ -85,9 +85,7 @@ async def lifespan(app: FastAPI):
     try:
         backend = os.getenv("VECTOR_STORE_BACKEND", "chromadb")  # upstash, qdrant, chromadb
         vector_store = VectorStore(backend=backend, config_manager=config_manager)
-        # Warmup model in background to not block startup
-        threading.Thread(target=vector_store.warmup, daemon=True).start()
-        logger.info("Vector store initialized")
+        logger.info(f"Vector store initialized with backend: {backend}")
     except Exception as e:
         logger.error(f"Failed to initialize vector store: {e}")
         vector_store = None
@@ -476,9 +474,11 @@ async def lifespan(app: FastAPI):
                     # Create the graph
                     try:
                         amaniq_v1_graph = create_amaniq_v1_graph(
-                            llm_client=rag_pipeline.llm_service,
-                            vector_db_client=unified_retriever,
-                            fast_llm_client=fast_llm_client
+                            vector_store=vector_store,
+                            rag_pipeline=rag_pipeline,
+                            enable_reasoning=True,
+                            enable_quality_gate=True,
+                            config_manager=config_manager
                         )
                         logger.info("✓ Amaniq v1 Agent Graph initialized (Intent Router + WebSearch + Reasoning)")
                     except Exception as e:
@@ -1549,11 +1549,12 @@ async def get_topic_sentiment(
             # Only analyze news categories
             filter_dict["category"] = {"$in": ["Kenyan News", "Global Trend"]}
         
-        # Search for relevant articles
+        # Search for relevant articles in news namespaces
         results = vector_store.query(
             query_text=topic,
             n_results=100,  # Get up to 100 articles
-            filter=filter_dict if filter_dict else None
+            filter=filter_dict if filter_dict else None,
+            namespace=["kenya_news", "global_trends"]
         )
         
         if not results:
@@ -1788,75 +1789,6 @@ async def add_chat_message(session_id: str, message: ChatMessageCreate, request:
                             "excerpt": f"Image similarity: {src.get('similarity', 0):.2f}",
                         })
                     result["sources"] = vision_sources
-                    result["retrieved_chunks"] = result.get("retrieved_images", 0)
-                    result["retrieved_chunks"] = result.get("retrieved_images", 0)
-                elif amaniq_v1_graph is not None:
-                    # Use AmaniQ v1 local agents
-                    try:
-                        from Module4_NiruAPI.agents.amaniq_v1 import execute_pipeline
-                        
-                        # Get conversation history
-                        conversation_history = []
-                        try:
-                            messages = chat_manager.get_messages(session_id, limit=5)
-                            conversation_history = [
-                                {"role": msg.role, "content": msg.content}
-                                for msg in messages
-                            ]
-                        except:
-                            conversation_history = []
-                        
-                        # Execute AmaniQ v1 pipeline
-                        ak_result = execute_pipeline(
-                            graph=amaniq_v1_graph,
-                            user_query=message.content,
-                            conversation_history=conversation_history
-                        )
-                        
-                        # Extract response and metadata
-                        response_data = ak_result.get('response', {})
-                        metadata = ak_result.get('metadata', {})
-                        
-                        if response_data and 'response' in response_data:
-                            resp = response_data['response']
-                            
-                            # Build answer
-                            answer_parts = []
-                            if 'summary_card' in resp:
-                                summary = resp['summary_card']
-                                answer_parts.append(f"**{summary.get('title', '')}**\n\n{summary.get('content', '')}")
-                            
-                            if 'detailed_breakdown' in resp and 'points' in resp['detailed_breakdown']:
-                                answer_parts.append("\n\n**Details:**")
-                                for i, point in enumerate(resp['detailed_breakdown']['points'], 1):
-                                    answer_parts.append(f"{i}. {point}")
-                            
-                            if 'kenyan_context' in resp and 'impact' in resp['kenyan_context']:
-                                answer_parts.append(f"\n\n**🇰🇪 Kenyan Context:** {resp['kenyan_context']['impact']}")
-                            
-                            answer = "\n".join(answer_parts)
-                            
-                            # Sources
-                            sources = []
-                            if 'citations' in resp:
-                                for i, citation in enumerate(resp['citations'], 1):
-                                    sources.append({
-                                        "title": citation.get('source', f'Source {i}'),
-                                        "url": citation.get('url', 'N/A'),
-                                        "source_name": citation.get('source', 'Unknown'),
-                                        "category": metadata.get('query_type', 'public_interest'),
-                                        "excerpt": citation.get('quote', '')[:200] if citation.get('quote') else ''
-                                    })
-                            
-                            result = {
-                                "sources": sources,
-                                "retrieved_chunks": metadata.get('num_docs_retrieved', 0),
-                                "model_used": f"AmaniQ-{metadata.get('persona', 'wanjiku')}-local",
-                                "answer_stream": [answer],
-                                "structured_data": response_data
-                            }
-                        else:
-                            # Fallback
                             raise Exception("Invalid AmaniQ response")
                     except Exception as e:
                         logger.warning(f"[AmaniQ] Error in chat: {e}, falling back to standard RAG")
@@ -2409,6 +2341,44 @@ async def share_chat_session(session_id: str, request: Request, share_type: str 
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/chat/feedback", tags=["Chat"])
+async def submit_chat_feedback(feedback: FeedbackCreate, request: Request):
+    """Submit feedback for a chat message"""
+    if chat_manager is None:
+        raise HTTPException(status_code=503, detail="Chat service not initialized")
+    
+    try:
+        # Verify session ownership via message
+        user_id = get_current_user_id(request)
+        
+        # Get the message to find its session
+        message = chat_manager.get_message(feedback.message_id)
+        if not message:
+            raise HTTPException(status_code=404, detail="Message not found")
+        
+        # Verify session ownership
+        if not verify_session_ownership(message.session_id, user_id, chat_manager):
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        # Update message feedback
+        chat_manager.update_message_feedback(
+            message_id=feedback.message_id,
+            feedback_type=feedback.feedback_type,
+            comment=feedback.comment
+        )
+        
+        return {
+            "message": "Feedback submitted successfully",
+            "message_id": feedback.message_id,
+            "feedback_type": feedback.feedback_type
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error submitting feedback: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # Admin Endpoints
 # Note: Admin endpoints are protected by require_admin dependency when ENABLE_AUTH=true
 
@@ -2515,6 +2485,7 @@ async def search_documents(
     query: str = "",
     category: Optional[str] = None,
     source: Optional[str] = None,
+    namespace: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
     admin = Depends(_admin_dependency)
@@ -2531,19 +2502,27 @@ async def search_documents(
         if source:
             filter_dict["source"] = source
         
+        # Determine namespace(s) to search
+        search_namespaces = None
+        if namespace:
+            # Allow comma-separated namespaces
+            search_namespaces = [ns.strip() for ns in namespace.split(",")]
+        
         # Search documents
         if query:
             results = vector_store.query(
                 query_text=query,
                 n_results=limit,
-                filter=filter_dict if filter_dict else None
+                filter=filter_dict if filter_dict else None,
+                namespace=search_namespaces
             )
         else:
             # Get all documents if no query
             results = vector_store.query(
                 query_text="",
                 n_results=limit,
-                filter=filter_dict if filter_dict else None
+                filter=filter_dict if filter_dict else None,
+                namespace=search_namespaces
             )
         
         # Format results
@@ -3705,7 +3684,8 @@ class CrawlerManager:
             "kenya_law": {"status": "idle", "last_run": None},
             "parliament": {"status": "idle", "last_run": None},
             "news_rss": {"status": "idle", "last_run": None},
-            "global_trends": {"status": "idle", "last_run": None}
+            "global_trends": {"status": "idle", "last_run": None},
+            "parliament_videos": {"status": "idle", "last_run": None}
         }
         
         if self.db_manager and self.db_manager._initialized:
@@ -3955,7 +3935,8 @@ class CrawlerManager:
             "kenya_law": {"status": "idle", "last_run": None},
             "parliament": {"status": "idle", "last_run": None},
             "news_rss": {"status": "idle", "last_run": None},
-            "global_trends": {"status": "idle", "last_run": None}
+            "global_trends": {"status": "idle", "last_run": None},
+            "parliament_videos": {"status": "idle", "last_run": None}
         }
         
         # Load from database if available
@@ -4010,7 +3991,8 @@ class CrawlerManager:
                 "kenya_law": {"category": "Kenyan Law"},
                 "parliament": {"category": "Parliament"},
                 "news_rss": {"source_name": "News RSS"},
-                "global_trends": {"category": "Global Trend"}
+                "global_trends": {"category": "Global Trend"},
+                "parliament_videos": {"category": "Parliamentary Record"}
             }
             
             with database_storage.get_db_session() as db:
@@ -4057,10 +4039,11 @@ class CrawlerManager:
             
             # Map crawler names to spider names
             spider_mapping = {
-                "kenya_law": "kenya_law_spider",
+                "kenya_law": "kenya_law_new_spider",
                 "parliament": "parliament_spider", 
                 "news_rss": "news_rss_spider",
-                "global_trends": "global_trends_spider"
+                "global_trends": "global_trends_spider",
+                "parliament_videos": "parliament_video_spider"
             }
             
             if crawler_name not in spider_mapping:
@@ -4169,6 +4152,235 @@ class CrawlerManager:
         except Exception as e:
             logger.error(f"Error stopping crawler {crawler_name}: {e}")
             raise HTTPException(status_code=500, detail=f"Failed to stop crawler: {str(e)}")
+
+
+# ============================================================
+# Agent Monitoring Endpoints
+# ============================================================
+
+@app.get("/api/admin/agent-metrics", tags=["Admin", "Agent Monitoring"])
+async def get_agent_metrics(
+    request: Request,
+    admin = Depends(_admin_dependency),
+    days: int = 30
+):
+    """Get agent performance metrics from database"""
+    try:
+        from Module3_NiruDB.agent_monitoring import get_agent_metrics as get_metrics
+        
+        # Get database session
+        db = next(get_db())
+        
+        try:
+            metrics = get_metrics(db, days=days)
+            return metrics
+        finally:
+            db.close()
+            
+    except ImportError:
+        # Fallback to sample data if agent_monitoring module not available
+        logger.warning("Agent monitoring module not available, returning sample data")
+        return {
+            "total_queries": 0,
+            "avg_confidence": 0.0,
+            "avg_response_time_ms": 0,
+            "human_review_rate": 0.0,
+            "persona_distribution": {"wanjiku": 0, "wakili": 0, "mwanahabari": 0},
+            "intent_distribution": {"news": 0, "law": 0, "hybrid": 0, "general": 0},
+            "confidence_buckets": {"low": 0, "medium": 0, "high": 0}
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting agent metrics: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/admin/query-logs", tags=["Admin", "Agent Monitoring"])
+async def get_query_logs(
+    request: Request,
+    admin = Depends(_admin_dependency),
+    limit: int = 100,
+    offset: int = 0
+):
+    """Get agent query logs from database"""
+    try:
+        from Module3_NiruDB.agent_models import AgentQueryLog
+        from sqlalchemy import desc
+        
+        db = next(get_db())
+        
+        try:
+            # Get total count
+            total = db.query(AgentQueryLog).count()
+            
+            # Get paginated logs
+            logs_query = db.query(AgentQueryLog).order_by(
+                desc(AgentQueryLog.timestamp)
+            ).limit(limit).offset(offset)
+            
+            logs = [{
+                "id": log.id,
+                "timestamp": log.timestamp.isoformat(),
+                "query": log.query,
+                "persona": log.persona,
+                "intent": log.intent,
+                "confidence": log.confidence,
+                "response_time_ms": log.response_time_ms,
+                "evidence_count": log.evidence_count,
+                "reasoning_steps": log.reasoning_steps,
+                "human_review_required": log.human_review_required,
+                "agent_path": log.agent_path or [],
+                "quality_issues": log.quality_issues or [],
+                "reasoning_path": log.reasoning_path,
+                "user_feedback": log.user_feedback
+            } for log in logs_query.all()]
+            
+            return {
+                "logs": logs,
+                "total": total,
+                "page": offset // limit + 1,
+                "page_size": limit
+            }
+        finally:
+            db.close()
+            
+    except ImportError:
+        return {"logs": [],  "total": 0, "page": 1, "page_size": limit}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting query logs: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/admin/review-queue", tags=["Admin", "Agent Monitoring"])
+async def get_review_queue(
+    request: Request,
+    admin = Depends(_admin_dependency)
+):
+    """Get queries pending human review from database"""
+    try:
+        from Module3_NiruDB.agent_monitoring import get_review_queue as get_queue
+        
+        db = next(get_db())
+        
+        try:
+            queue = get_queue(db)
+            return {
+                "queue": queue,
+                "total": len(queue)
+            }
+        finally:
+            db.close()
+            
+    except ImportError:
+        return {"queue": [], "total": 0}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting review queue: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/admin/review-queue/{log_id}/approve", tags=["Admin", "Agent Monitoring"])
+async def approve_review(
+    log_id: str,
+    request: Request,
+    admin = Depends(_admin_dependency)
+):
+    """Approve a query in the review queue"""
+    try:
+        from Module3_NiruDB.agent_models import AgentQueryLog
+        from Module8_NiruAuth.dependencies import get_auth_context
+        
+        db = next(get_db())
+        auth_context = get_auth_context(request)
+        
+        try:
+            log = db.query(AgentQueryLog).filter(AgentQueryLog.id == log_id).first()
+            if not log:
+                raise HTTPException(status_code=404, detail="Query log not found")
+            
+            log.review_status = "approved"
+            log.reviewed_at = datetime.utcnow()
+            log.reviewed_by = auth_context.user_id if auth_context else None
+            
+            db.commit()
+            logger.info(f"Review approved for log_id: {log_id} by {log.reviewed_by}")
+            return {"message": "Query approved successfully", "log_id": log_id}
+        finally:
+            db.close()
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error approving review: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/admin/review-queue/{log_id}/reject", tags=["Admin", "Agent Monitoring"])
+async def reject_review(
+    log_id: str,
+    request: Request,
+    admin = Depends(_admin_dependency)
+):
+    """Reject a query in the review queue with feedback"""
+    try:
+        from Module3_NiruDB.agent_models import AgentQueryLog
+        from Module8_NiruAuth.dependencies import get_auth_context
+        
+        body = await request.json()
+        feedback = body.get("feedback", "")
+        
+        db = next(get_db())
+        auth_context = get_auth_context(request)
+        
+        try:
+            log = db.query(AgentQueryLog).filter(AgentQueryLog.id == log_id).first()
+            if not log:
+                raise HTTPException(status_code=404, detail="Query log not found")
+            
+            log.review_status = "rejected"
+            log.reviewed_at = datetime.utcnow()
+            log.reviewed_by = auth_context.user_id if auth_context else None
+            log.review_feedback = feedback
+            
+            db.commit()
+            logger.info(f"Review rejected for log_id: {log_id}, feedback: {feedback}")
+            return {
+                "message": "Query rejected with feedback",
+                "log_id": log_id,
+                "feedback": feedback
+            }
+        finally:
+            db.close()
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error rejecting review: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/admin/retrain", tags=["Admin", "Agent Monitoring"])
+async def initiate_retrain(
+    request: Request,
+    admin = Depends(_admin_dependency)
+):
+    """Initiate model retraining (stub - in development)"""
+    try:
+        logger.info("Model retraining requested")
+        return {
+            "message": "Retraining initiated. This feature is currently in development.",
+            "status": "queued",
+            "estimated_time_hours": 2
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error initiating retrain: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 if __name__ == "__main__":

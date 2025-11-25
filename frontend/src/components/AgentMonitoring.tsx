@@ -99,29 +99,7 @@ export function AgentMonitoring() {
       setMetrics(data)
     } catch (error) {
       console.error("Error fetching metrics:", error)
-      // Mock data for development
-      setMetrics({
-        total_queries: 1247,
-        avg_confidence: 0.78,
-        avg_response_time_ms: 850,
-        human_review_rate: 0.12,
-        persona_distribution: {
-          wanjiku: 620,
-          wakili: 415,
-          mwanahabari: 212
-        },
-        intent_distribution: {
-          news: 550,
-          law: 380,
-          hybrid: 217,
-          general: 100
-        },
-        confidence_buckets: {
-          low: 98,
-          medium: 412,
-          high: 737
-        }
-      })
+      setMetrics(null)
     }
   }
 
@@ -133,8 +111,7 @@ export function AgentMonitoring() {
       setQueryLogs(data.logs || [])
     } catch (error) {
       console.error("Error fetching query logs:", error)
-      // Mock data
-      setQueryLogs(generateMockLogs(20))
+      setQueryLogs([])
     } finally {
       setLoading(false)
     }
@@ -147,7 +124,7 @@ export function AgentMonitoring() {
       setReviewQueue(data.queue || [])
     } catch (error) {
       console.error("Error fetching review queue:", error)
-      setReviewQueue(generateMockReviewQueue(5))
+      setReviewQueue([])
     }
   }
 
@@ -728,73 +705,6 @@ function TrainingView({ onRetrain }: any) {
       </CardContent>
     </Card>
   )
-}
-
-// Mock data generators
-function generateMockLogs(count: number): QueryLog[] {
-  const personas = ["wanjiku", "wakili", "mwanahabari"] as const
-  const intents = ["news", "law", "hybrid", "general"] as const
-  const queries = [
-    "What did the Treasury announce about tax reforms?",
-    "What does Article 10 of the Constitution say?",
-    "How does the Finance Bill affect businesses?",
-    "Kanjo wameongeza parking fees aje?",
-    "What are the latest Parliamentary proceedings?"
-  ]
-  
-  return Array.from({ length: count }, (_, i) => ({
-    id: `log_${i}`,
-    timestamp: new Date(Date.now() - i * 3600000).toISOString(),
-    query: queries[i % queries.length],
-    persona: personas[i % personas.length],
-    intent: intents[i % intents.length],
-    confidence: 0.5 + Math.random() * 0.5,
-    response_time_ms: 500 + Math.random() * 2000,
-    evidence_count: Math.floor(3 + Math.random() * 8),
-    reasoning_steps: Math.floor(3 + Math.random() * 5),
-    human_review_required: Math.random() > 0.8,
-    agent_path: ["entry_gate", "planner", "tool_executor", "reasoning_engine", "exit_gate"],
-    quality_issues: Math.random() > 0.7 ? ["Low confidence", "Insufficient sources"] : [],
-    reasoning_path: {
-      query: queries[i % queries.length],
-      thoughts: [
-        {
-          step: 1,
-          action: "Analyze retrieved evidence",
-          observation: "Retrieved 5 evidence items from knowledge base",
-          reasoning: "Examining sources for relevance and consistency",
-          duration_ms: 120,
-          confidence: 0.85
-        },
-        {
-          step: 2,
-          action: "Check temporal consistency",
-          observation: "Found 3 timestamped sources",
-          reasoning: "Ensuring timeline alignment",
-          duration_ms: 80,
-          confidence: 0.90
-        },
-        {
-          step: 3,
-          action: "Synthesize response",
-          observation: "Combined evidence from all sources",
-          reasoning: "Preparing persona-appropriate response",
-          duration_ms: 200,
-          confidence: 0.88
-        }
-      ],
-      total_duration_ms: 400,
-      final_conclusion: "Based on knowledge base sources, addressing the query with high confidence."
-    }
-  }))
-}
-
-function generateMockReviewQueue(count: number): ReviewQueueItem[] {
-  return generateMockLogs(count).map((log, i) => ({
-    ...log,
-    review_reason: i % 2 === 0 ? "Low confidence score" : "Legal risk query - constitutional question",
-    priority: (i % 3 === 0 ? "high" : i % 2 === 0 ? "medium" : "low") as "high" | "medium" | "low"
-  }))
 }
 
 export default AgentMonitoring

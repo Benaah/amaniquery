@@ -1789,75 +1789,6 @@ async def add_chat_message(session_id: str, message: ChatMessageCreate, request:
                             "excerpt": f"Image similarity: {src.get('similarity', 0):.2f}",
                         })
                     result["sources"] = vision_sources
-                    result["retrieved_chunks"] = result.get("retrieved_images", 0)
-                    result["retrieved_chunks"] = result.get("retrieved_images", 0)
-                elif amaniq_v1_graph is not None:
-                    # Use AmaniQ v1 local agents
-                    try:
-                        from Module4_NiruAPI.agents.amaniq_v1 import execute_pipeline
-                        
-                        # Get conversation history
-                        conversation_history = []
-                        try:
-                            messages = chat_manager.get_messages(session_id, limit=5)
-                            conversation_history = [
-                                {"role": msg.role, "content": msg.content}
-                                for msg in messages
-                            ]
-                        except:
-                            conversation_history = []
-                        
-                        # Execute AmaniQ v1 pipeline
-                        ak_result = execute_pipeline(
-                            graph=amaniq_v1_graph,
-                            user_query=message.content,
-                            conversation_history=conversation_history
-                        )
-                        
-                        # Extract response and metadata
-                        response_data = ak_result.get('response', {})
-                        metadata = ak_result.get('metadata', {})
-                        
-                        if response_data and 'response' in response_data:
-                            resp = response_data['response']
-                            
-                            # Build answer
-                            answer_parts = []
-                            if 'summary_card' in resp:
-                                summary = resp['summary_card']
-                                answer_parts.append(f"**{summary.get('title', '')}**\n\n{summary.get('content', '')}")
-                            
-                            if 'detailed_breakdown' in resp and 'points' in resp['detailed_breakdown']:
-                                answer_parts.append("\n\n**Details:**")
-                                for i, point in enumerate(resp['detailed_breakdown']['points'], 1):
-                                    answer_parts.append(f"{i}. {point}")
-                            
-                            if 'kenyan_context' in resp and 'impact' in resp['kenyan_context']:
-                                answer_parts.append(f"\n\n**🇰🇪 Kenyan Context:** {resp['kenyan_context']['impact']}")
-                            
-                            answer = "\n".join(answer_parts)
-                            
-                            # Sources
-                            sources = []
-                            if 'citations' in resp:
-                                for i, citation in enumerate(resp['citations'], 1):
-                                    sources.append({
-                                        "title": citation.get('source', f'Source {i}'),
-                                        "url": citation.get('url', 'N/A'),
-                                        "source_name": citation.get('source', 'Unknown'),
-                                        "category": metadata.get('query_type', 'public_interest'),
-                                        "excerpt": citation.get('quote', '')[:200] if citation.get('quote') else ''
-                                    })
-                            
-                            result = {
-                                "sources": sources,
-                                "retrieved_chunks": metadata.get('num_docs_retrieved', 0),
-                                "model_used": f"AmaniQ-{metadata.get('persona', 'wanjiku')}-local",
-                                "answer_stream": [answer],
-                                "structured_data": response_data
-                            }
-                        else:
-                            # Fallback
                             raise Exception("Invalid AmaniQ response")
                     except Exception as e:
                         logger.warning(f"[AmaniQ] Error in chat: {e}, falling back to standard RAG")
@@ -2407,6 +2338,44 @@ async def share_chat_session(session_id: str, request: Request, share_type: str 
         raise
     except Exception as e:
         logger.error(f"Error sharing chat session: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/chat/feedback", tags=["Chat"])
+async def submit_chat_feedback(feedback: FeedbackCreate, request: Request):
+    """Submit feedback for a chat message"""
+    if chat_manager is None:
+        raise HTTPException(status_code=503, detail="Chat service not initialized")
+    
+    try:
+        # Verify session ownership via message
+        user_id = get_current_user_id(request)
+        
+        # Get the message to find its session
+        message = chat_manager.get_message(feedback.message_id)
+        if not message:
+            raise HTTPException(status_code=404, detail="Message not found")
+        
+        # Verify session ownership
+        if not verify_session_ownership(message.session_id, user_id, chat_manager):
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        # Update message feedback
+        chat_manager.update_message_feedback(
+            message_id=feedback.message_id,
+            feedback_type=feedback.feedback_type,
+            comment=feedback.comment
+        )
+        
+        return {
+            "message": "Feedback submitted successfully",
+            "message_id": feedback.message_id,
+            "feedback_type": feedback.feedback_type
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error submitting feedback: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -4195,31 +4164,30 @@ async def get_agent_metrics(
     admin = Depends(_admin_dependency),
     days: int = 30
 ):
-    """Get agent performance metrics (stub implementation with sample data)"""
+    """Get agent performance metrics from database"""
     try:
-        # TODO: Implement proper agent query logging in database
-        # For now, return sample metrics
+        from Module3_NiruDB.agent_monitoring import get_agent_metrics as get_metrics
+        
+        # Get database session
+        db = next(get_db())
+        
+        try:
+            metrics = get_metrics(db, days=days)
+            return metrics
+        finally:
+            db.close()
+            
+    except ImportError:
+        # Fallback to sample data if agent_monitoring module not available
+        logger.warning("Agent monitoring module not available, returning sample data")
         return {
-            "total_queries": 150,
-            "avg_confidence": 0.78,
-            "avg_response_time_ms": 850,
-            "human_review_rate": 0.12,
-            "persona_distribution": {
-                "wanjiku": 80,
-                "wakili": 45,
-                "mwanahabari": 25
-            },
-            "intent_distribution": {
-                "news": 70,
-                "law": 50,
-                "hybrid": 20,
-                "general": 10
-            },
-            "confidence_buckets": {
-                "low": 15,
-                "medium": 50,
-                "high": 85
-            }
+            "total_queries": 0,
+            "avg_confidence": 0.0,
+            "avg_response_time_ms": 0,
+            "human_review_rate": 0.0,
+            "persona_distribution": {"wanjiku": 0, "wakili": 0, "mwanahabari": 0},
+            "intent_distribution": {"news": 0, "law": 0, "hybrid": 0, "general": 0},
+            "confidence_buckets": {"low": 0, "medium": 0, "high": 0}
         }
     except HTTPException:
         raise
@@ -4235,15 +4203,50 @@ async def get_query_logs(
     limit: int = 100,
     offset: int = 0
 ):
-    """Get agent query logs (stub - returns empty for now)"""
+    """Get agent query logs from database"""
     try:
-        # TODO: Implement proper agent query logging
-        return {
-            "logs": [],
-            "total": 0,
-            "page": offset // limit + 1,
-            "page_size": limit
-        }
+        from Module3_NiruDB.agent_models import AgentQueryLog
+        from sqlalchemy import desc
+        
+        db = next(get_db())
+        
+        try:
+            # Get total count
+            total = db.query(AgentQueryLog).count()
+            
+            # Get paginated logs
+            logs_query = db.query(AgentQueryLog).order_by(
+                desc(AgentQueryLog.timestamp)
+            ).limit(limit).offset(offset)
+            
+            logs = [{
+                "id": log.id,
+                "timestamp": log.timestamp.isoformat(),
+                "query": log.query,
+                "persona": log.persona,
+                "intent": log.intent,
+                "confidence": log.confidence,
+                "response_time_ms": log.response_time_ms,
+                "evidence_count": log.evidence_count,
+                "reasoning_steps": log.reasoning_steps,
+                "human_review_required": log.human_review_required,
+                "agent_path": log.agent_path or [],
+                "quality_issues": log.quality_issues or [],
+                "reasoning_path": log.reasoning_path,
+                "user_feedback": log.user_feedback
+            } for log in logs_query.all()]
+            
+            return {
+                "logs": logs,
+                "total": total,
+                "page": offset // limit + 1,
+                "page_size": limit
+            }
+        finally:
+            db.close()
+            
+    except ImportError:
+        return {"logs": [],  "total": 0, "page": 1, "page_size": limit}
     except HTTPException:
         raise
     except Exception as e:
@@ -4256,13 +4259,23 @@ async def get_review_queue(
     request: Request,
     admin = Depends(_admin_dependency)
 ):
-    """Get queries pending human review (stub - returns empty for now)"""
+    """Get queries pending human review from database"""
     try:
-        # TODO: Implement review queue storage
-        return {
-            "queue": [],
-            "total": 0
-        }
+        from Module3_NiruDB.agent_monitoring import get_review_queue as get_queue
+        
+        db = next(get_db())
+        
+        try:
+            queue = get_queue(db)
+            return {
+                "queue": queue,
+                "total": len(queue)
+            }
+        finally:
+            db.close()
+            
+    except ImportError:
+        return {"queue": [], "total": 0}
     except HTTPException:
         raise
     except Exception as e:
@@ -4278,8 +4291,27 @@ async def approve_review(
 ):
     """Approve a query in the review queue"""
     try:
-        logger.info(f"Review approved for log_id: {log_id}")
-        return {"message": "Query approved successfully", "log_id": log_id}
+        from Module3_NiruDB.agent_models import AgentQueryLog
+        from Module8_NiruAuth.dependencies import get_auth_context
+        
+        db = next(get_db())
+        auth_context = get_auth_context(request)
+        
+        try:
+            log = db.query(AgentQueryLog).filter(AgentQueryLog.id == log_id).first()
+            if not log:
+                raise HTTPException(status_code=404, detail="Query log not found")
+            
+            log.review_status = "approved"
+            log.reviewed_at = datetime.utcnow()
+            log.reviewed_by = auth_context.user_id if auth_context else None
+            
+            db.commit()
+            logger.info(f"Review approved for log_id: {log_id} by {log.reviewed_by}")
+            return {"message": "Query approved successfully", "log_id": log_id}
+        finally:
+            db.close()
+            
     except HTTPException:
         raise
     except Exception as e:
@@ -4295,14 +4327,35 @@ async def reject_review(
 ):
     """Reject a query in the review queue with feedback"""
     try:
+        from Module3_NiruDB.agent_models import AgentQueryLog
+        from Module8_NiruAuth.dependencies import get_auth_context
+        
         body = await request.json()
         feedback = body.get("feedback", "")
-        logger.info(f"Review rejected for log_id: {log_id}, feedback: {feedback}")
-        return {
-            "message": "Query rejected with feedback",
-            "log_id": log_id,
-            "feedback": feedback
-        }
+        
+        db = next(get_db())
+        auth_context = get_auth_context(request)
+        
+        try:
+            log = db.query(AgentQueryLog).filter(AgentQueryLog.id == log_id).first()
+            if not log:
+                raise HTTPException(status_code=404, detail="Query log not found")
+            
+            log.review_status = "rejected"
+            log.reviewed_at = datetime.utcnow()
+            log.reviewed_by = auth_context.user_id if auth_context else None
+            log.review_feedback = feedback
+            
+            db.commit()
+            logger.info(f"Review rejected for log_id: {log_id}, feedback: {feedback}")
+            return {
+                "message": "Query rejected with feedback",
+                "log_id": log_id,
+                "feedback": feedback
+            }
+        finally:
+            db.close()
+            
     except HTTPException:
         raise
     except Exception as e:

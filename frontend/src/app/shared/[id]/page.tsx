@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef } from "react"
 import { useParams } from "next/navigation"
+import Link from "next/link"
 import { MessageList } from "@/components/chat/MessageList"
 import { Message } from "@/components/chat/types"
 import { Loader2 } from "lucide-react"
@@ -49,7 +50,7 @@ export default function SharedChatPage() {
     try {
       await navigator.clipboard.writeText(content)
       toast.success("Copied to clipboard")
-    } catch (err) {
+    } catch {
       toast.error("Failed to copy")
     }
   }
@@ -86,9 +87,9 @@ export default function SharedChatPage() {
             <h1 className="text-lg font-semibold">{title || "Shared Chat"}</h1>
             <p className="text-xs text-muted-foreground">Shared via AmaniQuery</p>
           </div>
-          <a href="/" className="text-sm font-medium text-primary hover:underline">
+          <Link href="/" className="text-sm font-medium text-primary hover:underline">
             Start your own chat
-          </a>
+          </Link>
         </div>
       </header>
       

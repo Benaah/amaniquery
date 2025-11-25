@@ -618,12 +618,19 @@ ${researchProcess.tools_used && researchProcess.tools_used.length > 0
             const invalidateHeaders: Record<string, string> = {
               ...getAuthHeaders()
             }
-            await fetch(`/api/cache/sessions/${sessionId}/messages`, {
-              method: "DELETE",
-              headers: invalidateHeaders
-            })
+            await Promise.all([
+              fetch(`/api/cache/sessions/${sessionId}/messages`, {
+                method: "DELETE",
+                headers: invalidateHeaders
+              }),
+              // Also invalidate sessions list to capture any auto-generated titles
+              fetch(`/api/cache/sessions`, {
+                method: "DELETE",
+                headers: invalidateHeaders
+              })
+            ])
           } catch (err) {
-            console.error("Failed to invalidate messages cache:", err)
+            console.error("Failed to invalidate cache:", err)
           }
           loadChatHistory()
         } else {
@@ -832,6 +839,45 @@ ${researchProcess.tools_used && researchProcess.tools_used.length > 0
       }
     } catch (error) {
       console.error("Failed to delete session:", error)
+    }
+  }
+
+  const renameSession = async (sessionId: string, newTitle: string) => {
+    try {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        ...getAuthHeaders()
+      }
+      const response = await fetch(`${API_BASE_URL}/chat/sessions/${sessionId}`, {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify({ title: newTitle })
+      })
+
+      if (response.ok) {
+        // Update local state
+        setChatHistory(prev => prev.map(s => 
+          s.id === sessionId ? { ...s, title: newTitle } : s
+        ))
+        
+        // Invalidate sessions cache
+        try {
+          const invalidateHeaders: Record<string, string> = {
+            ...getAuthHeaders()
+          }
+          await fetch(`/api/cache/sessions`, {
+            method: "DELETE",
+            headers: invalidateHeaders
+          })
+        } catch (err) {
+          console.error("Failed to invalidate sessions cache:", err)
+        }
+        
+        toast.success("Chat renamed")
+      }
+    } catch (error) {
+      console.error("Failed to rename session:", error)
+      toast.error("Failed to rename chat")
     }
   }
 
@@ -1174,24 +1220,18 @@ ${researchProcess.tools_used && researchProcess.tools_used.length > 0
 
   return (
     <div className="relative flex h-screen max-h-screen bg-gradient-to-b from-background via-background/95 to-background text-foreground overflow-hidden">
-      <div className="pointer-events-none absolute inset-0 opacity-60">
-        <div className="absolute -top-32 left-1/2 h-96 w-96 -translate-x-1/2 rounded-full bg-primary/20 blur-[120px]" />
-        <div className="absolute bottom-0 right-0 h-80 w-80 rounded-full bg-blue-500/10 blur-[120px]" />
-      </div>
-
       <ChatSidebar
         chatHistory={chatHistory}
         currentSessionId={currentSessionId}
         showHistory={showHistory}
         onLoadSession={loadSession}
         onDeleteSession={deleteSession}
+        onRenameSession={renameSession}
         onCreateSession={() => createNewSession()}
         onCloseHistory={() => setShowHistory(false)}
       />
-
-
-
-      <div className="flex-1 flex flex-col relative z-10 h-full max-h-screen overflow-hidden min-w-0">
+      
+      <div className="flex-1 flex flex-col min-w-0 h-full relative">
         <ChatHeader
           isResearchMode={isResearchMode}
           useHybrid={useHybrid}

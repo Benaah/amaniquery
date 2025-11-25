@@ -1732,6 +1732,34 @@ async def delete_chat_session(session_id: str, request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.patch("/chat/sessions/{session_id}", response_model=ChatSessionResponse, tags=["Chat"])
+async def rename_chat_session(session_id: str, payload: Dict[str, str], request: Request):
+    """Rename a chat session"""
+    if chat_manager is None:
+        raise HTTPException(status_code=503, detail="Chat service not initialized")
+    
+    try:
+        # Verify session ownership
+        user_id = get_current_user_id(request)
+        if not verify_session_ownership(session_id, user_id, chat_manager):
+            raise HTTPException(status_code=403, detail="Access denied: You don't have permission to update this session")
+        
+        title = payload.get("title")
+        if not title:
+            raise HTTPException(status_code=400, detail="Title is required")
+            
+        chat_manager.update_session_title(session_id, title)
+        
+        # Return updated session
+        session = chat_manager.get_session(session_id)
+        return session
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error renaming chat session: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/chat/sessions/{session_id}/messages", response_model=ChatMessageResponse, tags=["Chat"])
 async def add_chat_message(session_id: str, message: ChatMessageCreate, request: Request):
     """Add a message to a chat session"""
@@ -1745,9 +1773,39 @@ async def add_chat_message(session_id: str, message: ChatMessageCreate, request:
             raise HTTPException(status_code=403, detail="Access denied: You don't have permission to access this session")
         
         # If this is the first user message and session has no title, generate one
-        session = chat_manager.get_session(session_id)
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
+            
+        # Auto-name session if it's the first user message and has no title (or default title)
+        if message.role == "user":
+            # Check if this is the first message (message_count might be 0 or 1 depending on when this runs)
+            # Actually, let's just check if title is None or "New Chat"
+            if not session.title or session.title == "New Chat":
+                # We'll generate title after adding the message, or use the content now
+                # Using the content now is better to avoid a separate DB call if possible, 
+                # but chat_manager.generate_session_title does it well.
+                # Let's do it asynchronously or just call it.
+                # Since we haven't added the message yet, we can't use generate_session_title which queries the DB.
+                # We'll do it AFTER adding the message.
+                pass
+        
+        # Add message to database
+        message_id = chat_manager.add_message(
+            session_id=session_id,
+            content=message.content,
+            role=message.role,
+            model_used=message.model_used
+        )
+        
+        # Auto-name session if needed (after adding message so it can be queried)
+        if message.role == "user" and (not session.title or session.title == "New Chat"):
+            try:
+                # Run in background to avoid blocking
+                # For now, just run it synchronously as it's fast
+                new_title = chat_manager.generate_session_title(session_id)
+                logger.info(f"Auto-named session {session_id} to: {new_title}")
+            except Exception as e:
+                logger.error(f"Failed to auto-name session: {e}")
         
         if message.role == "user":
             # Check if streaming is requested
@@ -1829,6 +1887,15 @@ async def add_chat_message(session_id: str, message: ChatMessageCreate, request:
                     role="user",
                     attachments=attachments_data
                 )
+                
+                # Auto-generate title if needed
+                if not session.title or session.title == "New Chat":
+                    try:
+                        # We just added the message, so generate_session_title will find it
+                        new_title = chat_manager.generate_session_title(session_id)
+                        logger.info(f"Auto-generated title for session {session_id}: {new_title}")
+                    except Exception as e:
+                        logger.warning(f"Failed to auto-generate session title: {e}")
                 
                 # Return streaming response
                 from fastapi.responses import StreamingResponse

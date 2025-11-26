@@ -4591,32 +4591,6 @@ async def initiate_retrain(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ============================================================
-# Admin Path Redirect Middleware (Handle /admin -> /api/admin)
-# ============================================================
-@app.middleware("http")
-async def admin_path_redirect_middleware(request: Request, call_next):
-    """Redirect /admin/* requests to /api/admin/* to support frontend path mismatch"""
-    if request.url.path.startswith("/admin/") and not request.url.path.startswith("/api/admin/"):
-        new_path = "/api" + request.url.path
-        # Create a new URL with the updated path
-        new_url = request.url.replace(path=new_path)
-        logger.info(f"Redirecting {request.url.path} to {new_path}")
-        
-        # For GET requests, we can return a redirect
-        if request.method == "GET":
-            from fastapi.responses import RedirectResponse
-            return RedirectResponse(url=new_url)
-        
-        # For other methods (POST, etc.), we can't easily redirect with 307 in middleware 
-        # without losing body in some clients, but let's try 307 Temporary Redirect
-        from fastapi.responses import RedirectResponse
-        return RedirectResponse(url=new_url, status_code=307)
-        
-    response = await call_next(request)
-    return response
-
-
 if __name__ == "__main__":
     import uvicorn
     import platform

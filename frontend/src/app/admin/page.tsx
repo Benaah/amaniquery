@@ -200,7 +200,7 @@ export default function AdminDashboard() {
     try {
       isRefreshingRef.current = true
       setIsRefreshing(true)
-      const response = await fetch(`${API_BASE_URL}/admin/crawlers`, {
+      const response = await fetch(`${API_BASE_URL}/api/admin/crawlers`, {
         headers: {
           "Content-Type": "application/json",
           ...getAuthHeaders()
@@ -386,7 +386,7 @@ export default function AdminDashboard() {
 
   const runCrawler = async (crawlerName: string) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/admin/crawlers/${crawlerName}/start`, {
+      const response = await fetch(`${API_BASE_URL}/api/admin/crawlers/${crawlerName}/start`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

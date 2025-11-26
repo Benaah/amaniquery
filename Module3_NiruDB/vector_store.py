@@ -413,27 +413,39 @@ class VectorStore:
         if client is None:
             client = self.client
             
-        points = []
-        for i, chunk in enumerate(chunks):
-            payload = {
-                "title": str(chunk.get("title", "")),
-                "category": str(chunk.get("category", "")),
-                "source_url": str(chunk.get("source_url", "")),
-                "source_name": str(chunk.get("source_name", "")),
-                "chunk_index": str(chunk.get("chunk_index", 0)),
-                "total_chunks": str(chunk.get("total_chunks", 1)),
-                "text": str(chunk["text"]),
-                "chunk_id": str(chunk["chunk_id"])
-            }
-            point_id = hash(chunk["chunk_id"]) % (2**63 - 1)
-            points.append(models.PointStruct(
-                id=point_id,
-                vector=chunk["embedding"],
-                payload=payload
-            ))
-        
-        client.upsert(collection_name=self.collection_name, points=points)
-        logger.info(f"Added {len(chunks)} chunks to QDrant")
+        # Process in batches
+        total_added = 0
+        for i in range(0, len(chunks), batch_size):
+            batch_chunks = chunks[i:i + batch_size]
+            points = []
+            
+            for chunk in batch_chunks:
+                payload = {
+                    "title": str(chunk.get("title", "")),
+                    "category": str(chunk.get("category", "")),
+                    "source_url": str(chunk.get("source_url", "")),
+                    "source_name": str(chunk.get("source_name", "")),
+                    "chunk_index": str(chunk.get("chunk_index", 0)),
+                    "total_chunks": str(chunk.get("total_chunks", 1)),
+                    "text": str(chunk["text"]),
+                    "chunk_id": str(chunk["chunk_id"])
+                }
+                point_id = hash(chunk["chunk_id"]) % (2**63 - 1)
+                points.append(models.PointStruct(
+                    id=point_id,
+                    vector=chunk["embedding"],
+                    payload=payload
+                ))
+            
+            try:
+                client.upsert(collection_name=self.collection_name, points=points)
+                total_added += len(points)
+                logger.info(f"Added batch {i // batch_size + 1} ({len(points)} chunks) to QDrant")
+            except Exception as e:
+                logger.error(f"Failed to add batch to QDrant: {e}")
+                raise e
+                
+        logger.info(f"Added total {total_added} chunks to QDrant")
     
     def _add_chromadb(self, chunks: List[Dict], batch_size: int):
         """Add to ChromaDB"""
@@ -1103,43 +1115,105 @@ class VectorStore:
         logger.info(f"Deleted collection: {self.collection_name}")
     
     def get_stats(self) -> Dict:
-        """Get collection statistics"""
-        stats = {"backend": self.backend, "collection_name": self.collection_name, "cloud_backends": list(self.backends.keys()), "elasticsearch_enabled": self.es_client is not None, "total_chunks": 0, "elasticsearch_docs": 0}
-        if self.backend == "chromadb":
+        """Get collection statistics including all backends and namespaces"""
+        stats = {
+            "backend": self.backend,
+            "collection_name": self.collection_name,
+            "cloud_backends": list(self.backends.keys()),
+            "elasticsearch_enabled": self.es_client is not None,
+            "total_chunks": 0,
+            "elasticsearch_docs": 0,
+            "detailed_stats": {}
+        }
+        
+        # 1. Get ChromaDB Stats (Always if available)
+        chroma_stats = {"count": 0, "categories": {}}
+        if self.chromadb_client and self.chromadb_collection:
             try:
-                stats["total_chunks"] = self.collection.count()
-                stats["persist_directory"] = self.persist_directory
-                sample = self.collection.get(limit=1000)
-                categories = {}
-                if sample["metadatas"]:
-                    for meta in sample["metadatas"]:
-                        cat = meta.get("category", "Unknown")
-                        categories[cat] = categories.get(cat, 0) + 1
-                stats["sample_categories"] = categories
+                chroma_count = self.chromadb_collection.count()
+                chroma_stats["count"] = chroma_count
+                stats["chromadb_chunks"] = chroma_count  # Top-level for easy access
+                
+                # Sample categories if active or requested
+                if self.backend == "chromadb":
+                    try:
+                        sample = self.chromadb_collection.get(limit=1000)
+                        categories = {}
+                        if sample["metadatas"]:
+                            for meta in sample["metadatas"]:
+                                cat = meta.get("category", "Unknown")
+                                categories[cat] = categories.get(cat, 0) + 1
+                        chroma_stats["categories"] = categories
+                        stats["sample_categories"] = categories
+                    except Exception:
+                        pass
             except Exception as e:
                 logger.error(f"Error getting ChromaDB stats: {e}")
-                stats["total_chunks"] = 0
-        elif self.backend == "upstash":
-            if "upstash" in self.backends:
-                stats["total_chunks"] = 0
-            else:
-                stats["total_chunks"] = 0
-        elif self.backend == "qdrant":
+        stats["detailed_stats"]["chromadb"] = chroma_stats
+
+        # 2. Get QDrant Stats (Iterate namespaces)
+        qdrant_stats = {"count": 0, "namespaces": []}
+        qdrant_client = self.backends.get("qdrant") or (self.client if self.backend == "qdrant" else None)
+        
+        if qdrant_client:
             try:
-                if "qdrant" in self.backends:
-                    stats["total_chunks"] = self.backends["qdrant"].count(self.collection_name).count
-                else:
-                    stats["total_chunks"] = self.client.count(self.collection_name).count
+                # Get all collections (namespaces)
+                try:
+                    collections_response = qdrant_client.get_collections()
+                    total_qdrant_count = 0
+                    
+                    for col in collections_response.collections:
+                        # Filter for our collections (start with amaniquery_docs)
+                        if col.name.startswith("amaniquery_docs"):
+                            try:
+                                col_count = qdrant_client.count(col.name).count
+                                total_qdrant_count += col_count
+                                qdrant_stats["namespaces"].append({
+                                    "name": col.name,
+                                    "count": col_count
+                                })
+                            except Exception:
+                                pass
+                    
+                    qdrant_stats["count"] = total_qdrant_count
+                    stats["qdrant_chunks"] = total_qdrant_count
+                    
+                except Exception as e:
+                    # Fallback for older clients or if get_collections fails
+                    logger.warning(f"Failed to list QDrant collections: {e}")
+                    if self.backend == "qdrant":
+                         count = qdrant_client.count(self.collection_name).count
+                         qdrant_stats["count"] = count
+                         stats["qdrant_chunks"] = count
             except Exception as e:
                 logger.error(f"Error getting QDrant stats: {e}")
-                stats["total_chunks"] = 0
+        stats["detailed_stats"]["qdrant"] = qdrant_stats
+
+        # 3. Get Upstash Stats
+        upstash_stats = {"count": 0}
+        if "upstash" in self.backends or self.backend == "upstash":
+             # Upstash stats are harder to get without iterating, usually just 0 or cached
+             pass
+        stats["detailed_stats"]["upstash"] = upstash_stats
+
+        # 4. Set total_chunks based on active backend
+        if self.backend == "chromadb":
+            stats["total_chunks"] = chroma_stats["count"]
+        elif self.backend == "qdrant":
+            stats["total_chunks"] = qdrant_stats["count"]
+        elif self.backend == "upstash":
+            stats["total_chunks"] = upstash_stats["count"]
+            
+        # 5. Elasticsearch Stats
         if self.es_client:
             try:
-                es_stats = self.es_client.count(index=self.collection_name)
+                # Search across all indices matching pattern
+                es_stats = self.es_client.count(index=f"{self.collection_name}*")
                 stats["elasticsearch_docs"] = es_stats["count"]
             except Exception as e:
                 logger.error(f"Error getting Elasticsearch stats: {e}")
                 stats["elasticsearch_docs"] = 0
+                
         return stats
 
     def is_chromadb_available(self) -> bool:

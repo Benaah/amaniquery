@@ -191,7 +191,7 @@ class SessionProvider:
             ).first()
 
             if not session:
-                logger.debug(f"Session not found for token hash: {token_hash[:16]}...")
+                logger.warning(f"Session not found for token hash: {token_hash[:16]}...")
                 # Try one more time with explicit refresh
                 try:
                     db.commit()  # Commit any pending transactions
@@ -202,14 +202,14 @@ class SessionProvider:
                     UserSession.session_token == token_hash
                 ).first()
                 if not session:
-                    logger.debug(f"Session still not found after refresh")
+                    logger.warning(f"Session still not found after refresh")
                     return None
 
             logger.debug(f"Session found: id={session.id}, is_active={session.is_active}, user_id={session.user_id}")
 
             # Check if session is active
             if not session.is_active:
-                logger.debug(f"Session found but not active: session_id={session.id}")
+                logger.warning(f"Session found but not active: session_id={session.id}")
                 return None
 
             # Check if session is expired
@@ -236,7 +236,7 @@ class SessionProvider:
                 try:
                     is_expired = expires_at <= now
                     if is_expired:
-                        logger.debug(f"Session expired: expires_at={expires_at}")
+                        logger.warning(f"Session expired: expires_at={expires_at}, now={now}")
                         return None
                 except TypeError as te:
                     logger.error(f"TypeError comparing datetimes: {te}")
@@ -246,16 +246,18 @@ class SessionProvider:
                 logger.warning(f"Session has no expires_at: session_id={session.id}")
                 return None
 
-            # Session is valid - update last activity
+            # Session is valid - update last activity and extend expiration (sliding window)
             try:
                 session.last_activity = now
+                # Extend expiration to keep session alive for active users
+                session.expires_at = now + timedelta(hours=config.SESSION_EXPIRE_HOURS)
                 db.commit()
-                logger.debug(f"Session validated successfully: session_id={session.id}, user_id={session.user_id}")
+                logger.debug(f"Session validated and extended: session_id={session.id}, user_id={session.user_id}")
             except Exception as e:
-                logger.error(f"Error updating session last_activity: {e}", exc_info=True)
+                logger.error(f"Error updating session last_activity/expires_at: {e}", exc_info=True)
                 db.rollback()
                 # Still return the session even if update fails
-                logger.debug(f"Returning session despite last_activity update failure: session_id={session.id}")
+                logger.debug(f"Returning session despite update failure: session_id={session.id}")
 
             # Cache the validated session
             SessionProvider._session_cache.set(token_hash, session)

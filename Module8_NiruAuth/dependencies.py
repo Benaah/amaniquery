@@ -62,8 +62,36 @@ def get_current_user(
             session = db.query(UserSession).filter(
                 UserSession.session_token == token_hash
             ).first()
+            
             if session:
-                logger.warning(f"Session found in DB but not validated: is_active={session.is_active}, expires_at={session.expires_at}, user_id={session.user_id}")
+                # Validate session
+                from datetime import datetime, timezone as tz
+                now = datetime.now(tz.utc).replace(tzinfo=None)
+                
+                # Handle timezone-aware datetimes from DB
+                expires_at = session.expires_at
+                if hasattr(expires_at, 'tzinfo') and expires_at.tzinfo is not None:
+                    expires_at = expires_at.astimezone(tz.utc).replace(tzinfo=None)
+                
+                is_active = session.is_active
+                is_expired = expires_at <= now
+                
+                if is_active and not is_expired:
+                    logger.info(f"Recovered session from DB: user_id={session.user_id}")
+                    
+                    # Get user
+                    user = db.query(User).filter(User.id == session.user_id).first()
+                    if user and user.status == "active":
+                        # Update session activity
+                        try:
+                            session.last_activity = now
+                            db.commit()
+                        except Exception as e:
+                            logger.warning(f"Failed to update session activity: {e}")
+                            
+                        return user
+                
+                logger.warning(f"Session found in DB but invalid: is_active={is_active}, expired={is_expired}, expires_at={expires_at}, now={now}")
             else:
                 logger.warning(f"No session found in DB for token hash")
 

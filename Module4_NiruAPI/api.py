@@ -611,6 +611,38 @@ async def health_check():
     return result
 
 
+@app.get("/debug/files", tags=["General"])
+async def list_data_files():
+    """List files in data directory for debugging"""
+    try:
+        base_dir = Path(__file__).parent.parent
+        data_dir = base_dir / "data"
+        chroma_dir = data_dir / "chroma_db"
+        
+        result = {
+            "base_dir": str(base_dir),
+            "data_dir_exists": data_dir.exists(),
+            "chroma_dir_exists": chroma_dir.exists(),
+            "files": []
+        }
+        
+        if data_dir.exists():
+            for root, dirs, files in os.walk(data_dir):
+                for file in files:
+                    file_path = Path(root) / file
+                    rel_path = file_path.relative_to(base_dir)
+                    size = file_path.stat().st_size
+                    result["files"].append({
+                        "path": str(rel_path),
+                        "size": size,
+                        "size_mb": round(size / (1024 * 1024), 2)
+                    })
+        
+        return result
+    except Exception as e:
+        return {"error": str(e)}
+
+
 @app.get("/api/autocomplete", tags=["Query"])
 async def get_autocomplete(
     q: str,
@@ -1778,36 +1810,6 @@ async def add_chat_message(session_id: str, message: ChatMessageCreate, request:
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
             
-        # Auto-name session if it's the first user message and has no title (or default title)
-        if message.role == "user":
-            # Check if this is the first message (message_count might be 0 or 1 depending on when this runs)
-            # Actually, let's just check if title is None or "New Chat"
-            if not session.title or session.title == "New Chat":
-                # We'll generate title after adding the message, or use the content now
-                # Using the content now is better to avoid a separate DB call if possible, 
-                # but chat_manager.generate_session_title does it well.
-                # Let's do it asynchronously or just call it.
-                # Since we haven't added the message yet, we can't use generate_session_title which queries the DB.
-                # We'll do it AFTER adding the message.
-                pass
-        
-        # Add message to database
-        message_id = chat_manager.add_message(
-            session_id=session_id,
-            content=message.content,
-            role=message.role,
-            model_used=message.model_used
-        )
-        
-        # Auto-name session if needed (after adding message so it can be queried)
-        if message.role == "user" and (not session.title or session.title == "New Chat"):
-            try:
-                # Run in background to avoid blocking
-                # For now, just run it synchronously as it's fast
-                new_title = chat_manager.generate_session_title(session_id)
-                logger.info(f"Auto-named session {session_id} to: {new_title}")
-            except Exception as e:
-                logger.error(f"Failed to auto-name session: {e}")
         
         if message.role == "user":
             # Check if streaming is requested

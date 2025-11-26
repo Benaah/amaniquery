@@ -213,6 +213,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
                         )
             except Exception as e:
                 logger.error(f"Session authentication error: {e}")
+        
+        if session_token and not session:
+             logger.warning(f"AuthMiddleware: Session token present but validation failed (returned None). Token: {session_token[:10]}...")
 
         
         # No authentication found - return None (endpoint may be optional auth)

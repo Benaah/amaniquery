@@ -11,6 +11,7 @@ import threading
 import time
 import json
 from datetime import datetime
+import psutil
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -2567,7 +2568,7 @@ def get_admin_dependency():
 # Create the dependency instance
 _admin_dependency = get_admin_dependency()
 
-@app.get("/admin/crawlers", tags=["Admin"])
+@app.get("/api/admin/crawlers", tags=["Admin", "Crawlers"])
 async def get_crawler_status(
     request: Request,
     admin = Depends(_admin_dependency)
@@ -2598,7 +2599,7 @@ async def get_crawler_status(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/admin/crawlers/{crawler_name}/start", tags=["Admin"])
+@app.post("/api/admin/crawlers/{crawler_name}/start", tags=["Admin", "Crawlers"])
 async def start_crawler(
     crawler_name: str,
     request: Request,
@@ -2623,7 +2624,7 @@ async def start_crawler(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/admin/crawlers/{crawler_name}/stop", tags=["Admin"])
+@app.post("/api/admin/crawlers/{crawler_name}/stop", tags=["Admin", "Crawlers"])
 async def stop_crawler(
     crawler_name: str,
     request: Request,
@@ -2646,6 +2647,21 @@ async def stop_crawler(
     except Exception as e:
         logger.error(f"Error stopping crawler {crawler_name}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/admin/crawlers/{name}/logs", tags=["Admin", "Crawlers"])
+async def get_crawler_logs(
+    name: str,
+    request: Request,
+    admin = Depends(_admin_dependency),
+    limit: int = 100
+):
+    """Get logs for a specific crawler"""
+    if not crawler_manager:
+        raise HTTPException(status_code=503, detail="Crawler manager not initialized")
+    
+    logs = crawler_manager.get_logs(name, limit)
+    return {"crawler": name, "logs": logs}
 
 
 @app.get("/admin/documents", tags=["Admin"])
@@ -3866,8 +3882,35 @@ class CrawlerManager:
                         self.db_manager.update_crawler_status(
                             name,
                             default_status["status"],
-                            last_run=None
                         )
+                    
+                    # Check for zombie processes (running in DB but not actually running)
+                    if self.crawlers[name]['status'] == 'running':
+                        pid = self.crawlers[name].get('pid')
+                        is_running = False
+                        if pid:
+                            try:
+                                if psutil.pid_exists(pid):
+                                    # Double check if it's a python process (optional)
+                                    try:
+                                        proc = psutil.Process(pid)
+                                        if 'python' in proc.name().lower():
+                                            is_running = True
+                                    except (psutil.NoSuchProcess, psutil.AccessDenied):
+                                        pass
+                            except Exception:
+                                pass
+                        
+                        if not is_running:
+                            logger.warning(f"Detected zombie crawler {name} (PID: {pid}). Marking as failed.")
+                            self.crawlers[name]['status'] = 'failed'
+                            self.crawlers[name]['pid'] = None
+                            self.db_manager.update_crawler_status(
+                                name, 
+                                'failed', 
+                                pid=None
+                            )
+                            self.db_manager.add_log(name, f"System restart detected: Marked zombie process (PID: {pid}) as failed")
                 
                 # Load logs from database
                 for name in self.crawlers.keys():
@@ -4546,6 +4589,32 @@ async def initiate_retrain(
     except Exception as e:
         logger.error(f"Error initiating retrain: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================
+# Admin Path Redirect Middleware (Handle /admin -> /api/admin)
+# ============================================================
+@app.middleware("http")
+async def admin_path_redirect_middleware(request: Request, call_next):
+    """Redirect /admin/* requests to /api/admin/* to support frontend path mismatch"""
+    if request.url.path.startswith("/admin/") and not request.url.path.startswith("/api/admin/"):
+        new_path = "/api" + request.url.path
+        # Create a new URL with the updated path
+        new_url = request.url.replace(path=new_path)
+        logger.info(f"Redirecting {request.url.path} to {new_path}")
+        
+        # For GET requests, we can return a redirect
+        if request.method == "GET":
+            from fastapi.responses import RedirectResponse
+            return RedirectResponse(url=new_url)
+        
+        # For other methods (POST, etc.), we can't easily redirect with 307 in middleware 
+        # without losing body in some clients, but let's try 307 Temporary Redirect
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url=new_url, status_code=307)
+        
+    response = await call_next(request)
+    return response
 
 
 if __name__ == "__main__":

@@ -541,7 +541,7 @@ class VectorStore:
                     self.backend = original_backend
                     self.client = original_client
                     self.collection = original_collection
-                    self.collection_name = original_collection
+                    # self.collection_name will be restored in finally block
                     
                     logger.info(f"ChromaDB fallback successfully added {len(chunks)} documents")
                 except Exception as fallback_error:
@@ -549,9 +549,9 @@ class VectorStore:
                     raise fallback_error
             else:
                 raise e
-
-        # Restore original collection name
-        self.collection_name = original_collection
+        finally:
+            # Restore original collection name
+            self.collection_name = original_collection
     
     def index_document(self, doc_id: str, document: Dict, namespace: str = None):
         """Index document in Elasticsearch"""

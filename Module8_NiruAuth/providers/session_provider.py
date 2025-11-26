@@ -214,33 +214,24 @@ class SessionProvider:
 
             # Check if session is expired
             if session.expires_at:
-                # Ensure both datetimes are timezone-naive for comparison
+                # Robust timezone handling
                 expires_at = session.expires_at
-
-                # Handle timezone-aware datetimes from PostgreSQL
+                
+                # Ensure expires_at is timezone-naive UTC
                 if hasattr(expires_at, 'tzinfo') and expires_at.tzinfo is not None:
-                    # Convert timezone-aware to naive UTC
                     from datetime import timezone as tz
-                    try:
-                        expires_at = expires_at.astimezone(tz.utc).replace(tzinfo=None)
-                    except Exception as tz_error:
-                        logger.warning(f"Error converting timezone for expires_at: {tz_error}, using as-is")
-                        # If conversion fails, try to just remove timezone info
-                        expires_at = expires_at.replace(tzinfo=None)
-
-                # Ensure now is also naive for comparison
+                    expires_at = expires_at.astimezone(tz.utc).replace(tzinfo=None)
+                
+                # Ensure now is timezone-naive UTC
+                # datetime.utcnow() returns naive UTC, but let's be safe
                 if hasattr(now, 'tzinfo') and now.tzinfo is not None:
                     from datetime import timezone as tz
                     now = now.astimezone(tz.utc).replace(tzinfo=None)
-
-                try:
-                    is_expired = expires_at <= now
-                    if is_expired:
-                        logger.warning(f"Session expired: expires_at={expires_at}, now={now}")
-                        return None
-                except TypeError as te:
-                    logger.error(f"TypeError comparing datetimes: {te}")
-                    # If comparison fails, assume expired for safety
+                
+                is_expired = expires_at <= now
+                
+                if is_expired:
+                    logger.warning(f"Session expired: expires_at={expires_at} (UTC naive), now={now} (UTC naive)")
                     return None
             else:
                 logger.warning(f"Session has no expires_at: session_id={session.id}")

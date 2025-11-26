@@ -11,6 +11,7 @@ import threading
 import time
 import json
 from datetime import datetime
+import psutil
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -609,6 +610,38 @@ async def health_check():
         await cache_manager.set(cache_key, result.model_dump(), ttl=30)
     
     return result
+
+
+@app.get("/debug/files", tags=["General"])
+async def list_data_files():
+    """List files in data directory for debugging"""
+    try:
+        base_dir = Path(__file__).parent.parent
+        data_dir = base_dir / "data"
+        chroma_dir = data_dir / "chroma_db"
+        
+        result = {
+            "base_dir": str(base_dir),
+            "data_dir_exists": data_dir.exists(),
+            "chroma_dir_exists": chroma_dir.exists(),
+            "files": []
+        }
+        
+        if data_dir.exists():
+            for root, dirs, files in os.walk(data_dir):
+                for file in files:
+                    file_path = Path(root) / file
+                    rel_path = file_path.relative_to(base_dir)
+                    size = file_path.stat().st_size
+                    result["files"].append({
+                        "path": str(rel_path),
+                        "size": size,
+                        "size_mb": round(size / (1024 * 1024), 2)
+                    })
+        
+        return result
+    except Exception as e:
+        return {"error": str(e)}
 
 
 @app.get("/api/autocomplete", tags=["Query"])
@@ -1772,40 +1805,12 @@ async def add_chat_message(session_id: str, message: ChatMessageCreate, request:
         if not verify_session_ownership(session_id, user_id, chat_manager):
             raise HTTPException(status_code=403, detail="Access denied: You don't have permission to access this session")
         
+        session = chat_manager.get_session(session_id)
+
         # If this is the first user message and session has no title, generate one
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
             
-        # Auto-name session if it's the first user message and has no title (or default title)
-        if message.role == "user":
-            # Check if this is the first message (message_count might be 0 or 1 depending on when this runs)
-            # Actually, let's just check if title is None or "New Chat"
-            if not session.title or session.title == "New Chat":
-                # We'll generate title after adding the message, or use the content now
-                # Using the content now is better to avoid a separate DB call if possible, 
-                # but chat_manager.generate_session_title does it well.
-                # Let's do it asynchronously or just call it.
-                # Since we haven't added the message yet, we can't use generate_session_title which queries the DB.
-                # We'll do it AFTER adding the message.
-                pass
-        
-        # Add message to database
-        message_id = chat_manager.add_message(
-            session_id=session_id,
-            content=message.content,
-            role=message.role,
-            model_used=message.model_used
-        )
-        
-        # Auto-name session if needed (after adding message so it can be queried)
-        if message.role == "user" and (not session.title or session.title == "New Chat"):
-            try:
-                # Run in background to avoid blocking
-                # For now, just run it synchronously as it's fast
-                new_title = chat_manager.generate_session_title(session_id)
-                logger.info(f"Auto-named session {session_id} to: {new_title}")
-            except Exception as e:
-                logger.error(f"Failed to auto-name session: {e}")
         
         if message.role == "user":
             # Check if streaming is requested
@@ -1901,7 +1906,7 @@ async def add_chat_message(session_id: str, message: ChatMessageCreate, request:
                 from fastapi.responses import StreamingResponse
                 import json
                 
-                async def generate_stream():
+                async def generate_stream(session=session):
                     full_answer = ""
                     try:
                         # First send sources
@@ -2108,7 +2113,8 @@ async def add_chat_message(session_id: str, message: ChatMessageCreate, request:
                 )
                 
                 # Generate session title if needed
-                if not session.title:
+                session = chat_manager.get_session(session_id)
+                if session and not session.title:
                     title = chat_manager.generate_session_title(session_id)
                     chat_manager.update_session_title(session_id, title)
                 
@@ -2562,7 +2568,7 @@ def get_admin_dependency():
 # Create the dependency instance
 _admin_dependency = get_admin_dependency()
 
-@app.get("/admin/crawlers", tags=["Admin"])
+@app.get("/api/admin/crawlers", tags=["Admin", "Crawlers"])
 async def get_crawler_status(
     request: Request,
     admin = Depends(_admin_dependency)
@@ -2593,7 +2599,7 @@ async def get_crawler_status(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/admin/crawlers/{crawler_name}/start", tags=["Admin"])
+@app.post("/api/admin/crawlers/{crawler_name}/start", tags=["Admin", "Crawlers"])
 async def start_crawler(
     crawler_name: str,
     request: Request,
@@ -2618,7 +2624,7 @@ async def start_crawler(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/admin/crawlers/{crawler_name}/stop", tags=["Admin"])
+@app.post("/api/admin/crawlers/{crawler_name}/stop", tags=["Admin", "Crawlers"])
 async def stop_crawler(
     crawler_name: str,
     request: Request,
@@ -2641,6 +2647,21 @@ async def stop_crawler(
     except Exception as e:
         logger.error(f"Error stopping crawler {crawler_name}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/admin/crawlers/{name}/logs", tags=["Admin", "Crawlers"])
+async def get_crawler_logs(
+    name: str,
+    request: Request,
+    admin = Depends(_admin_dependency),
+    limit: int = 100
+):
+    """Get logs for a specific crawler"""
+    if not crawler_manager:
+        raise HTTPException(status_code=503, detail="Crawler manager not initialized")
+    
+    logs = crawler_manager.get_logs(name, limit)
+    return {"crawler": name, "logs": logs}
 
 
 @app.get("/admin/documents", tags=["Admin"])
@@ -3861,8 +3882,35 @@ class CrawlerManager:
                         self.db_manager.update_crawler_status(
                             name,
                             default_status["status"],
-                            last_run=None
                         )
+                    
+                    # Check for zombie processes (running in DB but not actually running)
+                    if self.crawlers[name]['status'] == 'running':
+                        pid = self.crawlers[name].get('pid')
+                        is_running = False
+                        if pid:
+                            try:
+                                if psutil.pid_exists(pid):
+                                    # Double check if it's a python process (optional)
+                                    try:
+                                        proc = psutil.Process(pid)
+                                        if 'python' in proc.name().lower():
+                                            is_running = True
+                                    except (psutil.NoSuchProcess, psutil.AccessDenied):
+                                        pass
+                            except Exception:
+                                pass
+                        
+                        if not is_running:
+                            logger.warning(f"Detected zombie crawler {name} (PID: {pid}). Marking as failed.")
+                            self.crawlers[name]['status'] = 'failed'
+                            self.crawlers[name]['pid'] = None
+                            self.db_manager.update_crawler_status(
+                                name, 
+                                'failed', 
+                                pid=None
+                            )
+                            self.db_manager.add_log(name, f"System restart detected: Marked zombie process (PID: {pid}) as failed")
                 
                 # Load logs from database
                 for name in self.crawlers.keys():

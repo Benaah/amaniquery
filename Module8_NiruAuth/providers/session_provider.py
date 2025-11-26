@@ -129,64 +129,69 @@ class SessionProvider:
         from datetime import datetime
         from sqlalchemy import and_
         import logging
-        
+
         logger = logging.getLogger(__name__)
         token_hash = SessionProvider.hash_token(session_token)
         now = datetime.utcnow()
-        
+
         # Check cache first
-        cached_session = SessionProvider._session_cache.get(token_hash)
-        if cached_session:
-            # Attach cached session instance to current session to avoid DetachedInstanceError
-            cached_session = db.merge(cached_session)
-            # Refresh the merged session to ensure it's up to date
-            db.refresh(cached_session)
-            logger.debug(f"Session found in cache: session_id={cached_session.id}")
-            # Still check if session is expired (quick in-memory check)
-            if cached_session.expires_at:
-                expires_at = cached_session.expires_at
-                # Handle timezone-aware datetimes
-                if hasattr(expires_at, 'tzinfo') and expires_at.tzinfo is not None:
-                    from datetime import timezone as tz
+        try:
+            cached_session = SessionProvider._session_cache.get(token_hash)
+            if cached_session:
+                # Attach cached session instance to current session to avoid DetachedInstanceError
+                cached_session = db.merge(cached_session)
+                # Refresh the merged session to ensure it's up to date
+                db.refresh(cached_session)
+                logger.debug(f"Session found in cache: session_id={cached_session.id}")
+                # Still check if session is expired (quick in-memory check)
+                if cached_session.expires_at:
+                    expires_at = cached_session.expires_at
+                    # Handle timezone-aware datetimes
+                    if hasattr(expires_at, 'tzinfo') and expires_at.tzinfo is not None:
+                        from datetime import timezone as tz
+                        try:
+                            expires_at = expires_at.astimezone(tz.utc).replace(tzinfo=None)
+                        except Exception:
+                            expires_at = expires_at.replace(tzinfo=None)
+                    
+                    if hasattr(now, 'tzinfo') and now.tzinfo is not None:
+                        from datetime import timezone as tz
+                        now = now.astimezone(tz.utc).replace(tzinfo=None)
+                    
                     try:
-                        expires_at = expires_at.astimezone(tz.utc).replace(tzinfo=None)
-                    except Exception:
-                        expires_at = expires_at.replace(tzinfo=None)
-                
-                if hasattr(now, 'tzinfo') and now.tzinfo is not None:
-                    from datetime import timezone as tz
-                    now = now.astimezone(tz.utc).replace(tzinfo=None)
-                
-                try:
-                    if expires_at <= now:
-                        logger.debug(f"Cached session expired, invalidating cache")
+                        if expires_at <= now:
+                            logger.debug(f"Cached session expired, invalidating cache")
+                            SessionProvider._session_cache.invalidate(token_hash)
+                            return None
+                    except TypeError:
                         SessionProvider._session_cache.invalidate(token_hash)
                         return None
-                except TypeError:
+                
+                if not cached_session.is_active:
+                    logger.debug(f"Cached session not active, invalidating cache")
                     SessionProvider._session_cache.invalidate(token_hash)
                     return None
-            
-            if not cached_session.is_active:
-                logger.debug(f"Cached session not active, invalidating cache")
-                SessionProvider._session_cache.invalidate(token_hash)
-                return None
-            
-            # Return cached session (skip DB query and last_activity update)
-            return cached_session
+                
+                # Return cached session (skip DB query and last_activity update)
+                return cached_session
+        except Exception as e:
+            logger.warning(f"Error retrieving session from cache: {e}. Falling back to DB.")
+            # Remove from cache if it caused an error
+            SessionProvider._session_cache.invalidate(token_hash)
         
         logger.debug(f"Validating session from DB: token_hash={token_hash[:16]}...")
-        
+
         try:
             # Refresh database session to ensure we see latest data
             db.expire_all()
-            
+
             # First check if session exists with matching token hash
             session = db.query(UserSession).filter(
                 UserSession.session_token == token_hash
             ).first()
-            
+
             if not session:
-                logger.debug(f"Session not found for token hash: {token_hash[:16]}...")
+                logger.warning(f"Session not found for token hash: {token_hash[:16]}...")
                 # Try one more time with explicit refresh
                 try:
                     db.commit()  # Commit any pending transactions
@@ -197,65 +202,58 @@ class SessionProvider:
                     UserSession.session_token == token_hash
                 ).first()
                 if not session:
-                    logger.debug(f"Session still not found after refresh")
+                    logger.warning(f"Session still not found after refresh")
                     return None
-            
+
             logger.debug(f"Session found: id={session.id}, is_active={session.is_active}, user_id={session.user_id}")
-            
+
             # Check if session is active
             if not session.is_active:
-                logger.debug(f"Session found but not active: session_id={session.id}")
+                logger.warning(f"Session found but not active: session_id={session.id}")
                 return None
-            
+
             # Check if session is expired
             if session.expires_at:
-                # Ensure both datetimes are timezone-naive for comparison
+                # Robust timezone handling
                 expires_at = session.expires_at
                 
-                # Handle timezone-aware datetimes from PostgreSQL
+                # Ensure expires_at is timezone-naive UTC
                 if hasattr(expires_at, 'tzinfo') and expires_at.tzinfo is not None:
-                    # Convert timezone-aware to naive UTC
                     from datetime import timezone as tz
-                    try:
-                        expires_at = expires_at.astimezone(tz.utc).replace(tzinfo=None)
-                    except Exception as tz_error:
-                        logger.warning(f"Error converting timezone for expires_at: {tz_error}, using as-is")
-                        # If conversion fails, try to just remove timezone info
-                        expires_at = expires_at.replace(tzinfo=None)
+                    expires_at = expires_at.astimezone(tz.utc).replace(tzinfo=None)
                 
-                # Ensure now is also naive for comparison
+                # Ensure now is timezone-naive UTC
+                # datetime.utcnow() returns naive UTC, but let's be safe
                 if hasattr(now, 'tzinfo') and now.tzinfo is not None:
                     from datetime import timezone as tz
                     now = now.astimezone(tz.utc).replace(tzinfo=None)
                 
-                try:
-                    is_expired = expires_at <= now
-                    if is_expired:
-                        logger.debug(f"Session expired: expires_at={expires_at}")
-                        return None
-                except TypeError as te:
-                    logger.error(f"TypeError comparing datetimes: {te}")
-                    # If comparison fails, assume expired for safety
+                is_expired = expires_at <= now
+                
+                if is_expired:
+                    logger.warning(f"Session expired: expires_at={expires_at} (UTC naive), now={now} (UTC naive)")
                     return None
             else:
                 logger.warning(f"Session has no expires_at: session_id={session.id}")
                 return None
-            
-            # Session is valid - update last activity
+
+            # Session is valid - update last activity and extend expiration (sliding window)
             try:
                 session.last_activity = now
+                # Extend expiration to keep session alive for active users
+                session.expires_at = now + timedelta(hours=config.SESSION_EXPIRE_HOURS)
                 db.commit()
-                logger.debug(f"Session validated successfully: session_id={session.id}, user_id={session.user_id}")
+                logger.debug(f"Session validated and extended: session_id={session.id}, user_id={session.user_id}")
             except Exception as e:
-                logger.error(f"Error updating session last_activity: {e}", exc_info=True)
+                logger.error(f"Error updating session last_activity/expires_at: {e}", exc_info=True)
                 db.rollback()
                 # Still return the session even if update fails
-                logger.debug(f"Returning session despite last_activity update failure: session_id={session.id}")
-            
+                logger.debug(f"Returning session despite update failure: session_id={session.id}")
+
             # Cache the validated session
             SessionProvider._session_cache.set(token_hash, session)
             logger.debug(f"Session cached for future requests: session_id={session.id}")
-            
+
             return session
         except Exception as e:
             logger.error(f"Error validating session: {e}", exc_info=True)
@@ -266,6 +264,7 @@ class SessionProvider:
             except:
                 pass
             return None
+
     
     @staticmethod
     def refresh_session(db: Session, refresh_token: str) -> Optional[Tuple[str, UserSession]]:

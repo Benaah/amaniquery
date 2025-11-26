@@ -413,27 +413,39 @@ class VectorStore:
         if client is None:
             client = self.client
             
-        points = []
-        for i, chunk in enumerate(chunks):
-            payload = {
-                "title": str(chunk.get("title", "")),
-                "category": str(chunk.get("category", "")),
-                "source_url": str(chunk.get("source_url", "")),
-                "source_name": str(chunk.get("source_name", "")),
-                "chunk_index": str(chunk.get("chunk_index", 0)),
-                "total_chunks": str(chunk.get("total_chunks", 1)),
-                "text": str(chunk["text"]),
-                "chunk_id": str(chunk["chunk_id"])
-            }
-            point_id = hash(chunk["chunk_id"]) % (2**63 - 1)
-            points.append(models.PointStruct(
-                id=point_id,
-                vector=chunk["embedding"],
-                payload=payload
-            ))
-        
-        client.upsert(collection_name=self.collection_name, points=points)
-        logger.info(f"Added {len(chunks)} chunks to QDrant")
+        # Process in batches
+        total_added = 0
+        for i in range(0, len(chunks), batch_size):
+            batch_chunks = chunks[i:i + batch_size]
+            points = []
+            
+            for chunk in batch_chunks:
+                payload = {
+                    "title": str(chunk.get("title", "")),
+                    "category": str(chunk.get("category", "")),
+                    "source_url": str(chunk.get("source_url", "")),
+                    "source_name": str(chunk.get("source_name", "")),
+                    "chunk_index": str(chunk.get("chunk_index", 0)),
+                    "total_chunks": str(chunk.get("total_chunks", 1)),
+                    "text": str(chunk["text"]),
+                    "chunk_id": str(chunk["chunk_id"])
+                }
+                point_id = hash(chunk["chunk_id"]) % (2**63 - 1)
+                points.append(models.PointStruct(
+                    id=point_id,
+                    vector=chunk["embedding"],
+                    payload=payload
+                ))
+            
+            try:
+                client.upsert(collection_name=self.collection_name, points=points)
+                total_added += len(points)
+                logger.info(f"Added batch {i // batch_size + 1} ({len(points)} chunks) to QDrant")
+            except Exception as e:
+                logger.error(f"Failed to add batch to QDrant: {e}")
+                raise e
+                
+        logger.info(f"Added total {total_added} chunks to QDrant")
     
     def _add_chromadb(self, chunks: List[Dict], batch_size: int):
         """Add to ChromaDB"""
@@ -541,7 +553,7 @@ class VectorStore:
                     self.backend = original_backend
                     self.client = original_client
                     self.collection = original_collection
-                    self.collection_name = original_collection
+                    # self.collection_name will be restored in finally block
                     
                     logger.info(f"ChromaDB fallback successfully added {len(chunks)} documents")
                 except Exception as fallback_error:
@@ -549,9 +561,9 @@ class VectorStore:
                     raise fallback_error
             else:
                 raise e
-
-        # Restore original collection name
-        self.collection_name = original_collection
+        finally:
+            # Restore original collection name
+            self.collection_name = original_collection
     
     def index_document(self, doc_id: str, document: Dict, namespace: str = None):
         """Index document in Elasticsearch"""
@@ -812,8 +824,9 @@ class VectorStore:
             return []
             
     def query(self, query_text: str, n_results: int = 5, filter: Optional[Dict] = None, namespace: str = None) -> List[Dict]:
-        """Query vector store for similar documents"""
+        """Query vector store for similar documents with fallback support"""
         try:
+            # 1. Encode query
             try:
                 query_embedding = self.embedding_model.encode(query_text).tolist()
             except Exception as encode_error:
@@ -825,82 +838,147 @@ class VectorStore:
                     query_embedding = self.embedding_model.encode(query_text).tolist()
                 else:
                     raise
+
+            # 2. Define backends to try in order
+            # Primary -> ChromaDB -> QDrant -> Upstash
+            backends_to_try = [self.backend]
+            fallbacks = ["chromadb", "qdrant", "upstash"]
+            for fb in fallbacks:
+                if fb != self.backend and fb not in backends_to_try:
+                    backends_to_try.append(fb)
             
-            # Modify collection name based on namespace for supported backends
-            original_collection = self.collection_name
-            if namespace:
-                if self.backend in ["qdrant", "chromadb"]:
-                    self.collection_name = f"{original_collection}_{namespace}"
-                    # Ensure namespaced collection exists for QDrant
-                    if self.backend == "qdrant":
-                        try:
-                            self.client.get_collection(self.collection_name)
-                        except:
-                            self.client.create_collection(
-                                collection_name=self.collection_name,
-                                vectors_config=models.VectorParams(size=384, distance=models.Distance.COSINE)
-                            )
-                            logger.info(f"Created QDrant collection: {self.collection_name}")
-                elif self.backend == "upstash":
-                    # Namespace will be used as metadata filter during query
-                    pass
-                elif self.es_client:
-                    # ElasticSearch index name changed by namespace
-                    self.collection_name = f"{original_collection}_{namespace}"
-            
-            if self.backend == "upstash":
-                results = self._query_upstash(query_embedding, n_results, filter, namespace)
-            elif self.backend == "qdrant":
-                results = self._query_qdrant(query_embedding, n_results, filter)
-            elif self.backend == "chromadb":
-                results = self._query_chromadb(query_embedding, n_results, filter)
-            else:
-                logger.error(f"Unsupported backend for query: {self.backend}")
-                results = []
-            
-            # If primary backend failed and ChromaDB is available, try ChromaDB as fallback
-            if not results and self.is_chromadb_available() and self.backend != "chromadb":
-                logger.warning(f"Primary backend {self.backend} returned no results, falling back to ChromaDB")
+            logger.info(f"Querying with fallback chain: {backends_to_try}")
+
+            # 3. Try backends in order
+            for backend in backends_to_try:
                 try:
-                    # Temporarily switch to ChromaDB for this query
-                    original_backend = self.backend
-                    original_client = self.client
-                    original_collection = self.collection
-                    original_collection_name = self.collection_name
+                    results = []
                     
-                    self.backend = "chromadb"
-                    self.client = self.chromadb_client
-                    
-                    # Handle namespace for ChromaDB
-                    if namespace:
-                        self.collection_name = f"{original_collection}_{namespace}"
-                        self.collection = self.chromadb_client.get_or_create_collection(
-                            name=self.collection_name,
-                            metadata={"description": f"AmaniQuery ChromaDB collection: {self.collection_name}"}
-                        )
+                    # Check availability before trying
+                    if backend == "chromadb" and not self.is_chromadb_available():
+                        continue
+                    if backend == "qdrant" and "qdrant" not in self.backends and self.backend != "qdrant":
+                        continue
+                    if backend == "upstash" and "upstash" not in self.backends and self.backend != "upstash":
+                        continue
+
+                    # Execute query based on backend
+                    if backend == self.backend:
+                        # Use current configuration
+                        results = self._execute_query(self.backend, query_embedding, n_results, filter, namespace)
                     else:
-                        self.collection = self.chromadb_collection
-                        self.collection_name = original_collection
+                        # Context switch for fallback
+                        logger.info(f"Falling back to {backend}...")
+                        
+                        # Save current state
+                        original_backend = self.backend
+                        original_client = self.client
+                        original_collection = getattr(self, "collection", None)
+                        original_collection_name = self.collection_name
+                        
+                        try:
+                            # Setup fallback state
+                            self.backend = backend
+                            
+                            if backend == "chromadb":
+                                self.client = self.chromadb_client
+                                if namespace:
+                                    self.collection_name = f"{original_collection_name}_{namespace}"
+                                    self.collection = self.chromadb_client.get_or_create_collection(
+                                        name=self.collection_name,
+                                        metadata={"description": f"AmaniQuery ChromaDB collection: {self.collection_name}"}
+                                    )
+                                else:
+                                    self.collection = self.chromadb_collection
+                                    self.collection_name = original_collection_name
+                                    
+                            elif backend == "qdrant":
+                                self.client = self.backends["qdrant"]
+                                # QDrant handles collection name in _execute_query logic (via self.collection_name)
+                                if namespace:
+                                    self.collection_name = f"{original_collection_name}_{namespace}"
+                                    # Ensure collection exists
+                                    try:
+                                        self.client.get_collection(self.collection_name)
+                                    except:
+                                        pass # Might fail if not exists, query will return empty
+                                else:
+                                    self.collection_name = original_collection_name
+
+                            elif backend == "upstash":
+                                self.client = self.backends["upstash"]
+                                # Upstash uses metadata filter, collection name doesn't change on client
+                                self.collection_name = original_collection_name
+
+                            # Execute query
+                            results = self._execute_query(backend, query_embedding, n_results, filter, namespace)
+                            
+                        finally:
+                            # Restore state
+                            self.backend = original_backend
+                            self.client = original_client
+                            if original_collection:
+                                self.collection = original_collection
+                            self.collection_name = original_collection_name
                     
-                    results = self._query_chromadb(query_embedding, n_results, filter)
+                    if results:
+                        logger.info(f"Query successful using {backend}, found {len(results)} results")
+                        return results
                     
-                    # Restore original backend
-                    self.backend = original_backend
-                    self.client = original_client
-                    self.collection = original_collection
-                    self.collection_name = original_collection_name
-                    
-                    logger.info(f"ChromaDB fallback returned {len(results)} results")
-                except Exception as fallback_error:
-                    logger.error(f"ChromaDB fallback also failed: {fallback_error}")
+                except Exception as e:
+                    logger.warning(f"Query failed with {backend}: {e}")
+                    continue
             
-            # Restore original collection name
-            self.collection_name = original_collection
-            
-            return results
+            logger.warning("All backends in fallback chain failed or returned no results")
+            return []
+
         except Exception as e:
             logger.error(f"Error querying vector store: {e}")
             return []
+
+    def _execute_query(self, backend: str, query_embedding: List[float], n_results: int, filter: Optional[Dict], namespace: str) -> List[Dict]:
+        """Helper to execute query on specific backend"""
+        # Handle namespace setup for current backend (if not already handled in context switch)
+        # Note: For primary backend, namespace setup logic was inside query(), moving it here or duplicating?
+        # The context switch logic above handles namespace for fallbacks.
+        # For primary backend, we need to handle it here if it wasn't done.
+        
+        # But wait, self.collection_name is modified in place in the original code.
+        # Let's handle it safely.
+        
+        original_collection_name = self.collection_name
+        
+        try:
+            if namespace:
+                if backend in ["qdrant", "chromadb"]:
+                    # For primary backend, we might need to update collection name if not already updated
+                    if self.collection_name == original_collection_name: # Simple check
+                         self.collection_name = f"{original_collection_name}_{namespace}"
+                         
+                    # For QDrant primary, ensure collection exists
+                    if backend == "qdrant" and backend == self.backend: # Only if it's the primary/active one
+                         try:
+                             self.client.get_collection(self.collection_name)
+                         except:
+                             from qdrant_client.http import models
+                             self.client.create_collection(
+                                 collection_name=self.collection_name,
+                                 vectors_config=models.VectorParams(size=384, distance=models.Distance.COSINE)
+                             )
+                elif backend == "es":
+                     self.collection_name = f"{original_collection_name}_{namespace}"
+
+            if backend == "upstash":
+                return self._query_upstash(query_embedding, n_results, filter, namespace)
+            elif backend == "qdrant":
+                return self._query_qdrant(query_embedding, n_results, filter)
+            elif backend == "chromadb":
+                return self._query_chromadb(query_embedding, n_results, filter)
+            else:
+                return []
+        finally:
+            # Restore collection name if it was changed
+            self.collection_name = original_collection_name
 
     def get_document(self, doc_id: str) -> Optional[Dict]:
         """
@@ -1037,43 +1115,105 @@ class VectorStore:
         logger.info(f"Deleted collection: {self.collection_name}")
     
     def get_stats(self) -> Dict:
-        """Get collection statistics"""
-        stats = {"backend": self.backend, "collection_name": self.collection_name, "cloud_backends": list(self.backends.keys()), "elasticsearch_enabled": self.es_client is not None, "total_chunks": 0, "elasticsearch_docs": 0}
-        if self.backend == "chromadb":
+        """Get collection statistics including all backends and namespaces"""
+        stats = {
+            "backend": self.backend,
+            "collection_name": self.collection_name,
+            "cloud_backends": list(self.backends.keys()),
+            "elasticsearch_enabled": self.es_client is not None,
+            "total_chunks": 0,
+            "elasticsearch_docs": 0,
+            "detailed_stats": {}
+        }
+        
+        # 1. Get ChromaDB Stats (Always if available)
+        chroma_stats = {"count": 0, "categories": {}}
+        if self.chromadb_client and self.chromadb_collection:
             try:
-                stats["total_chunks"] = self.collection.count()
-                stats["persist_directory"] = self.persist_directory
-                sample = self.collection.get(limit=1000)
-                categories = {}
-                if sample["metadatas"]:
-                    for meta in sample["metadatas"]:
-                        cat = meta.get("category", "Unknown")
-                        categories[cat] = categories.get(cat, 0) + 1
-                stats["sample_categories"] = categories
+                chroma_count = self.chromadb_collection.count()
+                chroma_stats["count"] = chroma_count
+                stats["chromadb_chunks"] = chroma_count  # Top-level for easy access
+                
+                # Sample categories if active or requested
+                if self.backend == "chromadb":
+                    try:
+                        sample = self.chromadb_collection.get(limit=1000)
+                        categories = {}
+                        if sample["metadatas"]:
+                            for meta in sample["metadatas"]:
+                                cat = meta.get("category", "Unknown")
+                                categories[cat] = categories.get(cat, 0) + 1
+                        chroma_stats["categories"] = categories
+                        stats["sample_categories"] = categories
+                    except Exception:
+                        pass
             except Exception as e:
                 logger.error(f"Error getting ChromaDB stats: {e}")
-                stats["total_chunks"] = 0
-        elif self.backend == "upstash":
-            if "upstash" in self.backends:
-                stats["total_chunks"] = 0
-            else:
-                stats["total_chunks"] = 0
-        elif self.backend == "qdrant":
+        stats["detailed_stats"]["chromadb"] = chroma_stats
+
+        # 2. Get QDrant Stats (Iterate namespaces)
+        qdrant_stats = {"count": 0, "namespaces": []}
+        qdrant_client = self.backends.get("qdrant") or (self.client if self.backend == "qdrant" else None)
+        
+        if qdrant_client:
             try:
-                if "qdrant" in self.backends:
-                    stats["total_chunks"] = self.backends["qdrant"].count(self.collection_name).count
-                else:
-                    stats["total_chunks"] = self.client.count(self.collection_name).count
+                # Get all collections (namespaces)
+                try:
+                    collections_response = qdrant_client.get_collections()
+                    total_qdrant_count = 0
+                    
+                    for col in collections_response.collections:
+                        # Filter for our collections (start with amaniquery_docs)
+                        if col.name.startswith("amaniquery_docs"):
+                            try:
+                                col_count = qdrant_client.count(col.name).count
+                                total_qdrant_count += col_count
+                                qdrant_stats["namespaces"].append({
+                                    "name": col.name,
+                                    "count": col_count
+                                })
+                            except Exception:
+                                pass
+                    
+                    qdrant_stats["count"] = total_qdrant_count
+                    stats["qdrant_chunks"] = total_qdrant_count
+                    
+                except Exception as e:
+                    # Fallback for older clients or if get_collections fails
+                    logger.warning(f"Failed to list QDrant collections: {e}")
+                    if self.backend == "qdrant":
+                         count = qdrant_client.count(self.collection_name).count
+                         qdrant_stats["count"] = count
+                         stats["qdrant_chunks"] = count
             except Exception as e:
                 logger.error(f"Error getting QDrant stats: {e}")
-                stats["total_chunks"] = 0
+        stats["detailed_stats"]["qdrant"] = qdrant_stats
+
+        # 3. Get Upstash Stats
+        upstash_stats = {"count": 0}
+        if "upstash" in self.backends or self.backend == "upstash":
+             # Upstash stats are harder to get without iterating, usually just 0 or cached
+             pass
+        stats["detailed_stats"]["upstash"] = upstash_stats
+
+        # 4. Set total_chunks based on active backend
+        if self.backend == "chromadb":
+            stats["total_chunks"] = chroma_stats["count"]
+        elif self.backend == "qdrant":
+            stats["total_chunks"] = qdrant_stats["count"]
+        elif self.backend == "upstash":
+            stats["total_chunks"] = upstash_stats["count"]
+            
+        # 5. Elasticsearch Stats
         if self.es_client:
             try:
-                es_stats = self.es_client.count(index=self.collection_name)
+                # Search across all indices matching pattern
+                es_stats = self.es_client.count(index=f"{self.collection_name}*")
                 stats["elasticsearch_docs"] = es_stats["count"]
             except Exception as e:
                 logger.error(f"Error getting Elasticsearch stats: {e}")
                 stats["elasticsearch_docs"] = 0
+                
         return stats
 
     def is_chromadb_available(self) -> bool:

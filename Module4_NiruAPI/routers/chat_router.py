@@ -73,52 +73,53 @@ class FeedbackResponse(BaseModel):
 
 
 # =============================================================================
-# DEPENDENCIES - Module-level globals set by main app
+# DEPENDENCIES - State container to avoid global variable issues
 # =============================================================================
 
-chat_manager = None
-vision_storage = {}
-vision_rag_service = None
-rag_pipeline = None
-vector_store = None
-amaniq_v2_graph = None  # Store the compiled graph directly
+class RouterState:
+    """State container for router dependencies to avoid Python global variable issues"""
+    chat_manager = None
+    vision_storage = {}
+    vision_rag_service = None
+    rag_pipeline = None
+    vector_store = None
+    amaniq_v2_graph = None
+
+# Single global instance
+_state = RouterState()
 
 
 def get_rag_pipeline():
     """Get RAG pipeline with lazy initialization fallback"""
-    global rag_pipeline
-    if rag_pipeline is None:
+    if _state.rag_pipeline is None:
         logger.warning("RAG pipeline not initialized via dependency injection, attempting lazy initialization")
         try:
             from Module4_NiruAPI.rag_pipeline import RAGPipeline
-            rag_pipeline = RAGPipeline()
+            _state.rag_pipeline = RAGPipeline()
             logger.info("RAG pipeline lazily initialized successfully")
         except Exception as e:
             logger.error(f"Failed to lazily initialize RAG pipeline: {e}")
             raise HTTPException(status_code=503, detail=f"RAG service not initialized: {e}")
-    return rag_pipeline
+    return _state.rag_pipeline
 
 
 def get_chat_manager():
     """Get the chat manager instance"""
-    global chat_manager
-    if chat_manager is None:
+    if _state.chat_manager is None:
         logger.warning("Chat manager not initialized via dependency injection, attempting lazy initialization")
         try:
             from Module3_NiruDB.chat_manager import ChatDatabaseManager
-            chat_manager = ChatDatabaseManager()
+            _state.chat_manager = ChatDatabaseManager()
             logger.info("Chat manager lazily initialized successfully")
         except Exception as e:
             logger.error(f"Failed to lazily initialize chat manager: {e}")
             raise HTTPException(status_code=503, detail=f"Chat service not initialized: {e}")
-    return chat_manager
+    return _state.chat_manager
 
 
 def get_amaniq_v2_graph():
     """Get the AmaniQ v2 compiled graph directly (avoids global model issues)"""
-    global amaniq_v2_graph
-    
-    if amaniq_v2_graph is None:
+    if _state.amaniq_v2_graph is None:
         logger.error("CRITICAL: AmaniQ v2 graph is None - this should never happen!")
         logger.error("The graph should have been initialized during API startup.")
         logger.error("Check API startup logs for initialization errors.")
@@ -128,7 +129,7 @@ def get_amaniq_v2_graph():
             detail="AmaniQ v2 graph not initialized. This is a critical system error. Please contact support."
         )
     
-    return amaniq_v2_graph
+    return _state.amaniq_v2_graph
     
 
 # =============================================================================
@@ -275,13 +276,13 @@ async def add_chat_message(session_id: str, message: ChatMessageCreate, request:
             # Check for vision data
             use_vision_rag = False
             session_images = []
-            if vision_rag_service and vision_storage:
-                session_images = vision_storage.get(session_id, [])
+            if _state.vision_rag_service and _state.vision_storage:
+                session_images = _state.vision_storage.get(session_id, [])
                 if session_images:
                     use_vision_rag = True
             
             if not use_vision_rag:
-                rag_pipeline = get_rag_pipeline()  # Ensure rag_pipeline is initialized
+                get_rag_pipeline()  # Ensure rag_pipeline is initialized
             
             if message.stream:
                 # Return streaming response
@@ -322,9 +323,9 @@ async def _handle_streaming_message(
     """Handle streaming message response"""
     # Process query
     if use_vision_rag:
-        if vision_rag_service is None or not hasattr(vision_rag_service, "query"):
+        if _state.vision_rag_service is None or not hasattr(_state.vision_rag_service, "query"):
             raise HTTPException(status_code=503, detail="Vision RAG service not initialized")
-        result = vision_rag_service.query(
+        result = _state.vision_rag_service.query(
             question=message.content,
             session_images=session_images,
             top_k=3,
@@ -398,8 +399,8 @@ async def _handle_streaming_message(
             import traceback
             logger.error(traceback.format_exc())
             logger.warning("[RAG] Emergency fallback to standard RAG pipeline")
-            if rag_pipeline is not None:
-                result = rag_pipeline.query_stream(
+            if _state.rag_pipeline is not None:
+                result = _state.rag_pipeline.query_stream(
                     query=message.content,
                     top_k=3,
                     max_tokens=1000,
@@ -497,7 +498,7 @@ async def _handle_regular_message(
 ):
     """Handle regular (non-streaming) message response"""
     if use_vision_rag:
-        result = vision_rag_service.query(
+        result = _state.vision_rag_service.query(
             question=message.content,
             session_images=session_images,
             top_k=3,
@@ -632,7 +633,7 @@ async def upload_chat_attachment(
     """Upload a document attachment for a chat session"""
     chat_manager = get_chat_manager()
     
-    if vector_store is None:
+    if _state.vector_store is None:
         raise HTTPException(status_code=503, detail="Vector store not initialized")
     
     user_id = get_current_user_id(request)
@@ -673,16 +674,16 @@ async def upload_chat_attachment(
             collection_name = f"chat_session_{session_id}"
             processor.store_chunks_in_vector_store(
                 chunks=result["chunks"],
-                vector_store=_vector_store,
+                vector_store=_state.vector_store,
                 collection_name=collection_name
             )
         
         # Store vision data if available
         vision_data = result.get("vision_data")
         if vision_data and vision_data.get("images"):
-            if session_id not in vision_storage:
-                vision_storage[session_id] = []
-            vision_storage[session_id].extend(vision_data["images"])
+            if session_id not in _state.vision_storage:
+                _state.vision_storage[session_id] = []
+            _state.vision_storage[session_id].extend(vision_data["images"])
         
         return {
             "attachment": result["attachment"],
@@ -704,7 +705,7 @@ async def get_vision_content(session_id: str, request: Request):
     if not verify_session_ownership(session_id, user_id, chat_manager):
         raise HTTPException(status_code=403, detail="Access denied")
     
-    session_images = vision_storage.get(session_id, [])
+    session_images = _state.vision_storage.get(session_id, [])
     
     content_list = []
     for img_data in session_images:

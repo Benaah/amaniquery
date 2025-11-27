@@ -163,13 +163,24 @@ class ToolExecutor:
         for attempt in range(self.config.max_retries):
             try:
                 args = self._build_args(tool_name, query)
-                result = await asyncio.wait_for(
-                    asyncio.get_event_loop().run_in_executor(
-                        None,
-                        lambda: self.registry.execute_tool(tool_name, args)
-                    ),
-                    timeout=self.config.default_timeout
-                )
+                
+                # Call async method directly if available, otherwise use sync method in executor
+                tool = self.registry.get_tool(tool_name)
+                if hasattr(tool, 'aexecute'):
+                    # Direct async call - preferred for async tools like kb_search
+                    result = await asyncio.wait_for(
+                        tool.aexecute(**args),
+                        timeout=self.config.default_timeout
+                    )
+                else:
+                    # Fall back to sync method in thread executor
+                    result = await asyncio.wait_for(
+                        asyncio.get_event_loop().run_in_executor(
+                            None,
+                            lambda: self.registry.execute_tool(tool_name, args)
+                        ),
+                        timeout=self.config.default_timeout
+                    )
                 
                 self.cache.set(tool_name, query, result)
                 return ToolResult(

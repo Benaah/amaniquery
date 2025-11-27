@@ -16,21 +16,26 @@ reports_router = APIRouter(prefix="/reports", tags=["Reports"])
 
 
 # =============================================================================
-# DEPENDENCIES - Module-level globals set by main app
+# DEPENDENCIES - State container to avoid global variable issues
 # =============================================================================
 
-agentic_research_module = None
-research_module = None
-report_generator = None
-cache_manager = None
+class ResearchRouterState:
+    """State container for research router dependencies"""
+    agentic_research_module = None
+    research_module = None
+    report_generator = None
+    cache_manager = None
+    chat_manager = None
+
+_state = ResearchRouterState()
 
 
 def get_research_module():
     """Get the active research module (agentic if available, else legacy)"""
-    if agentic_research_module is not None:
-        return agentic_research_module
-    if research_module is not None:
-        return research_module
+    if _state.agentic_research_module is not None:
+        return _state.agentic_research_module
+    if _state.research_module is not None:
+        return _state.research_module
     raise HTTPException(
         status_code=503,
         detail="Research module not available. Ensure API keys are configured."
@@ -39,21 +44,21 @@ def get_research_module():
 
 def get_report_generator():
     """Get the report generator instance"""
-    if report_generator is None:
+    if _state.report_generator is None:
         raise HTTPException(
             status_code=503,
             detail="Report generator not available. Ensure GEMINI_API_KEY is configured."
         )
-    return report_generator
+    return _state.report_generator
 
 
 def save_query_to_chat(session_id: str, query: str, result: Dict):
     """Helper function to save query and response to chat database"""
-    if chat_manager is None or not session_id:
+    if _state.chat_manager is None or not session_id:
         return
     
     try:
-        session = chat_manager.get_session(session_id)
+        session = _state.chat_manager.get_session(session_id)
         if not session:
             return
         
@@ -64,13 +69,13 @@ def save_query_to_chat(session_id: str, query: str, result: Dict):
             "model_used": result.get("model_used", "gemini")
         }
         
-        chat_manager.add_message(
+        _state.chat_manager.add_message(
             session_id=session_id,
             content=query,
             role="user"
         )
         
-        chat_manager.add_message(
+        _state.chat_manager.add_message(
             session_id=session_id,
             content=chat_result["answer"],
             role="assistant",

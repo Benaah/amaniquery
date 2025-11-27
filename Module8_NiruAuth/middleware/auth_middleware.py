@@ -2,12 +2,15 @@
 Authentication Middleware
 Validates credentials and attaches authentication context to requests
 """
+import logging
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response, JSONResponse
 from typing import Optional, Callable
 from sqlalchemy.orm import Session
 from fastapi import status, HTTPException
+
+logger = logging.getLogger(__name__)
 
 from ..models.auth_models import User, Integration
 from ..models.pydantic_models import AuthContext

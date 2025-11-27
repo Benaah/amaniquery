@@ -24,11 +24,9 @@ def get_db():
         )
     
     engine = create_database_engine(config.DATABASE_URL)
-    db = get_db_session(engine)
-    try:
+    # get_db_session returns a context manager, use it properly
+    with get_db_session(engine) as db:
         yield db
-    finally:
-        db.close()
 
 
 def get_auth_context(request: Request) -> Optional[AuthContext]:

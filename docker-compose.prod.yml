@@ -21,7 +21,7 @@ services:
       - amaniquery_network
     restart: unless-stopped
 
-  # API Backend
+  # API Backend (includes integrated scheduler)
   api:
     build:
       context: .
@@ -37,14 +37,21 @@ services:
       - CHROMA_PORT=8000
       - NODE_ENV=production
       - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=postgresql://amaniquery:${POSTGRES_PASSWORD:-amaniquery_password}@postgres:5432/amaniquery
+      # Scheduler configuration (integrated into API)
+      - ENABLE_SCHEDULER=true
+      - SCHEDULER_BACKEND=apscheduler
     depends_on:
       chroma:
         condition: service_healthy
       redis:
         condition: service_healthy
+      postgres:
+        condition: service_started
     volumes:
-      - ./data:/app/data:ro
+      - ./data:/app/data
       - ./config:/app/config:ro
+      - ./logs:/app/logs
     networks:
       - amaniquery_network
     restart: unless-stopped

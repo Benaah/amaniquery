@@ -20,7 +20,7 @@ services:
     networks:
       - amaniquery_network
 
-  # API Backend
+  # API Backend (includes integrated scheduler)
   api:
     build:
       context: .
@@ -34,19 +34,26 @@ services:
       - API_PORT=8000
       - CHROMA_HOST=chroma
       - CHROMA_PORT=8000
+      # Scheduler configuration (integrated into API)
+      - ENABLE_SCHEDULER=true
+      - SCHEDULER_BACKEND=apscheduler
       # Add other environment variables as needed
       - LLM_PROVIDER=moonshot
       - DEFAULT_MODEL=moonshot-v1-8k
       - EMBEDDING_MODEL=all-MiniLM-L6-v2
       - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=postgresql://amaniquery:amaniquery_password@postgres:5432/amaniquery
     depends_on:
       chroma:
         condition: service_healthy
       redis:
         condition: service_healthy
+      postgres:
+        condition: service_started
     volumes:
       - ./data:/app/data
       - ./config:/app/config
+      - ./logs:/app/logs
     networks:
       - amaniquery_network
     restart: unless-stopped

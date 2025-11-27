@@ -55,6 +55,17 @@ class CrawlerType(str, Enum):
     GLOBAL_TRENDS = "global_trends"
 
 
+class PipelineTask(str, Enum):
+    """Types of pipeline tasks"""
+    PROCESS_DATA = "process_data"
+    GENERATE_EMBEDDINGS = "generate_embeddings"
+    POPULATE_VECTORS = "populate_vectors"
+    FULL_PIPELINE = "full_pipeline"
+    INCREMENTAL_UPDATE = "incremental_update"
+    VALIDATE_VECTORS = "validate_vectors"
+    CLEANUP_DATA = "cleanup_data"
+
+
 @dataclass
 class CrawlerSchedule:
     """Configuration for a crawler's schedule"""
@@ -74,11 +85,29 @@ class CrawlerSchedule:
     consecutive_failures: int = 0
 
 
+@dataclass
+class PipelineSchedule:
+    """Configuration for a pipeline task's schedule"""
+    task_type: PipelineTask
+    enabled: bool = True
+    interval_hours: int = 4
+    cron_expression: Optional[str] = None
+    timeout_minutes: int = 60
+    description: str = ""
+    
+    # Runtime state
+    last_run: Optional[datetime] = None
+    last_status: str = "never_run"
+
+
 @dataclass 
 class SchedulerConfig:
     """Overall scheduler configuration"""
     # Crawler schedules
     schedules: Dict[str, CrawlerSchedule] = field(default_factory=dict)
+    
+    # Pipeline schedules
+    pipeline_schedules: Dict[str, PipelineSchedule] = field(default_factory=dict)
     
     # General settings
     max_concurrent_crawlers: int = 2
@@ -94,6 +123,8 @@ class SchedulerConfig:
     def default(cls) -> "SchedulerConfig":
         """Create default configuration"""
         config = cls()
+        
+        # Crawler schedules
         config.schedules = {
             CrawlerType.NEWS_RSS.value: CrawlerSchedule(
                 crawler_type=CrawlerType.NEWS_RSS,
@@ -131,6 +162,55 @@ class SchedulerConfig:
                 description="Kenya Law database - infrequent updates, comprehensive crawl"
             ),
         }
+        
+        # Pipeline schedules
+        config.pipeline_schedules = {
+            PipelineTask.PROCESS_DATA.value: PipelineSchedule(
+                task_type=PipelineTask.PROCESS_DATA,
+                interval_hours=4,
+                timeout_minutes=60,
+                description="Process raw crawled data - extract, clean, chunk, enrich"
+            ),
+            PipelineTask.GENERATE_EMBEDDINGS.value: PipelineSchedule(
+                task_type=PipelineTask.GENERATE_EMBEDDINGS,
+                interval_hours=4,
+                timeout_minutes=45,
+                description="Generate vector embeddings for processed chunks"
+            ),
+            PipelineTask.POPULATE_VECTORS.value: PipelineSchedule(
+                task_type=PipelineTask.POPULATE_VECTORS,
+                interval_hours=4,
+                timeout_minutes=45,
+                description="Populate Qdrant/ChromaDB/Upstash with embeddings"
+            ),
+            PipelineTask.INCREMENTAL_UPDATE.value: PipelineSchedule(
+                task_type=PipelineTask.INCREMENTAL_UPDATE,
+                interval_hours=6,
+                timeout_minutes=120,
+                description="Incremental update - crawl news, process, embed, store"
+            ),
+            PipelineTask.VALIDATE_VECTORS.value: PipelineSchedule(
+                task_type=PipelineTask.VALIDATE_VECTORS,
+                interval_hours=24,
+                timeout_minutes=15,
+                description="Validate vector store integrity"
+            ),
+            PipelineTask.CLEANUP_DATA.value: PipelineSchedule(
+                task_type=PipelineTask.CLEANUP_DATA,
+                enabled=False,  # Disabled by default, run manually or enable
+                interval_hours=168,  # Weekly
+                timeout_minutes=30,
+                description="Clean up old raw data files"
+            ),
+            PipelineTask.FULL_PIPELINE.value: PipelineSchedule(
+                task_type=PipelineTask.FULL_PIPELINE,
+                enabled=False,  # Disabled by default - run via cron instead
+                interval_hours=168,  # Weekly
+                timeout_minutes=240,  # 4 hours
+                description="Full pipeline refresh - all crawlers + processing + vectors"
+            ),
+        }
+        
         return config
     
     def to_dict(self) -> dict:
@@ -431,6 +511,247 @@ class APSchedulerBackend:
         except Exception as e:
             logger.error(f"Error triggering vector store update: {e}")
     
+    def _run_pipeline_task(self, task_type: PipelineTask, schedule: PipelineSchedule):
+        """Job function that runs a pipeline task"""
+        if self._shutdown_event.is_set():
+            return
+        
+        logger.info(f"[Scheduled] Running pipeline task: {task_type.value}")
+        
+        timeout_seconds = schedule.timeout_minutes * 60
+        
+        try:
+            if task_type == PipelineTask.PROCESS_DATA:
+                success = self._run_process_data(timeout_seconds)
+            elif task_type == PipelineTask.GENERATE_EMBEDDINGS:
+                success = self._run_generate_embeddings(timeout_seconds)
+            elif task_type == PipelineTask.POPULATE_VECTORS:
+                success = self._run_populate_vectors(timeout_seconds)
+            elif task_type == PipelineTask.INCREMENTAL_UPDATE:
+                success = self._run_incremental_update(timeout_seconds)
+            elif task_type == PipelineTask.FULL_PIPELINE:
+                success = self._run_full_pipeline(timeout_seconds)
+            elif task_type == PipelineTask.VALIDATE_VECTORS:
+                success = self._run_validate_vectors(timeout_seconds)
+            elif task_type == PipelineTask.CLEANUP_DATA:
+                success = self._run_cleanup_data(timeout_seconds)
+            else:
+                logger.error(f"Unknown pipeline task: {task_type}")
+                success = False
+            
+            schedule.last_run = datetime.utcnow()
+            schedule.last_status = "success" if success else "failed"
+            
+            return success
+            
+        except Exception as e:
+            logger.error(f"Error running pipeline task {task_type.value}: {e}")
+            schedule.last_run = datetime.utcnow()
+            schedule.last_status = f"error: {str(e)}"
+            return False
+    
+    def _run_process_data(self, timeout_seconds: int) -> bool:
+        """Run data processing pipeline"""
+        logger.info("Running data processing pipeline...")
+        try:
+            result = subprocess.run(
+                [sys.executable, "-m", "Module2_NiruParser.process_all"],
+                cwd=str(project_root),
+                capture_output=True,
+                text=True,
+                timeout=timeout_seconds
+            )
+            
+            if result.returncode == 0:
+                logger.info("Data processing completed successfully")
+                return True
+            else:
+                logger.error(f"Data processing failed: {result.stderr[:500]}")
+                return False
+                
+        except subprocess.TimeoutExpired:
+            logger.error("Data processing timed out")
+            return False
+    
+    def _run_generate_embeddings(self, timeout_seconds: int) -> bool:
+        """Run embedding generation"""
+        logger.info("Running embedding generation...")
+        try:
+            # Use the processing pipeline's embedder
+            from Module2_NiruParser.pipeline import ProcessingPipeline
+            from Module2_NiruParser.config import Config
+            
+            config = Config()
+            pipeline = ProcessingPipeline(config)
+            
+            processed_path = project_root / "data" / "processed"
+            total_embedded = 0
+            
+            for jsonl_file in processed_path.rglob("*_processed.jsonl"):
+                chunks = []
+                with open(jsonl_file, "r", encoding="utf-8") as f:
+                    for line in f:
+                        if line.strip():
+                            chunk = json.loads(line)
+                            if "embedding" not in chunk or chunk.get("embedding") is None:
+                                chunks.append(chunk)
+                
+                if chunks:
+                    embedded_chunks = pipeline.embedder.embed_chunks(chunks)
+                    total_embedded += len(embedded_chunks)
+                    
+                    # Update file with embeddings
+                    all_chunks = []
+                    with open(jsonl_file, "r", encoding="utf-8") as f:
+                        for line in f:
+                            if line.strip():
+                                all_chunks.append(json.loads(line))
+                    
+                    embedded_by_id = {c.get("chunk_id"): c for c in embedded_chunks}
+                    for i, chunk in enumerate(all_chunks):
+                        if chunk.get("chunk_id") in embedded_by_id:
+                            all_chunks[i] = embedded_by_id[chunk.get("chunk_id")]
+                    
+                    with open(jsonl_file, "w", encoding="utf-8") as f:
+                        for chunk in all_chunks:
+                            f.write(json.dumps(chunk, ensure_ascii=False, default=str) + "\n")
+            
+            logger.info(f"Embedding generation completed: {total_embedded} embeddings generated")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Embedding generation failed: {e}")
+            return False
+    
+    def _run_populate_vectors(self, timeout_seconds: int) -> bool:
+        """Run vector store population"""
+        logger.info("Running vector store population...")
+        try:
+            result = subprocess.run(
+                [sys.executable, "-m", "Module3_NiruDB.populate_db"],
+                cwd=str(project_root),
+                capture_output=True,
+                text=True,
+                timeout=timeout_seconds
+            )
+            
+            if result.returncode == 0:
+                logger.info("Vector store population completed successfully")
+                return True
+            else:
+                logger.error(f"Vector store population failed: {result.stderr[:500]}")
+                return False
+                
+        except subprocess.TimeoutExpired:
+            logger.error("Vector store population timed out")
+            return False
+    
+    def _run_incremental_update(self, timeout_seconds: int) -> bool:
+        """Run incremental update (news crawl + process + vectors)"""
+        logger.info("Running incremental update...")
+        
+        success = True
+        
+        # 1. Crawl news sources
+        for crawler_type in [CrawlerType.NEWS_RSS, CrawlerType.GLOBAL_TRENDS]:
+            schedule = self.config.schedules.get(crawler_type.value)
+            if schedule and schedule.enabled:
+                if not self.runner.run_crawler(crawler_type, timeout_seconds=schedule.timeout_minutes * 60):
+                    success = False
+        
+        # 2. Process data
+        if not self._run_process_data(timeout_seconds // 3):
+            success = False
+        
+        # 3. Populate vectors
+        if not self._run_populate_vectors(timeout_seconds // 3):
+            success = False
+        
+        return success
+    
+    def _run_full_pipeline(self, timeout_seconds: int) -> bool:
+        """Run full pipeline (all crawlers + process + vectors)"""
+        logger.info("Running full pipeline...")
+        
+        success = True
+        time_per_stage = timeout_seconds // 4
+        
+        # 1. Run all crawlers
+        for crawler_type in CrawlerType:
+            schedule = self.config.schedules.get(crawler_type.value)
+            if schedule and schedule.enabled:
+                if not self.runner.run_crawler(crawler_type, timeout_seconds=schedule.timeout_minutes * 60):
+                    logger.warning(f"Crawler {crawler_type.value} failed, continuing...")
+        
+        # 2. Process data
+        if not self._run_process_data(time_per_stage):
+            success = False
+        
+        # 3. Generate embeddings
+        if not self._run_generate_embeddings(time_per_stage):
+            success = False
+        
+        # 4. Populate vectors
+        if not self._run_populate_vectors(time_per_stage):
+            success = False
+        
+        return success
+    
+    def _run_validate_vectors(self, timeout_seconds: int) -> bool:
+        """Validate vector store integrity"""
+        logger.info("Validating vector stores...")
+        try:
+            from Module3_NiruDB.vector_store import VectorStore
+            
+            backends = ["qdrant", "chromadb"]  # Skip upstash if not configured
+            
+            for backend in backends:
+                try:
+                    vs = VectorStore(backend=backend)
+                    stats = vs.get_stats()
+                    
+                    # Test query
+                    results = vs.search("test query", k=1)
+                    
+                    logger.info(f"{backend}: {stats.get('total_chunks', 'unknown')} chunks, query test {'passed' if results else 'no results'}")
+                    
+                except Exception as e:
+                    logger.warning(f"{backend}: validation failed - {e}")
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Vector store validation failed: {e}")
+            return False
+    
+    def _run_cleanup_data(self, timeout_seconds: int) -> bool:
+        """Clean up old raw data files"""
+        logger.info("Cleaning up old data files...")
+        try:
+            from datetime import timedelta
+            
+            days_to_keep = 90
+            cutoff_date = datetime.utcnow() - timedelta(days=days_to_keep)
+            
+            raw_path = project_root / "data" / "raw"
+            deleted_count = 0
+            
+            for jsonl_file in raw_path.rglob("*.jsonl"):
+                try:
+                    file_mtime = datetime.fromtimestamp(jsonl_file.stat().st_mtime)
+                    if file_mtime < cutoff_date:
+                        jsonl_file.unlink()
+                        deleted_count += 1
+                except Exception as e:
+                    logger.warning(f"Could not delete {jsonl_file}: {e}")
+            
+            logger.info(f"Cleanup completed: deleted {deleted_count} old files")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Cleanup failed: {e}")
+            return False
+    
     def start(self):
         """Start the scheduler"""
         if not self._setup_scheduler():
@@ -465,6 +786,32 @@ class APSchedulerBackend:
             )
             
             logger.info(f"Scheduled crawler: {name} (every {schedule.interval_hours}h)")
+        
+        # Add jobs for each enabled pipeline task
+        for name, schedule in self.config.pipeline_schedules.items():
+            if not schedule.enabled:
+                logger.info(f"Skipping disabled pipeline task: {name}")
+                continue
+            
+            task_type = schedule.task_type
+            
+            if schedule.cron_expression:
+                from apscheduler.triggers.cron import CronTrigger
+                trigger = CronTrigger.from_crontab(schedule.cron_expression)
+            else:
+                from apscheduler.triggers.interval import IntervalTrigger
+                trigger = IntervalTrigger(hours=schedule.interval_hours)
+            
+            self.scheduler.add_job(
+                self._run_pipeline_task,
+                trigger=trigger,
+                args=[task_type, schedule],
+                id=f"pipeline_{name}",
+                name=f"Pipeline: {name}",
+                replace_existing=True
+            )
+            
+            logger.info(f"Scheduled pipeline task: {name} (every {schedule.interval_hours}h)")
         
         # Add health check job
         from apscheduler.triggers.interval import IntervalTrigger

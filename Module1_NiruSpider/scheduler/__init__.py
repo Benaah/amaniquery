@@ -16,13 +16,16 @@ Quick Start:
     celery -A Module1_NiruSpider.scheduler.celery_app worker --beat -Q crawling
 
 Programmatic Usage:
-    from Module1_NiruSpider.scheduler import SchedulerService, CrawlerType
+    from Module1_NiruSpider.scheduler import SchedulerService, CrawlerType, PipelineTask
     
     service = SchedulerService(backend="apscheduler")
     service.start()
     
     # Manually trigger a crawler
     service.trigger_crawler(CrawlerType.NEWS_RSS)
+    
+    # Manually trigger a pipeline task
+    service.trigger_pipeline(PipelineTask.PROCESS_DOCUMENTS)
 """
 
 from .celery_app import celery_app
@@ -32,6 +35,10 @@ from .celery_tasks import (
     crawl_legal_sources,
     crawl_all_sources,
     update_vector_store,
+    process_raw_data,
+    generate_embeddings,
+    populate_vector_stores,
+    run_full_pipeline,
 )
 from .scheduler_service import (
     SchedulerService,
@@ -41,6 +48,8 @@ from .scheduler_service import (
     CrawlerRunner,
     APSchedulerBackend,
     CeleryBackend,
+    PipelineTask,
+    PipelineSchedule,
 )
 
 __all__ = [
@@ -51,6 +60,10 @@ __all__ = [
     "crawl_legal_sources",
     "crawl_all_sources",
     "update_vector_store",
+    "process_raw_data",
+    "generate_embeddings",
+    "populate_vector_stores",
+    "run_full_pipeline",
     
     # Scheduler Service
     "SchedulerService",
@@ -60,5 +73,9 @@ __all__ = [
     "CrawlerRunner",
     "APSchedulerBackend",
     "CeleryBackend",
+    
+    # Pipeline
+    "PipelineTask",
+    "PipelineSchedule",
 ]
 

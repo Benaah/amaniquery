@@ -110,3 +110,9 @@ rank-bm25>=0.2.2
 pytest
 black
 flake8
+
+# Module 9: NiruSense (Ingestion & Processing)
+minio
+playwright
+playwright-stealth
+asyncpg

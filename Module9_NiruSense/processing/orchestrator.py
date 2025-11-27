@@ -83,6 +83,17 @@ async def process_document(data: dict):
     qdrant_storage.upsert(str(doc_id), vector, payload)
     print(f"Document {doc_id} processed and stored.")
 
+import io
+from minio import Minio
+
+# Initialize MinIO Client
+minio_client = Minio(
+    "localhost:9000", # Should be from config, but hardcoded for now or add to config
+    access_key="admin",
+    secret_key="miniopassword123",
+    secure=False
+)
+
 async def main():
     # Connect to DB
     await postgres.connect()
@@ -114,21 +125,32 @@ async def main():
                 
             for stream, messages in streams:
                 for message_id, message_data in messages:
-                    # In a real app, we might fetch the full JSON from MinIO using message_data['s3_key']
-                    # For now, we assume the payload might have enough info or we mock it
-                    # But the ingestion service sends 's3_key', 'source', 'timestamp'.
-                    # So we really should fetch from MinIO. 
-                    # For this TDD, we will mock the data fetch if it's missing text.
-                    
-                    # Mock data fetch if needed
-                    if "text" not in message_data:
-                        message_data["text"] = "Mock text for processing"
-                        
-                    await process_document(message_data)
-                    
-                    # Ack message
-                    await r.xack(settings.REDIS_STREAM_KEY, settings.REDIS_CONSUMER_GROUP, message_id)
-                    
+                    s3_key = message_data.get('s3_key')
+                    if s3_key:
+                        try:
+                            # Fetch from MinIO
+                            response = minio_client.get_object("bronze-raw", s3_key)
+                            file_data = response.read()
+                            response.close()
+                            response.release_conn()
+                            
+                            # Parse JSON
+                            full_payload = json.loads(file_data)
+                            
+                            # Merge Redis metadata with full payload
+                            full_payload.update(message_data)
+                            
+                            await process_document(full_payload)
+                            
+                            # Ack message
+                            await r.xack(settings.REDIS_STREAM_KEY, settings.REDIS_CONSUMER_GROUP, message_id)
+                        except Exception as e:
+                            print(f"Error fetching/processing {s3_key}: {e}")
+                            # Optionally NACK or move to DLQ
+                    else:
+                        print(f"Missing s3_key in message: {message_id}")
+                        await r.xack(settings.REDIS_STREAM_KEY, settings.REDIS_CONSUMER_GROUP, message_id)
+
         except Exception as e:
             print(f"Error in loop: {e}")
             await asyncio.sleep(1)

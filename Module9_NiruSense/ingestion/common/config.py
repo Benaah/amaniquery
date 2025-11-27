@@ -15,12 +15,14 @@ class Settings(BaseSettings):
     REDIS_STREAM_KEY: str = "niru_ingestion_stream"
 
     # Scraper Settings
-    TWITTER_KEYWORDS: list = ["Kenya", "Ruto", "Raila", "Maandamano", "Finance Bill"]
-    TIKTOK_HASHTAGS: list = ["kenya", "nairobi", "genzkenya", "maandamano"]
+    TWITTER_KEYWORDS: list = ["Kenya", "Ruto", "Raila", "Maandamano", "Finance Bill", "Githinji", "MustGo", "MustGoKenya"]
+    TIKTOK_HASHTAGS: list = ["kenya", "nairobi", "genzkenya", "maandamano", "financebill", "githinji", "mustgo"]
     NEWS_RSS_FEEDS: list = [
         "https://www.standardmedia.co.ke/rss/headlines.php",
         "https://nation.africa/rss",
-        "https://www.the-star.co.ke/rss"
+        "https://www.the-star.co.ke/rss",
+        "https://www.capitalfm.co.ke/news/rss/",
+        "https://www.pulselive.co.ke/rss"
     ]
 
     class Config:

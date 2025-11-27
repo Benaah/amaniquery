@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
       headers["X-Session-Token"] = sessionToken
     }
 
-    const response = await fetch(`${API_BASE_URL}/admin/agent-metrics`, {
+    const response = await fetch(`${API_BASE_URL}/api/admin/agent-metrics`, {
       headers,
     })
 

@@ -1,0 +1,5 @@
+asyncpg
+redis
+qdrant-client
+pydantic
+python-dotenv

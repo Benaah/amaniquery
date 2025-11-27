@@ -1,15 +1,22 @@
 """
 Parliament Video Spider - Scrape YouTube videos from Parliament channel
 Extracts video IDs, metadata, and transcripts with timestamps
+
+Enhanced with:
+- Robust error handling
+- Graceful shutdown on failures
+- Timeout protection
+- Signal handling for clean termination
 """
 import scrapy
 from loguru import logger
 from datetime import datetime
 import re
+import signal
+import sys
+from twisted.internet import reactor
+from twisted.internet.error import TimeoutError as TwistedTimeoutError
 from ..items import DocumentItem
-
-
-class ParliamentVideoSpider(scrapy.Spider):
 
 
 class ParliamentVideoSpider(scrapy.Spider):

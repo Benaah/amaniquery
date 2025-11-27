@@ -381,102 +381,315 @@ class VectorStore:
         else:
             return None
     
-    def _add_upstash(self, chunks: List[Dict], client=None, namespace: str = None):
-        """Add to Upstash Vector"""
+    def _add_upstash(self, chunks: List[Dict], client=None, namespace: str = None, batch_size: int = 100, max_retries: int = 3):
+        """Add to Upstash Vector with batching and retry logic
+        
+        Args:
+            chunks: List of chunks to add
+            client: Upstash client (default: self.client)
+            namespace: Optional namespace for filtering
+            batch_size: Number of vectors per batch (Upstash limit is ~1000)
+            max_retries: Maximum retry attempts per batch
+        """
+        import time
+        
         if client is None:
             client = self.client
 
-        vectors = []
-        for chunk in chunks:
-            metadata = {
-                "title": str(chunk.get("title", "")),
-                "category": str(chunk.get("category", "")),
-                "source_url": str(chunk.get("source_url", "")),
-                "source_name": str(chunk.get("source_name", "")),
-                "chunk_index": str(chunk.get("chunk_index", 0)),
-                "total_chunks": str(chunk.get("total_chunks", 1)),
-                "text": str(chunk["text"])
-            }
-            if namespace:
-                metadata["namespace"] = namespace
-            vectors.append({
-                "id": str(chunk["chunk_id"]),
-                "vector": chunk["embedding"],
-                "metadata": metadata
-            })
+        # Process in batches (Upstash has payload limits)
+        effective_batch_size = min(batch_size, 100)
+        total_added = 0
+        failed_batches = []
+        
+        for i in range(0, len(chunks), effective_batch_size):
+            batch_chunks = chunks[i:i + effective_batch_size]
+            vectors = []
+            
+            for chunk in batch_chunks:
+                try:
+                    metadata = {
+                        "title": str(chunk.get("title", ""))[:500],
+                        "category": str(chunk.get("category", ""))[:100],
+                        "source_url": str(chunk.get("source_url", ""))[:500],
+                        "source_name": str(chunk.get("source_name", ""))[:200],
+                        "chunk_index": str(chunk.get("chunk_index", 0)),
+                        "total_chunks": str(chunk.get("total_chunks", 1)),
+                        "text": str(chunk["text"])[:8000]  # Limit text for metadata size
+                    }
+                    if namespace:
+                        metadata["namespace"] = namespace
+                    if chunk.get("author"):
+                        metadata["author"] = str(chunk["author"])[:200]
+                    if chunk.get("publication_date"):
+                        metadata["publication_date"] = str(chunk["publication_date"])[:50]
+                    
+                    # Ensure embedding exists
+                    embedding = chunk.get("embedding")
+                    if embedding is None or len(embedding) == 0:
+                        logger.warning(f"Skipping chunk {chunk.get('chunk_id', 'unknown')} - missing embedding")
+                        continue
+                    
+                    vectors.append({
+                        "id": str(chunk["chunk_id"]),
+                        "vector": embedding,
+                        "metadata": metadata
+                    })
+                except Exception as e:
+                    logger.warning(f"Error preparing Upstash vector: {e}")
+                    continue
+            
+            if not vectors:
+                continue
+            
+            # Retry logic with exponential backoff
+            batch_num = i // effective_batch_size + 1
+            for attempt in range(max_retries):
+                try:
+                    client.upsert(vectors=vectors)
+                    total_added += len(vectors)
+                    logger.info(f"Added batch {batch_num} ({len(vectors)} chunks) to Upstash")
+                    break
+                except Exception as e:
+                    delay = 2 ** (attempt + 1)
+                    
+                    if attempt < max_retries - 1:
+                        logger.warning(
+                            f"Upstash batch {batch_num} failed (attempt {attempt + 1}/{max_retries}): {e}. "
+                            f"Retrying in {delay}s..."
+                        )
+                        time.sleep(delay)
+                    else:
+                        logger.error(f"Upstash batch {batch_num} failed after {max_retries} attempts: {e}")
+                        failed_batches.append({
+                            "batch_num": batch_num,
+                            "chunk_count": len(vectors),
+                            "error": str(e)
+                        })
 
-        client.upsert(vectors=vectors)
-        logger.info(f"Added {len(chunks)} chunks to Upstash")
+        logger.info(f"Added total {total_added} chunks to Upstash")
+        
+        if failed_batches:
+            logger.warning(f"{len(failed_batches)} batches failed to upload to Upstash")
     
-    def _add_qdrant(self, chunks: List[Dict], batch_size: int, client=None):
-        """Add to QDrant"""
+    def _add_qdrant(self, chunks: List[Dict], batch_size: int, client=None, max_retries: int = 3):
+        """Add to QDrant with robust batch handling and retry logic
+        
+        Args:
+            chunks: List of chunks to add
+            batch_size: Number of chunks per batch
+            client: QDrant client (default: self.client)
+            max_retries: Maximum retry attempts per batch
+        """
+        import time
+        
         if client is None:
             client = self.client
             
+        # Use smaller batch size for reliability (Qdrant recommends 100-500)
+        effective_batch_size = min(batch_size, 100)
+        
         # Process in batches
         total_added = 0
-        for i in range(0, len(chunks), batch_size):
-            batch_chunks = chunks[i:i + batch_size]
+        failed_batches = []
+        
+        for i in range(0, len(chunks), effective_batch_size):
+            batch_chunks = chunks[i:i + effective_batch_size]
             points = []
             
             for chunk in batch_chunks:
-                payload = {
-                    "title": str(chunk.get("title", "")),
-                    "category": str(chunk.get("category", "")),
-                    "source_url": str(chunk.get("source_url", "")),
-                    "source_name": str(chunk.get("source_name", "")),
-                    "chunk_index": str(chunk.get("chunk_index", 0)),
-                    "total_chunks": str(chunk.get("total_chunks", 1)),
-                    "text": str(chunk["text"]),
-                    "chunk_id": str(chunk["chunk_id"])
-                }
-                point_id = hash(chunk["chunk_id"]) % (2**63 - 1)
-                points.append(models.PointStruct(
-                    id=point_id,
-                    vector=chunk["embedding"],
-                    payload=payload
-                ))
+                try:
+                    payload = {
+                        "title": str(chunk.get("title", ""))[:500],  # Limit field sizes
+                        "category": str(chunk.get("category", ""))[:100],
+                        "source_url": str(chunk.get("source_url", ""))[:500],
+                        "source_name": str(chunk.get("source_name", ""))[:200],
+                        "chunk_index": int(chunk.get("chunk_index", 0)),
+                        "total_chunks": int(chunk.get("total_chunks", 1)),
+                        "text": str(chunk["text"])[:10000],  # Limit text size
+                        "chunk_id": str(chunk["chunk_id"])
+                    }
+                    
+                    # Add optional fields if present
+                    if chunk.get("author"):
+                        payload["author"] = str(chunk["author"])[:200]
+                    if chunk.get("publication_date"):
+                        payload["publication_date"] = str(chunk["publication_date"])[:50]
+                    if chunk.get("namespace"):
+                        payload["namespace"] = str(chunk["namespace"])[:50]
+                    
+                    # Generate stable point ID from chunk_id
+                    point_id = hash(chunk["chunk_id"]) % (2**63 - 1)
+                    
+                    # Ensure embedding is valid
+                    embedding = chunk.get("embedding")
+                    if embedding is None or len(embedding) == 0:
+                        logger.warning(f"Skipping chunk {chunk['chunk_id']} - missing embedding")
+                        continue
+                    
+                    points.append(models.PointStruct(
+                        id=point_id,
+                        vector=embedding,
+                        payload=payload
+                    ))
+                except Exception as e:
+                    logger.warning(f"Error preparing chunk {chunk.get('chunk_id', 'unknown')}: {e}")
+                    continue
+            
+            if not points:
+                continue
+            
+            # Retry logic with exponential backoff
+            batch_num = i // effective_batch_size + 1
+            for attempt in range(max_retries):
+                try:
+                    client.upsert(
+                        collection_name=self.collection_name,
+                        points=points,
+                        wait=True  # Wait for operation to complete
+                    )
+                    total_added += len(points)
+                    logger.info(f"Added batch {batch_num} ({len(points)} chunks) to QDrant")
+                    break  # Success, exit retry loop
+                    
+                except Exception as e:
+                    delay = 2 ** (attempt + 1)  # Exponential backoff: 2, 4, 8 seconds
+                    
+                    if attempt < max_retries - 1:
+                        logger.warning(
+                            f"QDrant batch {batch_num} failed (attempt {attempt + 1}/{max_retries}): {e}. "
+                            f"Retrying in {delay}s..."
+                        )
+                        time.sleep(delay)
+                    else:
+                        logger.error(f"QDrant batch {batch_num} failed after {max_retries} attempts: {e}")
+                        failed_batches.append({
+                            "batch_num": batch_num,
+                            "chunk_count": len(points),
+                            "error": str(e)
+                        })
+        
+        logger.info(f"Added total {total_added} chunks to QDrant")
+        
+        if failed_batches:
+            logger.warning(f"{len(failed_batches)} batches failed to upload to QDrant")
+            # Optionally raise if too many failures
+            if len(failed_batches) > len(chunks) // effective_batch_size // 2:
+                raise Exception(f"Too many batch failures: {len(failed_batches)} batches failed")
+    
+    def _add_chromadb(self, chunks: List[Dict], batch_size: int, max_retries: int = 3):
+        """Add to ChromaDB with batching and retry logic
+        
+        Args:
+            chunks: List of chunks to add
+            batch_size: Number of chunks per batch
+            max_retries: Maximum retry attempts per batch
+        """
+        import time
+        
+        effective_batch_size = min(batch_size, 100)
+        total_added = 0
+        failed_batches = []
+        
+        for i in range(0, len(chunks), effective_batch_size):
+            batch = chunks[i:i + effective_batch_size]
             
             try:
-                client.upsert(collection_name=self.collection_name, points=points)
-                total_added += len(points)
-                logger.info(f"Added batch {i // batch_size + 1} ({len(points)} chunks) to QDrant")
-            except Exception as e:
-                logger.error(f"Failed to add batch to QDrant: {e}")
-                raise e
+                # Prepare batch data
+                ids = []
+                embeddings = []
+                documents = []
+                metadatas = []
                 
-        logger.info(f"Added total {total_added} chunks to QDrant")
-    
-    def _add_chromadb(self, chunks: List[Dict], batch_size: int):
-        """Add to ChromaDB"""
-        for i in range(0, len(chunks), batch_size):
-            batch = chunks[i:i + batch_size]
-            ids = [str(chunk["chunk_id"]) for chunk in batch]
-            embeddings = [chunk["embedding"] for chunk in batch]
-            documents = [str(chunk["text"]) for chunk in batch]
-            metadatas = []
-            for chunk in batch:
-                metadata = {
-                    "title": str(chunk.get("title", "")),
-                    "category": str(chunk.get("category", "")),
-                    "source_url": str(chunk.get("source_url", "")),
-                    "source_name": str(chunk.get("source_name", "")),
-                    "chunk_index": str(chunk.get("chunk_index", 0)),
-                    "total_chunks": str(chunk.get("total_chunks", 1)),
-                }
-                if chunk.get("author"):
-                    metadata["author"] = str(chunk["author"])
-                if chunk.get("publication_date"):
-                    metadata["publication_date"] = str(chunk["publication_date"])
-                if chunk.get("keywords"):
-                    metadata["keywords"] = str(chunk["keywords"])
-                metadatas.append(metadata)
-            try:
-                self.collection.add(ids=ids, embeddings=embeddings, documents=documents, metadatas=metadatas)
-                logger.info(f"Added batch {i // batch_size + 1} ({len(batch)} chunks)")
+                for chunk in batch:
+                    # Skip chunks without embeddings
+                    embedding = chunk.get("embedding")
+                    if embedding is None or len(embedding) == 0:
+                        logger.warning(f"Skipping chunk {chunk.get('chunk_id', 'unknown')} - missing embedding")
+                        continue
+                    
+                    ids.append(str(chunk["chunk_id"]))
+                    embeddings.append(embedding)
+                    documents.append(str(chunk["text"])[:10000])  # Limit text size
+                    
+                    metadata = {
+                        "title": str(chunk.get("title", ""))[:500],
+                        "category": str(chunk.get("category", ""))[:100],
+                        "source_url": str(chunk.get("source_url", ""))[:500],
+                        "source_name": str(chunk.get("source_name", ""))[:200],
+                        "chunk_index": str(chunk.get("chunk_index", 0)),
+                        "total_chunks": str(chunk.get("total_chunks", 1)),
+                    }
+                    if chunk.get("author"):
+                        metadata["author"] = str(chunk["author"])[:200]
+                    if chunk.get("publication_date"):
+                        metadata["publication_date"] = str(chunk["publication_date"])[:50]
+                    if chunk.get("keywords"):
+                        metadata["keywords"] = str(chunk["keywords"])[:500]
+                    if chunk.get("namespace"):
+                        metadata["namespace"] = str(chunk["namespace"])[:50]
+                    metadatas.append(metadata)
+                
+                if not ids:
+                    continue
+                
+                # Retry logic
+                batch_num = i // effective_batch_size + 1
+                for attempt in range(max_retries):
+                    try:
+                        self.collection.add(
+                            ids=ids,
+                            embeddings=embeddings,
+                            documents=documents,
+                            metadatas=metadatas
+                        )
+                        total_added += len(ids)
+                        logger.info(f"Added batch {batch_num} ({len(ids)} chunks) to ChromaDB")
+                        break
+                    except Exception as e:
+                        # Check if it's a duplicate ID error
+                        if "already exists" in str(e).lower() or "duplicate" in str(e).lower():
+                            # Try upsert instead
+                            try:
+                                self.collection.upsert(
+                                    ids=ids,
+                                    embeddings=embeddings,
+                                    documents=documents,
+                                    metadatas=metadatas
+                                )
+                                total_added += len(ids)
+                                logger.info(f"Upserted batch {batch_num} ({len(ids)} chunks) to ChromaDB")
+                                break
+                            except Exception as upsert_error:
+                                e = upsert_error
+                        
+                        delay = 2 ** (attempt + 1)
+                        
+                        if attempt < max_retries - 1:
+                            logger.warning(
+                                f"ChromaDB batch {batch_num} failed (attempt {attempt + 1}/{max_retries}): {e}. "
+                                f"Retrying in {delay}s..."
+                            )
+                            time.sleep(delay)
+                        else:
+                            logger.error(f"ChromaDB batch {batch_num} failed after {max_retries} attempts: {e}")
+                            failed_batches.append({
+                                "batch_num": batch_num,
+                                "chunk_count": len(ids),
+                                "error": str(e)
+                            })
+                            
             except Exception as e:
-                logger.error(f"Error adding batch: {e}")
-        logger.info(f"Total documents in collection: {self.collection.count()}")
+                logger.error(f"Error preparing ChromaDB batch: {e}")
+        
+        logger.info(f"Added total {total_added} chunks to ChromaDB")
+        
+        try:
+            logger.info(f"Total documents in collection: {self.collection.count()}")
+        except Exception:
+            pass
+        
+        if failed_batches:
+            logger.warning(f"{len(failed_batches)} batches failed to upload to ChromaDB")
     
     def add_documents(self, chunks: List[Dict], batch_size: int = 100, namespace: str = None):
         """Add documents to vector store (public method)

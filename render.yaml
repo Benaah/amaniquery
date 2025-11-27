@@ -1,5 +1,5 @@
 services:
-  # FastAPI Backend Service
+  # FastAPI Backend Service with integrated crawler scheduler
   # Frontend is deployed separately on Vercel at https://amaniquery.vercel.app
   # Service name determines the URL: api-amaniquery -> https://api-amaniquery.onrender.com
   - name: api-amaniquery
@@ -16,6 +16,12 @@ services:
         value: "false"
       - key: ENABLE_VOICE_AGENT
         value: "false"
+      # Scheduler configuration
+      - key: ENABLE_SCHEDULER
+        value: "true"
+      - key: SCHEDULER_BACKEND
+        value: apscheduler
+      # LLM configuration
       - key: LLM_PROVIDER
         value: moonshot
       - key: DEFAULT_MODEL
@@ -26,3 +32,4 @@ services:
     # Render automatically assigns URL: https://api-amaniquery.onrender.com
     # based on the service name above
     # Uses start_api.py script which handles proper initialization and logging
+    # Scheduler runs in background and triggers crawlers automatically

@@ -39,6 +39,7 @@ weaviate-client  # Fallback vector store
 
 # Database (PostgreSQL for sessions, feedback, chat history)
 psycopg2-binary
+asyncpg
 sqlalchemy
 alembic  # Database migrations
 
@@ -70,6 +71,7 @@ numpy
 tqdm
 schedule  # For automated crawling
 celery  # Async task queue
+apscheduler>=3.10.0  # Advanced scheduler (standalone, no Redis required)
 colorama  # Colored terminal output
 loguru  # Advanced logging
 psutil  # System monitoring
@@ -110,3 +112,10 @@ rank-bm25>=0.2.2
 pytest
 black
 flake8
+
+# Module 9: NiruSense (Ingestion & Processing)
+minio
+playwright
+playwright-stealth
+asyncpg
+

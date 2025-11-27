@@ -2,12 +2,15 @@
 Authentication Middleware
 Validates credentials and attaches authentication context to requests
 """
+import logging
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response, JSONResponse
 from typing import Optional, Callable
 from sqlalchemy.orm import Session
 from fastapi import status, HTTPException
+
+logger = logging.getLogger(__name__)
 
 from ..models.auth_models import User, Integration
 from ..models.pydantic_models import AuthContext
@@ -84,35 +87,31 @@ class AuthMiddleware(BaseHTTPMiddleware):
             logger.warning("AuthMiddleware: No database engine available, skipping authentication")
             return await call_next(request)
         
-        # Get database session
-        db = get_db_session(self.engine)
         auth_context = None
         
         try:
-            # Ensure we have a fresh database session
-            db.expire_all()
-            
-            # Try to authenticate
-            auth_context = await self.authenticate_request(request, db)
+            # Use context manager for database session
+            with get_db_session(self.engine) as db:
+                # Ensure we have a fresh database session
+                db.expire_all()
+                
+                # Try to authenticate
+                auth_context = await self.authenticate_request(request, db)
             
             # Attach auth context to request state (even if None, for optional auth endpoints)
             request.state.auth_context = auth_context
             
-            # Continue with request
+            # Continue with request (outside db context to avoid holding connection)
             response = await call_next(request)
             
             return response
             
         except HTTPException as e:
-            db.rollback()
-            db.close()
             return JSONResponse(
                 status_code=e.status_code,
                 content={"detail": e.detail}
             )
         except Exception as e:
-            db.rollback()
-            db.close()
             import traceback
             import logging
             logger = logging.getLogger(__name__)
@@ -121,11 +120,6 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 content={"error": "Authentication error", "detail": str(e), "traceback": traceback.format_exc()}
             )
-        finally:
-            try:
-                db.close()
-            except:
-                pass
     
     async def authenticate_request(self, request: Request, db: Session) -> Optional[AuthContext]:
         """Authenticate request and return auth context"""

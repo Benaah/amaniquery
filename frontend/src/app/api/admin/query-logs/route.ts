@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
     }
 
     const response = await fetch(
-      `${API_BASE_URL}/admin/query-logs?limit=${limit}&offset=${offset}`,
+      `${API_BASE_URL}/api/admin/query-logs?limit=${limit}&offset=${offset}`,
       { headers }
     )
 

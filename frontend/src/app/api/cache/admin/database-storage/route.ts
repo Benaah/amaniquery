@@ -38,7 +38,7 @@ export async function GET(request: NextRequest) {
         return NextResponse.json(storage, {
             headers: { "X-Cache": "MISS" },
         })
-    } catch (error: unknown) {
+    } catch (error: any) {
         console.error("Database storage cache error:", error)
         return NextResponse.json(
             { error: error.message || "Internal server error" },

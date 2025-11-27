@@ -1,8 +1,10 @@
 """
-Run individual spider
+Run individual spider with timeout protection and graceful shutdown
 """
 import os
 import sys
+import signal
+import threading
 from pathlib import Path
 from scrapy.crawler import CrawlerProcess
 from scrapy.utils.project import get_project_settings
@@ -10,62 +12,144 @@ from scrapy.utils.project import get_project_settings
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent))
 
-def run_spider(spider_name):
-    """Run a specific spider"""
-    print(f"🕷️  Starting spider: {spider_name}")
+# Default timeout: 30 minutes
+DEFAULT_TIMEOUT = 1800
 
-    # Get Scrapy settings
-    settings = get_project_settings()
+class SpiderRunner:
+    """Spider runner with timeout and graceful shutdown support"""
+    
+    def __init__(self, spider_name: str, timeout: int = DEFAULT_TIMEOUT):
+        self.spider_name = spider_name
+        self.timeout = timeout
+        self.process = None
+        self.timed_out = False
+        self._shutdown_event = threading.Event()
+        
+    def _timeout_handler(self):
+        """Handle timeout - stop the crawler gracefully"""
+        if not self._shutdown_event.is_set():
+            print(f"\n⏰ Timeout reached ({self.timeout}s). Stopping spider gracefully...")
+            self.timed_out = True
+            if self.process:
+                try:
+                    # Try to stop the reactor gracefully
+                    from twisted.internet import reactor
+                    if reactor.running:
+                        reactor.callFromThread(reactor.stop)
+                except Exception as e:
+                    print(f"Error stopping reactor: {e}")
+    
+    def _signal_handler(self, signum, frame):
+        """Handle termination signals"""
+        signal_name = signal.Signals(signum).name if hasattr(signal, 'Signals') else str(signum)
+        print(f"\n🛑 Received {signal_name}. Stopping spider gracefully...")
+        self._shutdown_event.set()
+        if self.process:
+            try:
+                from twisted.internet import reactor
+                if reactor.running:
+                    reactor.callFromThread(reactor.stop)
+            except Exception as e:
+                print(f"Error handling signal: {e}")
+    
+    def run(self) -> bool:
+        """Run the spider with timeout protection"""
+        # Setup signal handlers
+        signal.signal(signal.SIGTERM, self._signal_handler)
+        signal.signal(signal.SIGINT, self._signal_handler)
+        
+        # Map spider names to classes
+        spider_mapping = {
+            "kenya_law": ("Kenya Law", "niruspider.spiders.kenya_law_new_spider.KenyaLawNewSpider"),
+            "parliament_spider": ("Parliament", "niruspider.spiders.parliament_spider.ParliamentSpider"),
+            "news_rss_spider": ("Kenyan News (RSS)", "niruspider.spiders.news_rss_spider.NewsRSSSpider"),
+            "global_trends_spider": ("Global Trends (RSS)", "niruspider.spiders.global_trends_spider.GlobalTrendsSpider"),
+            "parliament_video_spider": ("Parliament Videos", "niruspider.spiders.parliament_video_spider.ParliamentVideoSpider"),
+        }
+        
+        if self.spider_name not in spider_mapping:
+            print(f"❌ Unknown spider: {self.spider_name}")
+            return False
+        
+        display_name, spider_class_path = spider_mapping[self.spider_name]
+        
+        try:
+            # Import the spider class dynamically
+            module_path, class_name = spider_class_path.rsplit('.', 1)
+            module = __import__(module_path, fromlist=[class_name])
+            spider_class = getattr(module, class_name)
+            
+            # Get Scrapy settings
+            settings = get_project_settings()
+            
+            # Add close on timeout
+            settings.set('CLOSESPIDER_TIMEOUT', self.timeout)
+            
+            # Create crawler process
+            self.process = CrawlerProcess(settings)
+            
+            # Setup timeout timer
+            timer = threading.Timer(self.timeout, self._timeout_handler)
+            timer.daemon = True
+            timer.start()
+            
+            print(f"🕷️  Starting spider: {self.spider_name}")
+            print(f"⏱️  Timeout set to: {self.timeout}s ({self.timeout // 60} minutes)")
+            print(f"🚀 Starting crawl for {display_name}...\n")
+            
+            # Add spider to process
+            self.process.crawl(spider_class)
+            
+            # Start crawling (blocking)
+            self.process.start()
+            
+            # Cancel timer if we finished before timeout
+            timer.cancel()
+            self._shutdown_event.set()
+            
+            if self.timed_out:
+                print(f"\n⚠️  {display_name} crawl stopped due to timeout!")
+                return False
+            else:
+                print(f"\n✅ {display_name} crawl complete!")
+                return True
+            
+        except KeyboardInterrupt:
+            print(f"\n🛑 {display_name} crawl interrupted by user")
+            return False
+        except Exception as e:
+            print(f"❌ Error running spider {self.spider_name}: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+        finally:
+            self._shutdown_event.set()
 
-    # Create crawler process
-    process = CrawlerProcess(settings)
 
-    # Map spider names to classes
-    spider_mapping = {
-        "kenya_law": ("Kenya Law", "niruspider.spiders.kenya_law_new_spider.KenyaLawNewSpider"),
-        "parliament_spider": ("Parliament", "niruspider.spiders.parliament_spider.ParliamentSpider"),
-        "news_rss_spider": ("Kenyan News (RSS)", "niruspider.spiders.news_rss_spider.NewsRSSSpider"),
-        "global_trends_spider": ("Global Trends (RSS)", "niruspider.spiders.global_trends_spider.GlobalTrendsSpider"),
-    }
-
-    if spider_name not in spider_mapping:
-        print(f"❌ Unknown spider: {spider_name}")
-        return False
-
-    display_name, spider_class_path = spider_mapping[spider_name]
-
-    try:
-        # Import the spider class dynamically
-        module_path, class_name = spider_class_path.rsplit('.', 1)
-        module = __import__(module_path, fromlist=[class_name])
-        spider_class = getattr(module, class_name)
-
-        # Add spider to process
-        process.crawl(spider_class)
-
-        print(f"🚀 Starting crawl for {display_name}...\n")
-
-        # Start crawling (blocking)
-        process.start()
-
-        print(f"\n✅ {display_name} crawl complete!")
-        return True
-
-    except Exception as e:
-        print(f"❌ Error running spider {spider_name}: {e}")
-        return False
+def run_spider(spider_name: str, timeout: int = DEFAULT_TIMEOUT) -> bool:
+    """Run a specific spider with timeout"""
+    runner = SpiderRunner(spider_name, timeout)
+    return runner.run()
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        print("Usage: python crawl_spider.py <spider_name>")
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Run AmaniQuery spiders")
+    parser.add_argument("spider_name", help="Name of the spider to run")
+    parser.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT,
+                        help=f"Timeout in seconds (default: {DEFAULT_TIMEOUT}s = {DEFAULT_TIMEOUT // 60} minutes)")
+    
+    args = parser.parse_args()
+    
+    if args.spider_name == "help":
         print("Available spiders:")
         print("  - kenya_law (new.kenyalaw.org - comprehensive legal database)")
-        print("  - parliament_spider")
-        print("  - news_rss_spider")
-        print("  - global_trends_spider")
-        sys.exit(1)
-
-    spider_name = sys.argv[1]
-    success = run_spider(spider_name)
+        print("  - parliament_spider (parliament.go.ke - Hansards, Bills)")
+        print("  - parliament_video_spider (YouTube - Parliament videos)")
+        print("  - news_rss_spider (Kenyan news RSS feeds)")
+        print("  - global_trends_spider (Global news RSS feeds)")
+        sys.exit(0)
+    
+    success = run_spider(args.spider_name, args.timeout)
     sys.exit(0 if success else 1)

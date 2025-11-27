@@ -53,45 +53,32 @@ class QueryResponse(BaseModel):
 # DEPENDENCIES - These will be injected from the main app
 # =============================================================================
 
-# Global references to be set by main app
-_rag_pipeline = None
-_amaniq_v2_agent = None
-_vision_rag_service = None
-_vision_storage = None
-_cache_manager = None
-_chat_manager = None
-
-
-def configure_query_router(
-    rag_pipeline=None,
-    amaniq_v2_agent=None,
-    vision_rag_service=None,
-    vision_storage=None,
-    cache_manager=None,
-    chat_manager=None,
-):
-    """Configure the query router with required dependencies"""
-    global _rag_pipeline, _amaniq_v2_agent, _vision_rag_service
-    global _vision_storage, _cache_manager, _chat_manager
-    
-    _rag_pipeline = rag_pipeline
-    _amaniq_v2_agent = amaniq_v2_agent
-    _vision_rag_service = vision_rag_service
-    _vision_storage = vision_storage
-    _cache_manager = cache_manager
-    _chat_manager = chat_manager
+# Module-level globals to be set by main app via dependency injection
+vector_store = None
+rag_pipeline = None
+cache_manager = None
+amaniq_v2_agent = None
+database_storage = None
+chat_manager = None
+vision_rag_service = None
+vision_storage = None
 
 
 def get_rag_pipeline():
     """Get the RAG pipeline instance"""
-    if _rag_pipeline is None:
+    if rag_pipeline is None:
         raise HTTPException(status_code=503, detail="RAG pipeline not initialized")
-    return _rag_pipeline
+    return rag_pipeline
 
 
 def get_amaniq_v2_agent():
     """Get the AmanIQ v2 agent instance"""
-    return _amaniq_v2_agent
+    return amaniq_v2_agent
+
+
+def get_cache_manager():
+    """Get the cache manager instance"""
+    return cache_manager
 
 
 # =============================================================================
@@ -100,25 +87,25 @@ def get_amaniq_v2_agent():
 
 def save_query_to_chat(session_id: str, query: str, result: Dict, role: str = "user"):
     """Helper function to save query and response to chat database"""
-    if _chat_manager is None or not session_id:
+    if chat_manager is None or not session_id:
         return
     
     try:
         # Validate session exists
-        session = _chat_manager.get_session(session_id)
+        session = chat_manager.get_session(session_id)
         if not session:
             logger.warning(f"Session {session_id} not found, skipping message save")
             return
         
         # Save user message
-        _chat_manager.add_message(
+        chat_manager.add_message(
             session_id=session_id,
             content=query,
             role="user"
         )
         
         # Save assistant response
-        _chat_manager.add_message(
+        chat_manager.add_message(
             session_id=session_id,
             content=result.get("answer", ""),
             role="assistant",
@@ -129,8 +116,8 @@ def save_query_to_chat(session_id: str, query: str, result: Dict, role: str = "u
         
         # Generate session title if needed
         if not session.title:
-            title = _chat_manager.generate_session_title(session_id)
-            _chat_manager.update_session_title(session_id, title)
+            title = chat_manager.generate_session_title(session_id)
+            chat_manager.update_session_title(session_id, title)
         
         logger.debug(f"Saved query to chat session {session_id}")
     except Exception as e:
@@ -168,8 +155,8 @@ async def query(request: QueryRequest):
         # Check if session has vision data and use Vision RAG if available
         use_vision_rag = False
         session_images = []
-        if request.session_id and _vision_rag_service and _vision_storage:
-            session_images = _vision_storage.get(request.session_id, [])
+        if request.session_id and vision_rag_service and vision_storage:
+            session_images = vision_storage.get(request.session_id, [])
             if session_images:
                 use_vision_rag = True
                 logger.info(f"Using Vision RAG for session {request.session_id} with {len(session_images)} image(s)")
@@ -178,7 +165,7 @@ async def query(request: QueryRequest):
         async def compute_response():
             if use_vision_rag:
                 # Use Vision RAG
-                result = _vision_rag_service.query(
+                result = vision_rag_service.query(
                     question=request.query,
                     session_images=session_images,
                     top_k=min(request.top_k, 3),
@@ -201,15 +188,15 @@ async def query(request: QueryRequest):
                 return result
             
             # Try AmanIQ v2 agent if available (for non-vision queries)
-            elif _amaniq_v2_agent is not None:
+            elif amaniq_v2_agent is not None:
                 logger.info("[AmanIQ v2] Using agent orchestration for query")
                 
                 try:
                     # Get conversation history if session exists
                     conversation_history = []
-                    if request.session_id and _chat_manager:
+                    if request.session_id and chat_manager:
                         try:
-                            messages = _chat_manager.get_messages(request.session_id, limit=5)
+                            messages = chat_manager.get_messages(request.session_id, limit=5)
                             conversation_history = [
                                 {"role": msg.role, "content": msg.content}
                                 for msg in messages
@@ -218,7 +205,7 @@ async def query(request: QueryRequest):
                             conversation_history = []
                     
                     # Execute AmanIQ v2 pipeline
-                    amaniq_result = await _amaniq_v2_agent.chat(
+                    amaniq_result = await amaniq_v2_agent.chat(
                         message=request.query,
                         thread_id=request.session_id,
                         message_history=conversation_history,
@@ -286,7 +273,7 @@ async def query(request: QueryRequest):
                 return result
 
         # Execute with caching
-        if _cache_manager and not use_vision_rag:
+        if cache_manager and not use_vision_rag:
             # Determine TTL type based on query content
             ttl_type = "default"
             q_lower = request.query.lower()
@@ -300,7 +287,7 @@ async def query(request: QueryRequest):
                 ttl_type = "widget"
             
             # Use get_or_compute for stampede protection
-            result = await _cache_manager.get_or_compute(
+            result = await cache_manager.get_or_compute(
                 request.query, 
                 compute_response, 
                 ttl_type

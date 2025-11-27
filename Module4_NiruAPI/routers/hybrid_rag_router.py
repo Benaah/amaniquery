@@ -50,22 +50,22 @@ class QueryResponse(BaseModel):
 # DEPENDENCIES
 # =============================================================================
 
-_hybrid_rag_pipeline = None
+hybridrag_pipeline = None
 _chat_manager = None
 
 
-def configure_hybrid_rag_router(hybrid_rag_pipeline=None, chat_manager=None):
+def configure_hybrid_rag_router(hybridrag_pipeline=None, chat_manager=None):
     """Configure the hybrid RAG router with required dependencies"""
-    global _hybrid_rag_pipeline, _chat_manager
-    _hybrid_rag_pipeline = hybrid_rag_pipeline
+    global hybridrag_pipeline, _chat_manager
+    hybridrag_pipeline = hybridrag_pipeline
     _chat_manager = chat_manager
 
 
-def get_hybrid_rag_pipeline():
+def gethybridrag_pipeline():
     """Get the hybrid RAG pipeline instance"""
-    if _hybrid_rag_pipeline is None:
+    if hybridrag_pipeline is None:
         raise HTTPException(status_code=503, detail="Hybrid RAG pipeline not initialized")
-    return _hybrid_rag_pipeline
+    return hybridrag_pipeline
 
 
 def save_query_to_chat(session_id: str, query: str, result: Dict):
@@ -108,10 +108,10 @@ async def query_hybrid(request: QueryRequest):
     Uses hybrid convolutional-transformer encoder for improved embeddings
     and adaptive retrieval for context-aware document selection.
     """
-    hybrid_rag_pipeline = get_hybrid_rag_pipeline()
+    hybridrag_pipeline = gethybridrag_pipeline()
     
     try:
-        result = hybrid_rag_pipeline.query(
+        result = hybridrag_pipeline.query(
             query=request.query,
             top_k=request.top_k,
             category=request.category,
@@ -152,10 +152,10 @@ async def generate_synthetic_documents(
         num_docs: Number of documents to generate
         add_to_store: Whether to add generated documents to vector store
     """
-    hybrid_rag_pipeline = get_hybrid_rag_pipeline()
+    hybridrag_pipeline = gethybridrag_pipeline()
     
     try:
-        generated_texts = hybrid_rag_pipeline.generate_synthetic_documents(
+        generated_texts = hybridrag_pipeline.generate_synthetic_documents(
             query=query,
             num_docs=num_docs,
             add_to_store=add_to_store
@@ -178,10 +178,10 @@ async def trigger_retention_update():
     
     Updates model weights using generated data for dynamic retention.
     """
-    hybrid_rag_pipeline = get_hybrid_rag_pipeline()
+    hybridrag_pipeline = gethybridrag_pipeline()
     
     try:
-        hybrid_rag_pipeline.trigger_retention_update()
+        hybridrag_pipeline.trigger_retention_update()
         return {"status": "success", "message": "Retention update completed"}
     except Exception as e:
         logger.error(f"Error updating retention: {e}")
@@ -196,10 +196,10 @@ async def stream_query(request: QueryRequest):
     Processes queries in real-time with streaming response for both
     queries and generated data.
     """
-    hybrid_rag_pipeline = get_hybrid_rag_pipeline()
+    hybridrag_pipeline = gethybridrag_pipeline()
     
     try:
-        result = hybrid_rag_pipeline.query_stream(
+        result = hybridrag_pipeline.query_stream(
             query=request.query,
             top_k=request.top_k,
             category=request.category,
@@ -227,7 +227,7 @@ async def stream_query(request: QueryRequest):
             full_answer = ""
             try:
                 answer_stream = result["answer_stream"]
-                llm_provider = hybrid_rag_pipeline.base_rag.llm_provider
+                llm_provider = hybridrag_pipeline.base_rag.llm_provider
                 
                 import asyncio
                 
@@ -281,10 +281,10 @@ async def stream_query(request: QueryRequest):
 @router.get("/hybrid/stats")
 async def get_hybrid_stats():
     """Get statistics for hybrid RAG pipeline"""
-    hybrid_rag_pipeline = get_hybrid_rag_pipeline()
+    hybridrag_pipeline = gethybridrag_pipeline()
     
     try:
-        stats = hybrid_rag_pipeline.get_stats()
+        stats = hybridrag_pipeline.get_stats()
         return stats
     except Exception as e:
         logger.error(f"Error getting hybrid stats: {e}")

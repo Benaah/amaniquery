@@ -52,23 +52,19 @@ class AlignmentResponse(BaseModel):
 
 
 # =============================================================================
-# DEPENDENCIES
+# DEPENDENCIES - Module-level globals set by main app
 # =============================================================================
 
-_alignment_pipeline = None
-
-
-def configure_alignment_router(alignment_pipeline=None):
-    """Configure the alignment router with required dependencies"""
-    global _alignment_pipeline
-    _alignment_pipeline = alignment_pipeline
+alignment_pipeline = None
+rag_pipeline = None
+cache_manager = None
 
 
 def get_alignment_pipeline():
     """Get the alignment pipeline instance"""
-    if _alignment_pipeline is None:
+    if alignment_pipeline is None:
         raise HTTPException(status_code=503, detail="Alignment service not initialized")
-    return _alignment_pipeline
+    return alignment_pipeline
 
 
 # =============================================================================

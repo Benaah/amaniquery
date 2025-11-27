@@ -8,19 +8,11 @@ router = APIRouter(tags=["SMS Gateway"])
 
 
 # =============================================================================
-# DEPENDENCIES
+# DEPENDENCIES - Module-level globals set by main app
 # =============================================================================
 
-_sms_pipeline = None
-_sms_service = None
-
-
-def configure_sms_router(sms_pipeline=None, sms_service=None):
-    """Configure the SMS router with required dependencies"""
-    global _sms_pipeline, _sms_service
-    
-    _sms_pipeline = sms_pipeline
-    _sms_service = sms_service
+sms_pipeline = None
+sms_service = None
 
 
 # =============================================================================
@@ -61,13 +53,13 @@ async def sms_webhook(
     3. Set environment variables: AT_USERNAME, AT_API_KEY
     4. Configure webhook URL in Africa's Talking dashboard
     """
-    if _sms_pipeline is None or _sms_service is None:
+    if sms_pipeline is None or sms_service is None:
         logger.error("SMS services not initialized")
         return {"status": "error", "message": "SMS service unavailable"}
     
     try:
         # Parse incoming SMS
-        phone_number = _sms_service.format_kenyan_phone(from_)
+        phone_number = sms_service.format_kenyan_phone(from_)
         query_text = text.strip()
         
         logger.info(f"📱 Incoming SMS from {phone_number}: {query_text}")
@@ -76,7 +68,7 @@ async def sms_webhook(
         language = "sw" if any(word in query_text.lower() for word in ["nini", "habari", "tafadhali", "je"]) else "en"
         
         # Process query through SMS-optimized RAG
-        result = _sms_pipeline.process_sms_query(
+        result = sms_pipeline.process_sms_query(
             query=query_text,
             language=language,
             phone_number=phone_number
@@ -85,8 +77,8 @@ async def sms_webhook(
         response_text = result["response"]
         
         # Send SMS response
-        if _sms_service.available:
-            send_result = _sms_service.send_sms(phone_number, response_text)
+        if sms_service.available:
+            send_result = sms_service.send_sms(phone_number, response_text)
             
             if send_result.get("success"):
                 logger.info(f"✓ SMS sent to {phone_number}")
@@ -136,17 +128,17 @@ async def send_sms_manual(phone_number: str, message: str):
     }
     ```
     """
-    if _sms_service is None:
+    if sms_service is None:
         raise HTTPException(
             status_code=503, 
             detail="SMS service not initialized. Please restart the FastAPI server."
         )
     
-    if not _sms_service.available:
+    if not sms_service.available:
         error_detail = "SMS service not available"
-        if hasattr(_sms_service, 'test_mode') and _sms_service.test_mode:
+        if hasattr(sms_service, 'test_mode') and sms_service.test_mode:
             error_detail += " (test mode is enabled)"
-        elif hasattr(_sms_service, 'use_direct_api') and _sms_service.use_direct_api:
+        elif hasattr(sms_service, 'use_direct_api') and sms_service.use_direct_api:
             error_detail += " (using direct API fallback)"
         else:
             error_detail += ". Check AT_USERNAME and AT_API_KEY environment variables."
@@ -154,8 +146,8 @@ async def send_sms_manual(phone_number: str, message: str):
         raise HTTPException(status_code=503, detail=error_detail)
     
     try:
-        formatted_phone = _sms_service.format_kenyan_phone(phone_number)
-        result = _sms_service.send_sms(formatted_phone, message)
+        formatted_phone = sms_service.format_kenyan_phone(phone_number)
+        result = sms_service.send_sms(formatted_phone, message)
         
         if result.get("success"):
             return {
@@ -197,11 +189,11 @@ async def sms_query_preview(query: str, language: str = "en"):
     - query: Question to ask
     - language: Response language ('en' or 'sw')
     """
-    if _sms_pipeline is None:
+    if sms_pipeline is None:
         raise HTTPException(status_code=503, detail="SMS pipeline not initialized")
     
     try:
-        result = _sms_pipeline.process_sms_query(
+        result = sms_pipeline.process_sms_query(
             query=query,
             language=language
         )

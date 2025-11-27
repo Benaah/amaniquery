@@ -73,42 +73,20 @@ class FeedbackResponse(BaseModel):
 
 
 # =============================================================================
-# DEPENDENCIES
+# DEPENDENCIES - Module-level globals set by main app
 # =============================================================================
 
-_chat_manager = None
-_vector_store = None
-_rag_pipeline = None
-_amaniq_v2_agent = None
-_vision_storage = {}
-_vision_rag_service = None
-
-
-def configure_chat_router(
-    chat_manager=None,
-    vector_store=None,
-    rag_pipeline=None,
-    amaniq_v2_agent=None,
-    vision_storage=None,
-    vision_rag_service=None,
-):
-    """Configure the chat router with required dependencies"""
-    global _chat_manager, _vector_store, _rag_pipeline, _amaniq_v2_agent
-    global _vision_storage, _vision_rag_service
-    
-    _chat_manager = chat_manager
-    _vector_store = vector_store
-    _rag_pipeline = rag_pipeline
-    _amaniq_v2_agent = amaniq_v2_agent
-    _vision_storage = vision_storage if vision_storage is not None else {}
-    _vision_rag_service = vision_rag_service
+chat_manager = None
+vision_storage = {}
+vision_rag_service = None
+rag_pipeline = None
 
 
 def get_chat_manager():
     """Get the chat manager instance"""
-    if _chat_manager is None:
+    if chat_manager is None:
         raise HTTPException(status_code=503, detail="Chat service not initialized")
-    return _chat_manager
+    return chat_manager
 
 
 # =============================================================================
@@ -255,12 +233,12 @@ async def add_chat_message(session_id: str, message: ChatMessageCreate, request:
             # Check for vision data
             use_vision_rag = False
             session_images = []
-            if _vision_rag_service and _vision_storage:
-                session_images = _vision_storage.get(session_id, [])
+            if vision_rag_service and vision_storage:
+                session_images = vision_storage.get(session_id, [])
                 if session_images:
                     use_vision_rag = True
             
-            if not use_vision_rag and _rag_pipeline is None and _amaniq_v2_agent is None:
+            if not use_vision_rag and rag_pipeline is None:
                 raise HTTPException(status_code=503, detail="RAG service not initialized")
             
             if message.stream:
@@ -302,7 +280,7 @@ async def _handle_streaming_message(
     """Handle streaming message response"""
     # Process query
     if use_vision_rag:
-        result = _vision_rag_service.query(
+        result = vision_rag_service.query(
             question=message.content,
             session_images=session_images,
             top_k=3,
@@ -321,22 +299,8 @@ async def _handle_streaming_message(
                 "excerpt": f"Image similarity: {src.get('similarity', 0):.2f}",
             })
         result["sources"] = vision_sources
-    elif _amaniq_v2_agent is not None:
-        # Use AmanIQ v2 - note: streaming not yet implemented in v2
-        try:
-            amaniq_result = await _amaniq_v2_agent.chat(
-                message=message.content,
-                thread_id=session_id,
-            )
-            result = {
-                "answer": amaniq_result.get("answer", ""),
-                "sources": amaniq_result.get("sources", []),
-                "retrieved_chunks": len(amaniq_result.get("sources", [])),
-                "model_used": f"AmanIQ-v2-{amaniq_result.get('persona', 'wanjiku')}",
-            }
-        except Exception as e:
-            logger.warning(f"[AmanIQ v2] Error in chat: {e}, falling back to standard RAG")
-            result = _rag_pipeline.query_stream(
+    elif rag_pipeline is not None:
+        result = rag_pipeline.query_stream(
                 query=message.content,
                 top_k=3,
                 max_tokens=1000,
@@ -344,7 +308,7 @@ async def _handle_streaming_message(
                 session_id=session_id,
             )
     else:
-        result = _rag_pipeline.query_stream(
+        result = rag_pipeline.query_stream(
             query=message.content,
             top_k=3,
             max_tokens=1000,
@@ -440,7 +404,7 @@ async def _handle_regular_message(
 ):
     """Handle regular (non-streaming) message response"""
     if use_vision_rag:
-        result = _vision_rag_service.query(
+        result = vision_rag_service.query(
             question=message.content,
             session_images=session_images,
             top_k=3,
@@ -459,29 +423,16 @@ async def _handle_regular_message(
             })
         result["sources"] = vision_sources
         result["retrieved_chunks"] = result.get("retrieved_images", 0)
-    elif _amaniq_v2_agent is not None:
-        try:
-            amaniq_result = await _amaniq_v2_agent.chat(
-                message=message.content,
-                thread_id=session_id,
-            )
-            result = {
-                "answer": amaniq_result.get("answer", ""),
-                "sources": amaniq_result.get("sources", []),
-                "retrieved_chunks": len(amaniq_result.get("sources", [])),
-                "model_used": f"AmanIQ-v2-{amaniq_result.get('persona', 'wanjiku')}",
-            }
-        except Exception as e:
-            logger.warning(f"[AmanIQ v2] Error: {e}, using standard RAG")
-            result = _rag_pipeline.query(
-                query=message.content,
-                top_k=3,
-                max_tokens=1000,
-                temperature=0.7,
-                session_id=session_id
-            )
+    elif rag_pipeline is not None:
+        result = rag_pipeline.query(
+            query=message.content,
+            top_k=3,
+            max_tokens=1000,
+            temperature=0.7,
+            session_id=session_id
+        )
     else:
-        result = _rag_pipeline.query(
+        result = rag_pipeline.query(
             query=message.content,
             top_k=3,
             max_tokens=1000,
@@ -608,9 +559,9 @@ async def upload_chat_attachment(
         # Store vision data if available
         vision_data = result.get("vision_data")
         if vision_data and vision_data.get("images"):
-            if session_id not in _vision_storage:
-                _vision_storage[session_id] = []
-            _vision_storage[session_id].extend(vision_data["images"])
+            if session_id not in vision_storage:
+                vision_storage[session_id] = []
+            vision_storage[session_id].extend(vision_data["images"])
         
         return {
             "attachment": result["attachment"],
@@ -632,7 +583,7 @@ async def get_vision_content(session_id: str, request: Request):
     if not verify_session_ownership(session_id, user_id, chat_manager):
         raise HTTPException(status_code=403, detail="Access denied")
     
-    session_images = _vision_storage.get(session_id, [])
+    session_images = vision_storage.get(session_id, [])
     
     content_list = []
     for img_data in session_images:

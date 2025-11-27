@@ -16,36 +16,21 @@ reports_router = APIRouter(prefix="/reports", tags=["Reports"])
 
 
 # =============================================================================
-# DEPENDENCIES
+# DEPENDENCIES - Module-level globals set by main app
 # =============================================================================
 
-_research_module = None
-_agentic_research_module = None
-_report_generator = None
-_chat_manager = None
-
-
-def configure_research_router(
-    research_module=None,
-    agentic_research_module=None,
-    report_generator=None,
-    chat_manager=None,
-):
-    """Configure the research router with required dependencies"""
-    global _research_module, _agentic_research_module, _report_generator, _chat_manager
-    
-    _research_module = research_module
-    _agentic_research_module = agentic_research_module
-    _report_generator = report_generator
-    _chat_manager = chat_manager
+agentic_research_module = None
+research_module = None
+report_generator = None
+cache_manager = None
 
 
 def get_research_module():
     """Get the active research module (agentic if available, else legacy)"""
-    if _agentic_research_module is not None:
-        return _agentic_research_module
-    if _research_module is not None:
-        return _research_module
+    if agentic_research_module is not None:
+        return agentic_research_module
+    if research_module is not None:
+        return research_module
     raise HTTPException(
         status_code=503,
         detail="Research module not available. Ensure API keys are configured."
@@ -54,21 +39,21 @@ def get_research_module():
 
 def get_report_generator():
     """Get the report generator instance"""
-    if _report_generator is None:
+    if report_generator is None:
         raise HTTPException(
             status_code=503,
             detail="Report generator not available. Ensure GEMINI_API_KEY is configured."
         )
-    return _report_generator
+    return report_generator
 
 
 def save_query_to_chat(session_id: str, query: str, result: Dict):
     """Helper function to save query and response to chat database"""
-    if _chat_manager is None or not session_id:
+    if chat_manager is None or not session_id:
         return
     
     try:
-        session = _chat_manager.get_session(session_id)
+        session = chat_manager.get_session(session_id)
         if not session:
             return
         
@@ -79,13 +64,13 @@ def save_query_to_chat(session_id: str, query: str, result: Dict):
             "model_used": result.get("model_used", "gemini")
         }
         
-        _chat_manager.add_message(
+        chat_manager.add_message(
             session_id=session_id,
             content=query,
             role="user"
         )
         
-        _chat_manager.add_message(
+        chat_manager.add_message(
             session_id=session_id,
             content=chat_result["answer"],
             role="assistant",
@@ -241,7 +226,7 @@ async def generate_pdf_report(
     **Returns:**
     - PDF file as downloadable content
     """
-    if _research_module is None:
+    if research_module is None:
         raise HTTPException(status_code=503, detail="Research module not available")
 
     try:
@@ -249,7 +234,7 @@ async def generate_pdf_report(
 
         import tempfile
         with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp_file:
-            pdf_path = _research_module.generate_pdf_report(analysis_data, tmp_file.name)
+            pdf_path = research_module.generate_pdf_report(analysis_data, tmp_file.name)
         
         with open(pdf_path, 'rb') as f:
             pdf_content = f.read()
@@ -278,7 +263,7 @@ async def generate_word_report(
     **Returns:**
     - Word document (.docx) as downloadable content
     """
-    if _research_module is None:
+    if research_module is None:
         raise HTTPException(status_code=503, detail="Research module not available")
 
     try:
@@ -286,7 +271,7 @@ async def generate_word_report(
 
         import tempfile
         with tempfile.NamedTemporaryFile(delete=False, suffix='.docx') as tmp_file:
-            word_path = _research_module.generate_word_report(analysis_data, tmp_file.name)
+            word_path = research_module.generate_word_report(analysis_data, tmp_file.name)
         
         with open(word_path, 'rb') as f:
             word_content = f.read()
@@ -310,9 +295,9 @@ async def get_research_status():
     import os
     
     return {
-        "research_module_available": (_research_module is not None) or (_agentic_research_module is not None),
-        "agentic_research_available": _agentic_research_module is not None,
-        "report_generator_available": _report_generator is not None,
+        "research_module_available": (research_module is not None) or (agenticresearch_module is not None),
+        "agentic_research_available": agenticresearch_module is not None,
+        "report_generator_available": report_generator is not None,
         "gemini_api_configured": bool(os.getenv("GEMINI_API_KEY")),
         "available_endpoints": [
             "/research/analyze-legal-query",
@@ -326,7 +311,7 @@ async def get_research_status():
             "/reports/compliance",
             "/reports/technical-audit",
             "/reports/impact-assessment"
-        ] if (_research_module is not None or _agentic_research_module is not None) else []
+        ] if (research_module is not None or agenticresearch_module is not None) else []
     }
 
 

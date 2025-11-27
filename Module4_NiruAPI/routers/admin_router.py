@@ -33,32 +33,13 @@ class ConfigSetRequest(BaseModel):
 
 
 # =============================================================================
-# DEPENDENCIES
+# DEPENDENCIES - Module-level globals set by main app
 # =============================================================================
 
-_vector_store = None
-_config_manager = None
-_cache_manager = None
-_crawler_manager = None
-_database_storage = None
-
-
-def configure_admin_router(
-    vector_store=None,
-    config_manager=None,
-    cache_manager=None,
-    crawler_manager=None,
-    database_storage=None,
-):
-    """Configure the admin router with required dependencies"""
-    global _vector_store, _config_manager, _cache_manager
-    global _crawler_manager, _database_storage
-    
-    _vector_store = vector_store
-    _config_manager = config_manager
-    _cache_manager = cache_manager
-    _crawler_manager = crawler_manager
-    _database_storage = database_storage
+crawler_manager = None
+vector_store = None
+config_manager = None
+database_storage = None
 
 
 def get_admin_dependency():
@@ -89,21 +70,21 @@ async def get_crawler_status(
     admin=Depends(_admin_dependency)
 ):
     """Get status of all crawlers - cached for 5 seconds"""
-    if _crawler_manager is None:
+    if crawler_manager is None:
         raise HTTPException(status_code=503, detail="Crawler manager not initialized")
     
     cache_key = "cache:admin:crawlers"
-    if _cache_manager:
-        cached_result = await _cache_manager.get(cache_key)
+    if cache_manager:
+        cached_result = await cache_manager.get(cache_key)
         if cached_result is not None:
             return cached_result
     
     try:
-        crawlers = _crawler_manager.get_crawler_status()
+        crawlers = crawler_manager.get_crawler_status()
         result = {"crawlers": crawlers}
         
-        if _cache_manager:
-            await _cache_manager.set(cache_key, result, ttl=5)
+        if cache_manager:
+            await cache_manager.set(cache_key, result, ttl=5)
         
         return result
     except Exception as e:
@@ -118,14 +99,14 @@ async def start_crawler(
     admin=Depends(_admin_dependency)
 ):
     """Start a specific crawler"""
-    if _crawler_manager is None:
+    if crawler_manager is None:
         raise HTTPException(status_code=503, detail="Crawler manager not initialized")
     
     try:
-        result = _crawler_manager.start_crawler(crawler_name)
+        result = crawler_manager.start_crawler(crawler_name)
         
-        if _cache_manager:
-            _cache_manager.invalidate_crawler_cache()
+        if cache_manager:
+            cache_manager.invalidate_crawler_cache()
         
         return result
     except HTTPException:
@@ -142,14 +123,14 @@ async def stop_crawler(
     admin=Depends(_admin_dependency)
 ):
     """Stop a specific crawler"""
-    if _crawler_manager is None:
+    if crawler_manager is None:
         raise HTTPException(status_code=503, detail="Crawler manager not initialized")
     
     try:
-        result = _crawler_manager.stop_crawler(crawler_name)
+        result = crawler_manager.stop_crawler(crawler_name)
         
-        if _cache_manager:
-            _cache_manager.invalidate_crawler_cache()
+        if cache_manager:
+            cache_manager.invalidate_crawler_cache()
         
         return result
     except HTTPException:
@@ -167,10 +148,10 @@ async def get_crawler_logs(
     limit: int = 100
 ):
     """Get logs for a specific crawler"""
-    if _crawler_manager is None:
+    if crawler_manager is None:
         raise HTTPException(status_code=503, detail="Crawler manager not initialized")
     
-    logs = _crawler_manager.get_logs(name, limit)
+    logs = crawler_manager.get_logs(name, limit)
     return {"crawler": name, "logs": logs}
 
 
@@ -190,7 +171,7 @@ async def search_documents(
     admin=Depends(_admin_dependency)
 ):
     """Search and retrieve documents from the database"""
-    if _vector_store is None:
+    if vector_store is None:
         raise HTTPException(status_code=503, detail="Vector store not initialized")
     
     try:
@@ -205,14 +186,14 @@ async def search_documents(
             search_namespaces = [ns.strip() for ns in namespace.split(",")]
         
         if query:
-            results = _vector_store.query(
+            results = vector_store.query(
                 query_text=query,
                 n_results=limit,
                 filter=filter_dict if filter_dict else None,
                 namespace=search_namespaces
             )
         else:
-            results = _vector_store.query(
+            results = vector_store.query(
                 query_text="",
                 n_results=limit,
                 filter=filter_dict if filter_dict else None,
@@ -257,11 +238,11 @@ async def get_document(
     admin=Depends(_admin_dependency)
 ):
     """Get a specific document by ID"""
-    if _vector_store is None:
+    if vector_store is None:
         raise HTTPException(status_code=503, detail="Vector store not initialized")
     
     try:
-        document = _vector_store.get_document(doc_id)
+        document = vector_store.get_document(doc_id)
         
         if not document:
             raise HTTPException(status_code=404, detail=f"Document {doc_id} not found")
@@ -284,7 +265,7 @@ async def get_config_list(
     admin=Depends(_admin_dependency)
 ):
     """Get list of all configuration keys - cached for 300 seconds"""
-    if _config_manager is None:
+    if config_manager is None:
         return {
             "error": "Config manager not initialized",
             "message": "PostgreSQL database connection required",
@@ -292,16 +273,16 @@ async def get_config_list(
         }
     
     cache_key = "cache:admin:config"
-    if _cache_manager:
-        cached_result = await _cache_manager.get(cache_key)
+    if cache_manager:
+        cached_result = await cache_manager.get(cache_key)
         if cached_result is not None:
             return cached_result
     
     try:
-        result = _config_manager.list_configs()
+        result = config_manager.list_configs()
         
-        if _cache_manager:
-            await _cache_manager.set(cache_key, result, ttl=300)
+        if cache_manager:
+            await cache_manager.set(cache_key, result, ttl=300)
         
         return result
     except Exception as e:
@@ -316,17 +297,17 @@ async def set_config(
     admin=Depends(_admin_dependency)
 ):
     """Set a configuration value"""
-    if _config_manager is None:
+    if config_manager is None:
         raise HTTPException(
             status_code=503,
             detail="Config manager not initialized",
         )
 
     try:
-        _config_manager.set_config(config.key, config.value, config.description or "")
+        config_manager.set_config(config.key, config.value, config.description or "")
         
-        if _cache_manager:
-            await _cache_manager.delete("cache:admin:config")
+        if cache_manager:
+            await cache_manager.delete("cache:admin:config")
         
         return {"message": f"Config {config.key} set successfully"}
     except Exception as e:
@@ -341,7 +322,7 @@ async def update_config_entry(
     admin=Depends(_admin_dependency)
 ):
     """Update a configuration value"""
-    if _config_manager is None:
+    if config_manager is None:
         raise HTTPException(
             status_code=503,
             detail="Config manager not initialized",
@@ -351,10 +332,10 @@ async def update_config_entry(
         body = await request.json()
         value = body.get("value", "")
         description = body.get("description", "")
-        _config_manager.set_config(key, value, description)
+        config_manager.set_config(key, value, description)
         
-        if _cache_manager:
-            await _cache_manager.delete("cache:admin:config")
+        if cache_manager:
+            await cache_manager.delete("cache:admin:config")
         
         return {"message": f"Config {key} updated successfully"}
     except Exception as e:
@@ -369,17 +350,17 @@ async def delete_config_entry(
     admin=Depends(_admin_dependency)
 ):
     """Delete a configuration value"""
-    if _config_manager is None:
+    if config_manager is None:
         raise HTTPException(
             status_code=503,
             detail="Config manager not initialized",
         )
 
     try:
-        _config_manager.delete_config(key)
+        config_manager.delete_config(key)
         
-        if _cache_manager:
-            await _cache_manager.delete("cache:admin:config")
+        if cache_manager:
+            await cache_manager.delete("cache:admin:config")
         
         return {"message": f"Config {key} deleted successfully"}
     except Exception as e:
@@ -397,18 +378,18 @@ async def get_database_stats(
     admin=Depends(_admin_dependency)
 ):
     """Get statistics for all vector database backends - cached for 60 seconds"""
-    if _vector_store is None:
+    if vector_store is None:
         raise HTTPException(status_code=503, detail="Vector store not initialized")
     
     cache_key = "cache:admin:databases"
-    if _cache_manager:
-        cached_result = await _cache_manager.get(cache_key)
+    if cache_manager:
+        cached_result = await cache_manager.get(cache_key)
         if cached_result is not None:
             return cached_result
     
     try:
         loop = asyncio.get_event_loop()
-        stats = await loop.run_in_executor(None, _vector_store.get_stats)
+        stats = await loop.run_in_executor(None, vector_store.get_stats)
         
         databases = []
         used_names = set()
@@ -450,8 +431,8 @@ async def get_database_stats(
             "active_databases": len([db for db in databases if db["status"] == "active"])
         }
         
-        if _cache_manager:
-            await _cache_manager.set(cache_key, result, ttl=60)
+        if cache_manager:
+            await cache_manager.set(cache_key, result, ttl=60)
         
         return result
         
@@ -461,26 +442,26 @@ async def get_database_stats(
 
 
 @router.get("/database-storage")
-async def get_database_storage_stats(
+async def getdatabase_storage_stats(
     request: Request,
     admin=Depends(_admin_dependency)
 ):
     """Get database storage statistics - cached for 60 seconds"""
-    if _database_storage is None:
+    if database_storage is None:
         raise HTTPException(status_code=503, detail="Database storage not initialized")
     
     cache_key = "cache:admin:database-storage"
-    if _cache_manager:
-        cached_result = await _cache_manager.get(cache_key)
+    if cache_manager:
+        cached_result = await cache_manager.get(cache_key)
         if cached_result is not None:
             return cached_result
     
     try:
         loop = asyncio.get_event_loop()
-        stats = await loop.run_in_executor(None, _database_storage.get_stats)
+        stats = await loop.run_in_executor(None, database_storage.get_stats)
         
-        if _cache_manager:
-            await _cache_manager.set(cache_key, stats, ttl=60)
+        if cache_manager:
+            await cache_manager.set(cache_key, stats, ttl=60)
         
         return stats
     except Exception as e:

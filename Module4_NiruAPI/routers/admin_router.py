@@ -40,6 +40,7 @@ crawler_manager = None
 vector_store = None
 config_manager = None
 database_storage = None
+cache_manager = None  # Optional async cache manager
 
 
 def get_admin_dependency():
@@ -556,3 +557,264 @@ async def execute_command(
     except Exception as e:
         logger.error(f"Error executing command: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# SCHEDULER ENDPOINTS
+# =============================================================================
+
+# Module-level scheduler service instance
+_scheduler_service = None
+
+
+def get_scheduler_service():
+    """Get or create scheduler service instance"""
+    global _scheduler_service
+    if _scheduler_service is None:
+        try:
+            from Module1_NiruSpider.scheduler import SchedulerService, SchedulerConfig
+            config = SchedulerConfig.default()
+            _scheduler_service = SchedulerService(config=config, backend="apscheduler")
+        except ImportError as e:
+            logger.warning(f"Could not import scheduler service: {e}")
+            return None
+    return _scheduler_service
+
+
+@router.get("/scheduler")
+async def get_scheduler_status(
+    request: Request,
+    admin=Depends(_admin_dependency)
+):
+    """Get scheduler status and configuration"""
+    scheduler = get_scheduler_service()
+    if scheduler is None:
+        return {
+            "status": "unavailable",
+            "message": "Scheduler service not available",
+            "running": False
+        }
+    
+    try:
+        status = scheduler.get_status()
+        
+        # Add schedule information
+        schedules_info = {}
+        for name, schedule in scheduler.config.schedules.items():
+            schedules_info[name] = {
+                "enabled": schedule.enabled,
+                "interval_hours": schedule.interval_hours,
+                "timeout_minutes": schedule.timeout_minutes,
+                "priority": schedule.priority,
+                "description": schedule.description,
+                "last_run": schedule.last_run.isoformat() if schedule.last_run else None,
+                "last_status": schedule.last_status,
+                "consecutive_failures": schedule.consecutive_failures,
+            }
+        
+        return {
+            **status,
+            "schedules": schedules_info
+        }
+    except Exception as e:
+        logger.error(f"Error getting scheduler status: {e}")
+        return {
+            "status": "error",
+            "message": str(e),
+            "running": False
+        }
+
+
+@router.post("/scheduler/start")
+async def start_scheduler(
+    request: Request,
+    admin=Depends(_admin_dependency)
+):
+    """Start the scheduler service"""
+    scheduler = get_scheduler_service()
+    if scheduler is None:
+        raise HTTPException(status_code=503, detail="Scheduler service not available")
+    
+    try:
+        # Start in background thread
+        def start_scheduler_thread():
+            scheduler.start()
+        
+        thread = threading.Thread(target=start_scheduler_thread, daemon=True)
+        thread.start()
+        
+        # Wait a moment for startup
+        time.sleep(2)
+        
+        return {
+            "status": "started",
+            "message": "Scheduler service started"
+        }
+    except Exception as e:
+        logger.error(f"Error starting scheduler: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/scheduler/stop")
+async def stop_scheduler(
+    request: Request,
+    admin=Depends(_admin_dependency)
+):
+    """Stop the scheduler service"""
+    scheduler = get_scheduler_service()
+    if scheduler is None:
+        raise HTTPException(status_code=503, detail="Scheduler service not available")
+    
+    try:
+        scheduler.stop()
+        return {
+            "status": "stopped",
+            "message": "Scheduler service stopped"
+        }
+    except Exception as e:
+        logger.error(f"Error stopping scheduler: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/scheduler/trigger/{crawler_name}")
+async def trigger_scheduled_crawler(
+    crawler_name: str,
+    request: Request,
+    admin=Depends(_admin_dependency)
+):
+    """Manually trigger a scheduled crawler"""
+    scheduler = get_scheduler_service()
+    if scheduler is None:
+        raise HTTPException(status_code=503, detail="Scheduler service not available")
+    
+    try:
+        from Module1_NiruSpider.scheduler import CrawlerType
+        
+        # Validate crawler name
+        valid_crawlers = [ct.value for ct in CrawlerType]
+        if crawler_name not in valid_crawlers:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid crawler name. Valid options: {valid_crawlers}"
+            )
+        
+        crawler_type = CrawlerType(crawler_name)
+        success = scheduler.trigger_crawler(crawler_type)
+        
+        if success:
+            return {
+                "status": "triggered",
+                "crawler": crawler_name,
+                "message": f"Crawler {crawler_name} triggered successfully"
+            }
+        else:
+            raise HTTPException(status_code=500, detail="Failed to trigger crawler")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error triggering crawler {crawler_name}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/scheduler/schedule/{crawler_name}")
+async def update_crawler_schedule(
+    crawler_name: str,
+    request: Request,
+    admin=Depends(_admin_dependency)
+):
+    """Update a crawler's schedule configuration"""
+    scheduler = get_scheduler_service()
+    if scheduler is None:
+        raise HTTPException(status_code=503, detail="Scheduler service not available")
+    
+    try:
+        from Module1_NiruSpider.scheduler import CrawlerType
+        
+        # Validate crawler name
+        valid_crawlers = [ct.value for ct in CrawlerType]
+        if crawler_name not in valid_crawlers:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid crawler name. Valid options: {valid_crawlers}"
+            )
+        
+        body = await request.json()
+        
+        # Extract updateable fields
+        updates = {}
+        if "enabled" in body:
+            updates["enabled"] = body["enabled"]
+        if "interval_hours" in body:
+            updates["interval_hours"] = body["interval_hours"]
+        if "timeout_minutes" in body:
+            updates["timeout_minutes"] = body["timeout_minutes"]
+        
+        if not updates:
+            raise HTTPException(status_code=400, detail="No valid updates provided")
+        
+        crawler_type = CrawlerType(crawler_name)
+        success = scheduler.update_schedule(crawler_type, **updates)
+        
+        if success:
+            return {
+                "status": "updated",
+                "crawler": crawler_name,
+                "updates": updates
+            }
+        else:
+            raise HTTPException(status_code=404, detail=f"Crawler {crawler_name} not found")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating schedule for {crawler_name}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/scheduler/health")
+async def get_scheduler_health(
+    request: Request,
+    admin=Depends(_admin_dependency)
+):
+    """Get scheduler health status"""
+    # Also check crawler manager health
+    health = {
+        "scheduler": {"status": "unknown"},
+        "crawler_manager": {"status": "unknown"},
+        "overall": "unknown"
+    }
+    
+    # Check scheduler
+    scheduler = get_scheduler_service()
+    if scheduler:
+        try:
+            status = scheduler.get_status()
+            health["scheduler"] = {
+                "status": "running" if status.get("running") else "stopped",
+                "running_crawlers": status.get("running_crawlers", [])
+            }
+        except Exception as e:
+            health["scheduler"] = {"status": "error", "error": str(e)}
+    else:
+        health["scheduler"] = {"status": "unavailable"}
+    
+    # Check crawler manager
+    if crawler_manager:
+        try:
+            cm_health = crawler_manager.get_health_status()
+            health["crawler_manager"] = cm_health
+        except Exception as e:
+            health["crawler_manager"] = {"status": "error", "error": str(e)}
+    else:
+        health["crawler_manager"] = {"status": "unavailable"}
+    
+    # Determine overall health
+    if health["scheduler"]["status"] == "running" and health["crawler_manager"].get("healthy", False):
+        health["overall"] = "healthy"
+    elif health["scheduler"]["status"] == "error" or health["crawler_manager"].get("status") == "error":
+        health["overall"] = "degraded"
+    else:
+        health["overall"] = "operational"
+    
+    return health

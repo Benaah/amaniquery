@@ -71,6 +71,7 @@ numpy
 tqdm
 schedule  # For automated crawling
 celery  # Async task queue
+apscheduler>=3.10.0  # Advanced scheduler (standalone, no Redis required)
 colorama  # Colored terminal output
 loguru  # Advanced logging
 psutil  # System monitoring

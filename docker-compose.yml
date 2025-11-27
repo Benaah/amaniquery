@@ -100,6 +100,86 @@ services:
       timeout: 5s
       retries: 3
 
+  # Crawler Scheduler Service
+  scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: amaniquery_scheduler
+    command: python start_scheduler.py
+    environment:
+      - DATABASE_URL=postgresql://amaniquery:amaniquery_password@postgres:5432/amaniquery
+      - REDIS_URL=redis://redis:6379/0
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+      - CHROMA_HOST=chroma
+      - CHROMA_PORT=8000
+    depends_on:
+      postgres:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./config:/app/config
+    networks:
+      - amaniquery_network
+    restart: unless-stopped
+
+  # Celery Worker (alternative to APScheduler, requires Redis)
+  celery-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: amaniquery_celery_worker
+    command: celery -A Module1_NiruSpider.scheduler.celery_app worker --loglevel=info -Q crawling --concurrency=2
+    environment:
+      - DATABASE_URL=postgresql://amaniquery:amaniquery_password@postgres:5432/amaniquery
+      - REDIS_URL=redis://redis:6379/0
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+      - CHROMA_HOST=chroma
+      - CHROMA_PORT=8000
+    depends_on:
+      postgres:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./config:/app/config
+    networks:
+      - amaniquery_network
+    restart: unless-stopped
+    profiles:
+      - celery  # Only starts with: docker-compose --profile celery up
+
+  # Celery Beat Scheduler (alternative to APScheduler, requires Redis)
+  celery-beat:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: amaniquery_celery_beat
+    command: celery -A Module1_NiruSpider.scheduler.celery_app beat --loglevel=info
+    environment:
+      - DATABASE_URL=postgresql://amaniquery:amaniquery_password@postgres:5432/amaniquery
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    networks:
+      - amaniquery_network
+    restart: unless-stopped
+    profiles:
+      - celery  # Only starts with: docker-compose --profile celery up
+
 volumes:
   chroma_data:
   postgres_data:

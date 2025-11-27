@@ -116,4 +116,4 @@ minio
 playwright
 playwright-stealth
 asyncpg
-tiktoken
+

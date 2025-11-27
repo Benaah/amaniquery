@@ -217,7 +217,7 @@ async def lifespan(app: FastAPI):
     
     # Initialize vector store
     try:
-        backend = os.getenv("VECTOR_STORE_BACKEND", "chromadb")
+        backend = os.getenv("VECTOR_STORE_BACKEND", "qdrant")
         vector_store = VectorStore(backend=backend, config_manager=config_manager)
         logger.info(f"Vector store initialized with backend: {backend}")
     except Exception as e:
@@ -608,6 +608,11 @@ def _inject_router_dependencies():
     hr.hybrid_rag_pipeline = hybrid_rag_pipeline
     hr.rag_pipeline = rag_pipeline
     hr.cache_manager = cache_manager
+    hr.chat_manager = chat_manager
+    
+    # Set dependencies on monitoring router
+    if database_storage:
+        mr.db_session_factory = database_storage.SessionLocal
     
     logger.info("Router dependencies injected")
 

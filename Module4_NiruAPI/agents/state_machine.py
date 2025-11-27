@@ -838,6 +838,331 @@ def create_development_config() -> dict:
 
 
 # =============================================================================
+# AGENTIC RESEARCH SYSTEM
+# =============================================================================
+
+class AgenticResearchSystem:
+    """
+    Agentic research system that orchestrates multi-step research workflows.
+    
+    Integrates RAG pipeline, swarm orchestrator, tool registry, and memory manager
+    to perform comprehensive legal research with reflection and iteration.
+    """
+    
+    def __init__(
+        self,
+        rag_pipeline: Any = None,
+        swarm_orchestrator: Any = None,
+        tool_registry: Any = None,
+        memory_manager: Any = None,
+        max_iterations: int = 5
+    ):
+        """
+        Initialize the agentic research system.
+        
+        Args:
+            rag_pipeline: RAG pipeline for document retrieval
+            swarm_orchestrator: Swarm orchestrator for multi-agent coordination
+            tool_registry: Registry of available tools
+            memory_manager: Memory manager for context persistence
+            max_iterations: Maximum research iterations (default: 5)
+        """
+        self.rag_pipeline = rag_pipeline
+        self.swarm_orchestrator = swarm_orchestrator
+        self.tool_registry = tool_registry
+        self.memory_manager = memory_manager
+        self.max_iterations = max_iterations
+        
+        logger.info(f"AgenticResearchSystem initialized with max_iterations={max_iterations}")
+    
+    async def research(
+        self,
+        query: str,
+        context: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """
+        Perform agentic research on a query.
+        
+        Uses an iterative approach with planning, execution, and reflection phases.
+        
+        Args:
+            query: The research query
+            context: Optional additional context
+            
+        Returns:
+            Dictionary containing:
+            - answer: The final research answer
+            - final_answer: Alias for answer
+            - sources: List of sources consulted
+            - tools_used: List of tools invoked
+            - reflection: Research reflection/summary
+            - confidence: Confidence score (0-1)
+            - metadata: Execution metadata
+        """
+        start_time = datetime.now()
+        context = context or {}
+        
+        # Initialize tracking
+        sources = []
+        tools_used = []
+        plan = []
+        iterations = 0
+        answer = ""
+        reflection = ""
+        
+        try:
+            # Phase 1: Planning
+            plan = await self._create_research_plan(query, context)
+            logger.info(f"Created research plan with {len(plan)} steps")
+            
+            # Phase 2: Execution with iteration
+            for iteration in range(self.max_iterations):
+                iterations = iteration + 1
+                logger.debug(f"Research iteration {iterations}/{self.max_iterations}")
+                
+                # Execute RAG retrieval
+                if self.rag_pipeline:
+                    try:
+                        rag_results = await self._execute_rag(query, context)
+                        sources.extend(rag_results.get("sources", []))
+                        tools_used.append({"tool": "rag_retrieval", "iteration": iterations})
+                    except Exception as e:
+                        logger.warning(f"RAG execution error: {e}")
+                
+                # Execute swarm orchestration if available
+                if self.swarm_orchestrator:
+                    try:
+                        swarm_result = await self._execute_swarm(query, context, sources)
+                        answer = swarm_result.get("answer", answer)
+                        tools_used.extend(swarm_result.get("tools_used", []))
+                    except Exception as e:
+                        logger.warning(f"Swarm execution error: {e}")
+                
+                # Check if we have a satisfactory answer
+                if answer and len(answer) > 100:
+                    break
+            
+            # Phase 3: Reflection
+            reflection = await self._generate_reflection(query, answer, sources)
+            
+            # Calculate confidence
+            confidence = self._calculate_research_confidence(
+                answer=answer,
+                sources=sources,
+                iterations=iterations
+            )
+            
+            elapsed_ms = (datetime.now() - start_time).total_seconds() * 1000
+            
+            return {
+                "answer": answer,
+                "final_answer": answer,
+                "sources": sources,
+                "tools_used": tools_used,
+                "reflection": reflection,
+                "confidence": confidence,
+                "metadata": {
+                    "plan": plan,
+                    "actions_count": len(tools_used),
+                    "iterations": iterations,
+                    "execution_time_ms": elapsed_ms,
+                    "timestamp": datetime.utcnow().isoformat()
+                }
+            }
+            
+        except Exception as e:
+            logger.error(f"Research error: {e}")
+            elapsed_ms = (datetime.now() - start_time).total_seconds() * 1000
+            
+            return {
+                "answer": f"Research encountered an error: {str(e)}",
+                "final_answer": "",
+                "sources": sources,
+                "tools_used": tools_used,
+                "reflection": f"Research was interrupted due to: {str(e)}",
+                "confidence": 0.0,
+                "metadata": {
+                    "plan": plan,
+                    "actions_count": len(tools_used),
+                    "iterations": iterations,
+                    "execution_time_ms": elapsed_ms,
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "error": str(e)
+                }
+            }
+    
+    async def _create_research_plan(
+        self,
+        query: str,
+        context: Dict[str, Any]
+    ) -> List[str]:
+        """Create a research plan based on the query."""
+        # Default research plan steps
+        plan = [
+            "Analyze query to identify key legal concepts",
+            "Search knowledge base for relevant documents",
+            "Retrieve applicable laws and regulations",
+            "Synthesize findings into comprehensive answer",
+            "Validate citations and sources"
+        ]
+        
+        # If tool registry available, add tool-specific steps
+        if self.tool_registry:
+            try:
+                available_tools = self.tool_registry.list_tools() if hasattr(self.tool_registry, 'list_tools') else []
+                if available_tools:
+                    plan.insert(2, f"Execute specialized tools: {', '.join(available_tools[:3])}")
+            except Exception:
+                pass
+        
+        return plan
+    
+    async def _execute_rag(
+        self,
+        query: str,
+        context: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Execute RAG retrieval."""
+        sources = []
+        
+        if hasattr(self.rag_pipeline, 'aretrieve'):
+            # Async retrieval
+            results = await self.rag_pipeline.aretrieve(query)
+            sources = self._format_rag_results(results)
+        elif hasattr(self.rag_pipeline, 'retrieve'):
+            # Sync retrieval (run in executor)
+            results = self.rag_pipeline.retrieve(query)
+            sources = self._format_rag_results(results)
+        elif hasattr(self.rag_pipeline, 'query'):
+            # Alternative query method
+            result = self.rag_pipeline.query(query)
+            if isinstance(result, dict):
+                sources = result.get("sources", [])
+        
+        return {"sources": sources}
+    
+    def _format_rag_results(self, results: Any) -> List[Dict[str, Any]]:
+        """Format RAG results into source list."""
+        sources = []
+        
+        if not results:
+            return sources
+        
+        if isinstance(results, list):
+            for r in results:
+                if hasattr(r, 'metadata'):
+                    sources.append({
+                        "title": r.metadata.get("title", "Unknown"),
+                        "content": getattr(r, 'content', str(r))[:500],
+                        "url": r.metadata.get("url"),
+                        "type": r.metadata.get("type", "document"),
+                        "score": getattr(r, 'score', 0.0)
+                    })
+                elif isinstance(r, dict):
+                    sources.append({
+                        "title": r.get("title", r.get("metadata", {}).get("title", "Unknown")),
+                        "content": r.get("content", r.get("text", ""))[:500],
+                        "url": r.get("url", r.get("metadata", {}).get("url")),
+                        "type": r.get("type", "document"),
+                        "score": r.get("score", 0.0)
+                    })
+        
+        return sources
+    
+    async def _execute_swarm(
+        self,
+        query: str,
+        context: Dict[str, Any],
+        sources: List[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        """Execute swarm orchestration."""
+        answer = ""
+        tools_used = []
+        
+        enhanced_context = {**context, "sources": sources}
+        
+        if hasattr(self.swarm_orchestrator, 'query_with_context'):
+            try:
+                answer = await self.swarm_orchestrator.query_with_context(query, enhanced_context)
+                tools_used.append({"tool": "swarm_orchestrator", "method": "query_with_context"})
+            except Exception as e:
+                logger.warning(f"Swarm query_with_context error: {e}")
+        elif hasattr(self.swarm_orchestrator, 'process'):
+            try:
+                result = await self.swarm_orchestrator.process(query, enhanced_context)
+                answer = result.get("answer", "") if isinstance(result, dict) else str(result)
+                tools_used.append({"tool": "swarm_orchestrator", "method": "process"})
+            except Exception as e:
+                logger.warning(f"Swarm process error: {e}")
+        
+        return {"answer": answer, "tools_used": tools_used}
+    
+    async def _generate_reflection(
+        self,
+        query: str,
+        answer: str,
+        sources: List[Dict[str, Any]]
+    ) -> str:
+        """Generate reflection on the research process."""
+        source_count = len(sources)
+        answer_length = len(answer)
+        
+        reflection_parts = []
+        
+        if source_count > 0:
+            reflection_parts.append(f"Consulted {source_count} sources during research.")
+        else:
+            reflection_parts.append("Limited sources were available for this query.")
+        
+        if answer_length > 500:
+            reflection_parts.append("Comprehensive answer generated with detailed analysis.")
+        elif answer_length > 100:
+            reflection_parts.append("Moderate answer generated. Consider further research for more depth.")
+        else:
+            reflection_parts.append("Brief answer generated. Additional research may be beneficial.")
+        
+        # Add source quality notes
+        if sources:
+            legal_sources = [s for s in sources if s.get("type") == "legal" or "law" in s.get("title", "").lower()]
+            if legal_sources:
+                reflection_parts.append(f"Found {len(legal_sources)} legal sources directly relevant to the query.")
+        
+        return " ".join(reflection_parts)
+    
+    def _calculate_research_confidence(
+        self,
+        answer: str,
+        sources: List[Dict[str, Any]],
+        iterations: int
+    ) -> float:
+        """Calculate confidence score for research results."""
+        confidence = 0.3  # Base confidence
+        
+        # Answer quality
+        if answer:
+            if len(answer) > 1000:
+                confidence += 0.2
+            elif len(answer) > 500:
+                confidence += 0.15
+            elif len(answer) > 100:
+                confidence += 0.1
+        
+        # Source quality
+        if sources:
+            confidence += min(len(sources) * 0.05, 0.25)
+            
+            # High-scoring sources
+            high_score_sources = [s for s in sources if s.get("score", 0) > 0.7]
+            confidence += min(len(high_score_sources) * 0.05, 0.15)
+        
+        # Iteration efficiency
+        if iterations <= 2:
+            confidence += 0.1  # Found answer quickly
+        
+        return min(confidence, 1.0)
+
+
+# =============================================================================
 # MODULE EXPORTS
 # =============================================================================
 
@@ -870,5 +1195,8 @@ __all__ = [
     
     # Config
     "create_production_config",
-    "create_development_config"
+    "create_development_config",
+    
+    # Agentic Research
+    "AgenticResearchSystem"
 ]

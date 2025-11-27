@@ -280,6 +280,8 @@ async def _handle_streaming_message(
     """Handle streaming message response"""
     # Process query
     if use_vision_rag:
+        if vision_rag_service is None or not hasattr(vision_rag_service, "query"):
+            raise HTTPException(status_code=503, detail="Vision RAG service not initialized")
         result = vision_rag_service.query(
             question=message.content,
             session_images=session_images,
@@ -308,13 +310,7 @@ async def _handle_streaming_message(
                 session_id=session_id,
             )
     else:
-        result = rag_pipeline.query_stream(
-            query=message.content,
-            top_k=3,
-            max_tokens=1000,
-            temperature=0.7,
-            session_id=session_id,
-        )
+        raise HTTPException(status_code=503, detail="RAG pipeline is not initialized")
     
     # Add user message
     attachments_data = _get_attachments(message.attachment_ids, session_id, chat_manager)

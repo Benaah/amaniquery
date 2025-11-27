@@ -47,44 +47,39 @@ class QueryResponse(BaseModel):
 
 
 # =============================================================================
-# DEPENDENCIES
+# DEPENDENCIES - Module-level globals set by main app
 # =============================================================================
 
-hybridrag_pipeline = None
-_chat_manager = None
+hybrid_rag_pipeline = None
+rag_pipeline = None
+cache_manager = None
+chat_manager = None
 
 
-def configure_hybrid_rag_router(hybridrag_pipeline=None, chat_manager=None):
-    """Configure the hybrid RAG router with required dependencies"""
-    global hybridrag_pipeline, _chat_manager
-    hybridrag_pipeline = hybridrag_pipeline
-    _chat_manager = chat_manager
-
-
-def gethybridrag_pipeline():
+def get_hybrid_rag_pipeline():
     """Get the hybrid RAG pipeline instance"""
-    if hybridrag_pipeline is None:
+    if hybrid_rag_pipeline is None:
         raise HTTPException(status_code=503, detail="Hybrid RAG pipeline not initialized")
-    return hybridrag_pipeline
+    return hybrid_rag_pipeline
 
 
 def save_query_to_chat(session_id: str, query: str, result: Dict):
     """Helper function to save query and response to chat database"""
-    if _chat_manager is None or not session_id:
+    if chat_manager is None or not session_id:
         return
     
     try:
-        session = _chat_manager.get_session(session_id)
+        session = chat_manager.get_session(session_id)
         if not session:
             return
         
-        _chat_manager.add_message(
+        chat_manager.add_message(
             session_id=session_id,
             content=query,
             role="user"
         )
         
-        _chat_manager.add_message(
+        chat_manager.add_message(
             session_id=session_id,
             content=result.get("answer", ""),
             role="assistant",
@@ -108,10 +103,10 @@ async def query_hybrid(request: QueryRequest):
     Uses hybrid convolutional-transformer encoder for improved embeddings
     and adaptive retrieval for context-aware document selection.
     """
-    hybridrag_pipeline = gethybridrag_pipeline()
+    pipeline = get_hybrid_rag_pipeline()
     
     try:
-        result = hybridrag_pipeline.query(
+        result = pipeline.query(
             query=request.query,
             top_k=request.top_k,
             category=request.category,
@@ -152,10 +147,10 @@ async def generate_synthetic_documents(
         num_docs: Number of documents to generate
         add_to_store: Whether to add generated documents to vector store
     """
-    hybridrag_pipeline = gethybridrag_pipeline()
+    pipeline = get_hybrid_rag_pipeline()
     
     try:
-        generated_texts = hybridrag_pipeline.generate_synthetic_documents(
+        generated_texts = pipeline.generate_synthetic_documents(
             query=query,
             num_docs=num_docs,
             add_to_store=add_to_store
@@ -178,10 +173,10 @@ async def trigger_retention_update():
     
     Updates model weights using generated data for dynamic retention.
     """
-    hybridrag_pipeline = gethybridrag_pipeline()
+    pipeline = get_hybrid_rag_pipeline()
     
     try:
-        hybridrag_pipeline.trigger_retention_update()
+        pipeline.trigger_retention_update()
         return {"status": "success", "message": "Retention update completed"}
     except Exception as e:
         logger.error(f"Error updating retention: {e}")
@@ -196,10 +191,10 @@ async def stream_query(request: QueryRequest):
     Processes queries in real-time with streaming response for both
     queries and generated data.
     """
-    hybridrag_pipeline = gethybridrag_pipeline()
+    pipeline = get_hybrid_rag_pipeline()
     
     try:
-        result = hybridrag_pipeline.query_stream(
+        result = pipeline.query_stream(
             query=request.query,
             top_k=request.top_k,
             category=request.category,
@@ -227,7 +222,7 @@ async def stream_query(request: QueryRequest):
             full_answer = ""
             try:
                 answer_stream = result["answer_stream"]
-                llm_provider = hybridrag_pipeline.base_rag.llm_provider
+                llm_provider = pipeline.base_rag.llm_provider
                 
                 import asyncio
                 
@@ -281,10 +276,10 @@ async def stream_query(request: QueryRequest):
 @router.get("/hybrid/stats")
 async def get_hybrid_stats():
     """Get statistics for hybrid RAG pipeline"""
-    hybridrag_pipeline = gethybridrag_pipeline()
+    pipeline = get_hybrid_rag_pipeline()
     
     try:
-        stats = hybridrag_pipeline.get_stats()
+        stats = pipeline.get_stats()
         return stats
     except Exception as e:
         logger.error(f"Error getting hybrid stats: {e}")

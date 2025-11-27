@@ -117,11 +117,16 @@ class FeedbackResponse(BaseModel):
 # Database connection and session management
 def create_database_engine(database_url: str):
     """Create SQLAlchemy engine with connection pooling"""
+    from sqlalchemy.pool import QueuePool
     return create_engine(
         database_url, 
         echo=False,
+        poolclass=QueuePool,
+        pool_size=10,
+        max_overflow=20,
         pool_pre_ping=True,  # Check connection before using
         pool_recycle=300,    # Recycle connections every 5 minutes
+        pool_timeout=30,
         connect_args={
             "connect_timeout": 10
         }
@@ -131,10 +136,28 @@ def create_tables(engine):
     """Create all tables"""
     Base.metadata.create_all(engine)
 
+
+from contextlib import contextmanager
+
+@contextmanager
 def get_db_session(engine):
-    """Get database session"""
-    Session = sessionmaker(bind=engine)
-    return Session()
+    """
+    Get database session as context manager.
+    
+    Usage:
+        with get_db_session(engine) as db:
+            db.query(...)
+    """
+    Session = sessionmaker(bind=engine, expire_on_commit=False)
+    session = Session()
+    try:
+        yield session
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
 
 # Utility functions
 def generate_session_id() -> str:

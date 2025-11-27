@@ -11,23 +11,17 @@ router = APIRouter(prefix="/api/admin", tags=["Admin", "Agent Monitoring"])
 
 
 # =============================================================================
-# DEPENDENCIES
+# DEPENDENCIES - Module-level globals set by main app
 # =============================================================================
 
-_db_session_factory = None
-
-
-def configure_monitoring_router(db_session_factory=None):
-    """Configure the monitoring router with required dependencies"""
-    global _db_session_factory
-    _db_session_factory = db_session_factory
+db_session_factory = None
 
 
 def get_db():
     """Get database session"""
-    if _db_session_factory is None:
+    if db_session_factory is None:
         raise HTTPException(status_code=503, detail="Database not configured")
-    db = _db_session_factory()
+    db = db_session_factory()
     try:
         yield db
     finally:

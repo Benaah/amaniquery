@@ -39,6 +39,7 @@ weaviate-client  # Fallback vector store
 
 # Database (PostgreSQL for sessions, feedback, chat history)
 psycopg2-binary
+asyncpg
 sqlalchemy
 alembic  # Database migrations
 

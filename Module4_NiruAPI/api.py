@@ -519,24 +519,20 @@ async def lifespan(app: FastAPI):
     # Initialize Amaniq v2 Agent (LangGraph-based orchestration)
     # ============================================================
     try:
-        from Module4_NiruAPI.agents.amaniq_v2 import AmaniQAgent
+        from Module4_NiruAPI.agents.amaniq_v2 import AmaniQAgent, AmaniQConfig
         
         if vector_store and rag_pipeline and rag_pipeline.llm_service:
-            # Get the actual client from vector store
-            client = None
-            if hasattr(vector_store, 'client'):
-                client = vector_store.client
-            elif hasattr(vector_store, 'qdrant_client'):
-                client = vector_store.qdrant_client
-            elif hasattr(vector_store, 'weaviate_client'):
-                client = vector_store.weaviate_client
-            
-            amaniq_v2_agent = AmaniQAgent(
-                vector_store=vector_store,
-                rag_pipeline=rag_pipeline,
-                config_manager=config_manager,
-                cache_manager=cache_manager
+            # Create config for the agent
+            agent_config = AmaniQConfig(
+                enable_caching=cache_manager is not None,
+                enable_prefetch=True,
+                enable_telemetry=True,
+                enable_persistence=True,
             )
+            
+            amaniq_v2_agent = AmaniQAgent(config=agent_config)
+            # Initialize asynchronously in background
+            asyncio.create_task(amaniq_v2_agent.initialize())
             logger.info("✓ Amaniq v2 Agent initialized (LangGraph-based orchestration)")
         else:
             logger.warning("Amaniq v2 agent not initialized: vector_store or rag_pipeline not available")

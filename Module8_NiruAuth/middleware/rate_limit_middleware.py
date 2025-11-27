@@ -35,22 +35,19 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if not self.engine:
             return await call_next(request)
         
-        db = get_db_session(self.engine)
+        # Get auth context
+        auth_context = getattr(request.state, "auth_context", None)
         
-        try:
-            # Get auth context
-            auth_context = getattr(request.state, "auth_context", None)
-            
-            if not auth_context:
-                # No auth - allow but with very restrictive limits
-                return await call_next(request)
-            
+        if not auth_context:
+            # No auth - allow but with very restrictive limits
+            return await call_next(request)
+        
+        with get_db_session(self.engine) as db:
             # Get rate limit configuration
             rate_limit = self.get_or_create_rate_limit(db, auth_context, request.url.path)
             
             # Check rate limits
             if not self.check_rate_limit(db, rate_limit):
-                db.close()
                 return JSONResponse(
                     status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                     content={
@@ -67,18 +64,18 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             # Update rate limit counters
             self.update_rate_limit_counters(db, rate_limit)
             
-            # Continue with request
-            response = await call_next(request)
-            
-            # Add rate limit headers
+            # Store rate limit info for response headers
             remaining_minute = max(0, rate_limit.limit_per_minute - rate_limit.current_minute_count)
-            response.headers["X-RateLimit-Limit"] = str(rate_limit.limit_per_minute)
-            response.headers["X-RateLimit-Remaining"] = str(remaining_minute)
-            
-            return response
-            
-        finally:
-            db.close()
+            limit_per_minute = rate_limit.limit_per_minute
+        
+        # Continue with request (outside db context to avoid holding connection)
+        response = await call_next(request)
+        
+        # Add rate limit headers
+        response.headers["X-RateLimit-Limit"] = str(limit_per_minute)
+        response.headers["X-RateLimit-Remaining"] = str(remaining_minute)
+        
+        return response
     
     def get_or_create_rate_limit(
         self,

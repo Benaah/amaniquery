@@ -579,6 +579,7 @@ def _inject_router_dependencies():
     cr.vision_rag_service = vision_rag_service
     cr.rag_pipeline = rag_pipeline
     cr.vector_store = vector_store
+    cr.amaniq_v2_agent = amaniq_v2_agent
     
     # Set dependencies on admin router
     logger.info(f"Injecting dependencies into admin_router. crawler_manager is {'None' if crawler_manager is None else 'Set'}")
@@ -586,6 +587,7 @@ def _inject_router_dependencies():
     ar.vector_store = vector_store
     ar.config_manager = config_manager
     ar.database_storage = database_storage
+    ar.cache_manager = cache_manager
     
     # Set dependencies on research router
     rr.agentic_research_module = agentic_research_module

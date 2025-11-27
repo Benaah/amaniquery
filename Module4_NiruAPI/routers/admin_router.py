@@ -75,7 +75,6 @@ def get_vector_store():
 def get_config_manager():
     """Get config manager with lazy initialization fallback"""
     global config_manager
-    config_manager = get_config_manager()
     if config_manager is None:
         logger.warning("Config manager not initialized via dependency injection, attempting lazy initialization")
         try:

@@ -5,44 +5,31 @@ AmaniQ v2 LangGraph Nodes
 This package contains all LangGraph nodes for the AmaniQ v2 agent.
 
 Nodes:
-- tool_executor: Fault-tolerant parallel tool execution using kb_search
+- tool_executor: Fault-tolerant parallel tool execution using ToolRegistry
 
-All tools query the local Qdrant vector store via kb_search - NO external API calls.
+Uses actual tools from tool_registry.py: kb_search, web_search, news_search, 
+calculator, url_fetch, youtube_search, twitter_search
 
 Author: Eng. Onyango Benard
 Version: 2.0
 """
 
 from .tool_executor import (
-    # Configuration
-    ToolConfig,
+    ToolExecutorConfig,
     ToolStatus,
-    # Models
-    ToolExecutionResult,
-    ToolExecutorOutput,
-    # Connection management (for Redis caching)
-    ConnectionPools,
-    # Telemetry
-    TelemetryRecorder,
-    # Cache
+    ToolResult,
     CacheManager,
-    # Tool implementations (kb_search based)
-    LegalToolsImplementation,
-    get_tools_instance,
-    # Main node
+    ToolExecutor,
     tool_executor_node,
+    get_executor,
 )
 
 __all__ = [
-    # tool_executor exports
-    "ToolConfig",
+    "ToolExecutorConfig",
     "ToolStatus",
-    "ToolExecutionResult",
-    "ToolExecutorOutput",
-    "ConnectionPools",
-    "TelemetryRecorder",
+    "ToolResult",
     "CacheManager",
-    "LegalToolsImplementation",
-    "get_tools_instance",
+    "ToolExecutor",
     "tool_executor_node",
+    "get_executor",
 ]

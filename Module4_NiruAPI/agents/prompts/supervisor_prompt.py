@@ -34,26 +34,27 @@ class IntentType(str, Enum):
 class ToolName(str, Enum):
     """Exact tool names - supervisor cannot hallucinate others.
     
-    All tools query the local Qdrant vector store via kb_search - NO external API calls.
+    These are the ACTUAL tools registered in tool_registry.py.
+    All tools query local data or perform specific operations.
     """
-    SEARCH_KENYA_LAW_REPORTS = "search_kenya_law_reports"
-    SEARCH_CONSTITUTION = "search_constitution"
-    SEARCH_HANSARD = "search_hansard"
-    SEARCH_RECENT_NEWS = "search_recent_news"
-    LOOKUP_COURT_CALENDAR = "lookup_court_calendar"
-    KB_SEARCH = "kb_search"  # General knowledge base search across all namespaces
-    CALCULATOR = "calculator"  # For legal calculations (fees, penalties, time limits)
+    KB_SEARCH = "kb_search"           # Knowledge base search (Qdrant vector store)
+    WEB_SEARCH = "web_search"         # Web search via DuckDuckGo
+    NEWS_SEARCH = "news_search"       # News article search
+    CALCULATOR = "calculator"         # Mathematical calculations
+    URL_FETCH = "url_fetch"           # Fetch content from URLs
+    YOUTUBE_SEARCH = "youtube_search" # YouTube video search
+    TWITTER_SEARCH = "twitter_search" # Twitter/X search
 
 
 # Tool descriptions for supervisor context
 TOOL_DESCRIPTIONS: Dict[str, str] = {
-    "search_kenya_law_reports": "Search Kenya Law Reports for case law, judgments, and legal precedents from the kenya_law namespace. Use for: case citations, legal principles, court decisions, eKLR cases.",
-    "search_constitution": "Search the Constitution of Kenya 2010 from the kenya_law namespace. Use for: fundamental rights, government structure, constitutional provisions, Bill of Rights, Article queries.",
-    "search_hansard": "Search Kenya Parliamentary Hansard records from the kenya_parliament namespace. Use for: legislative debates, bill discussions, MP statements, committee reports.",
-    "search_recent_news": "Search Kenyan news articles from kenya_news and global_trends namespaces. Use for: current events, recent legal developments, breaking news about cases.",
-    "lookup_court_calendar": "Look up court schedules and hearing dates from the kenya_law namespace. Use for: case hearing dates, court sessions, judicial calendar queries.",
-    "kb_search": "General search across ALL namespaces (kenya_law, kenya_news, kenya_parliament, historical, global_trends). Use when query spans multiple domains or for broad searches.",
-    "calculator": "Perform mathematical calculations. Use for: legal fee calculations, penalty computations, time limit calculations, interest rates.",
+    "kb_search": "Search the local knowledge base (Qdrant vector store) for Kenyan legal content: case law, Constitution, Hansard, statutes. Use for: legal research, case citations, constitutional provisions, parliamentary records.",
+    "web_search": "Search the web via DuckDuckGo for general information. Use for: current events, external legal resources, international law references, general knowledge queries.",
+    "news_search": "Search for recent news articles. Use for: current events, breaking news, recent legal developments, trending topics in Kenya.",
+    "calculator": "Perform mathematical calculations. Use for: legal fee calculations, penalty computations, time limit calculations, interest rates, date calculations.",
+    "url_fetch": "Fetch and extract content from a specific URL. Use for: reading specific legal documents, fetching gazette notices, accessing online legal resources.",
+    "youtube_search": "Search YouTube for videos. Use for: legal education videos, court proceedings recordings, news reports, educational content.",
+    "twitter_search": "Search Twitter/X for posts. Use for: public sentiment, breaking news, official government announcements, legal community discussions.",
 }
 
 
@@ -207,12 +208,10 @@ class SupervisorDecision(BaseModel):
                 raise ValueError(
                     "LEGAL_RESEARCH intent requires non-empty tool_plan"
                 )
-            # Validate at least one legal tool is included
-            legal_tools = {ToolName.SEARCH_KENYA_LAW_REPORTS, ToolName.SEARCH_CONSTITUTION, ToolName.SEARCH_HANSARD}
-            plan_tools = {tc.tool_name for tc in self.tool_plan}
-            if not plan_tools.intersection(legal_tools):
+            # Validate kb_search is included for legal research (primary tool)
+            if not any(tc.tool_name == ToolName.KB_SEARCH for tc in self.tool_plan):
                 raise ValueError(
-                    "LEGAL_RESEARCH must include at least one legal tool"
+                    "LEGAL_RESEARCH must include kb_search tool for querying legal knowledge base"
                 )
                 
         elif self.intent == IntentType.NEWS_SUMMARY:
@@ -220,10 +219,10 @@ class SupervisorDecision(BaseModel):
                 raise ValueError(
                     "NEWS_SUMMARY intent requires non-empty tool_plan"
                 )
-            # Must include news tool
-            if not any(tc.tool_name == ToolName.SEARCH_RECENT_NEWS for tc in self.tool_plan):
+            # Must include news_search tool
+            if not any(tc.tool_name == ToolName.NEWS_SEARCH for tc in self.tool_plan):
                 raise ValueError(
-                    "NEWS_SUMMARY must include search_recent_news tool"
+                    "NEWS_SUMMARY must include news_search tool"
                 )
                 
         elif self.intent == IntentType.CLARIFY:
@@ -322,16 +321,18 @@ You MUST classify every query into exactly ONE of these intents:
 ### Rule 2: TOOL NAMES ARE SACRED
 You may ONLY use these exact tool names. ANY other name is a hallucination and will crash the system:
 ```
-search_kenya_law_reports  - Kenya Law Reports (eKLR) for case law and judgments
-search_constitution       - Constitution of Kenya 2010
-search_hansard           - Parliamentary Hansard records
-search_recent_news       - Recent Kenyan news articles  
-lookup_court_calendar    - Court schedules and hearing dates
+kb_search       - Knowledge base search (Qdrant) for legal content, case law, Constitution, Hansard
+web_search      - Web search via DuckDuckGo for general information
+news_search     - Search for recent news articles
+calculator      - Mathematical calculations (fees, penalties, interest)
+url_fetch       - Fetch content from specific URLs
+youtube_search  - Search YouTube for legal education videos
+twitter_search  - Search Twitter/X for public sentiment and announcements
 ```
 
 ### Rule 3: PARALLEL TOOL EXECUTION
 When intent is LEGAL_RESEARCH or NEWS_SUMMARY, you MUST provide a tool_plan with 1-4 tools to call simultaneously.
-- Group complementary tools (e.g., search_kenya_law_reports + search_constitution for rights questions)
+- For LEGAL_RESEARCH: Always include kb_search as the primary tool
 - Each tool gets its own optimized query string
 - Assign priority: 1=critical, 2=important, 3=supplementary
 
@@ -357,11 +358,13 @@ You MUST output ONLY valid JSON matching the SupervisorDecision schema. No markd
 
 | Tool | Use For |
 |------|---------|
-| search_kenya_law_reports | Case citations, judgments, legal precedents, court decisions |
-| search_constitution | Fundamental rights, Bill of Rights, government structure, constitutional provisions |
-| search_hansard | Legislative debates, bill discussions, MP statements, committee reports |
-| search_recent_news | Current events, recent legal developments, breaking news |
-| lookup_court_calendar | Court hearing dates, judicial calendar, case schedules |
+| kb_search | Kenyan case law, Constitution, Hansard, statutes from local Qdrant vector store |
+| web_search | General web information, external legal resources, international law references |
+| news_search | Current events, recent legal developments, breaking news about cases |
+| calculator | Legal fee calculations, penalty computations, time limits, interest rates |
+| url_fetch | Reading specific legal documents, gazette notices, online legal resources |
+| youtube_search | Legal education videos, court proceedings, news reports |
+| twitter_search | Public sentiment, breaking news, government announcements |
 
 ## FEW-SHOT EXAMPLES
 
@@ -373,16 +376,16 @@ You MUST output ONLY valid JSON matching the SupervisorDecision schema. No markd
 {
   "intent": "LEGAL_RESEARCH",
   "confidence": 0.95,
-  "reasoning": "Clear question about Supreme Court ruling on BBI case regarding gender rule - requires case law and constitution search",
+  "reasoning": "Clear question about Supreme Court ruling on BBI case regarding gender rule - requires knowledge base search",
   "tool_plan": [
     {
-      "tool_name": "search_kenya_law_reports",
+      "tool_name": "kb_search",
       "query": "BBI Building Bridges Initiative Supreme Court two-thirds gender rule 2022",
       "priority": 1
     },
     {
-      "tool_name": "search_constitution",
-      "query": "Article 27 two-thirds gender principle representation",
+      "tool_name": "kb_search",
+      "query": "Article 27 two-thirds gender principle representation Constitution",
       "priority": 2
     }
   ],
@@ -428,17 +431,22 @@ You MUST output ONLY valid JSON matching the SupervisorDecision schema. No markd
 {
   "intent": "NEWS_SUMMARY",
   "confidence": 0.92,
-  "reasoning": "User asks for recent news about Finance Bill 2024 protests - a current event requiring news search plus parliamentary context",
+  "reasoning": "User asks for recent news about Finance Bill 2024 protests - requires news search plus knowledge base for parliamentary context",
   "tool_plan": [
     {
-      "tool_name": "search_recent_news",
+      "tool_name": "news_search",
       "query": "Kenya Finance Bill 2024 protests Gen Z demonstrations",
       "priority": 1
     },
     {
-      "tool_name": "search_hansard",
-      "query": "Finance Bill 2024 parliamentary debate",
+      "tool_name": "kb_search",
+      "query": "Finance Bill 2024 parliamentary debate Hansard",
       "priority": 2
+    },
+    {
+      "tool_name": "twitter_search",
+      "query": "Kenya Finance Bill 2024 protest #RejectFinanceBill",
+      "priority": 3
     }
   ],
   "clarification": null,
@@ -479,22 +487,22 @@ You MUST output ONLY valid JSON matching the SupervisorDecision schema. No markd
 {
   "intent": "LEGAL_RESEARCH",
   "confidence": 0.97,
-  "reasoning": "Law student asking about landmark Njoya case and basic structure doctrine - requires comprehensive legal research across case law, constitution, and possibly academic commentary",
+  "reasoning": "Law student asking about landmark Njoya case and basic structure doctrine - requires comprehensive legal research",
   "tool_plan": [
     {
-      "tool_name": "search_kenya_law_reports",
+      "tool_name": "kb_search",
       "query": "Njoya v Attorney General constitutional amendment basic structure 2004",
       "priority": 1
     },
     {
-      "tool_name": "search_constitution",
-      "query": "Article 255 amendment procedure basic structure entrenched provisions",
+      "tool_name": "kb_search",
+      "query": "Article 255 amendment procedure basic structure entrenched provisions Kenya Constitution",
       "priority": 1
     },
     {
-      "tool_name": "search_kenya_law_reports",
-      "query": "basic structure doctrine Kenya constitutional amendment limits",
-      "priority": 2
+      "tool_name": "web_search",
+      "query": "basic structure doctrine constitutional amendment limits academic analysis",
+      "priority": 3
     }
   ],
   "clarification": null,

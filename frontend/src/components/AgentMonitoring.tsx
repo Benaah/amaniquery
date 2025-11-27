@@ -269,7 +269,25 @@ export function AgentMonitoring() {
 // Helper components (same implementations as before, but included here)
 // MetricsOverview, QueryLogsView, ReviewQueueView, AnalyticsView, TrainingView
 
-function MetricsOverview({ metrics }: { metrics: AgentMetrics }) {
+function MetricsOverview({ metrics }: { metrics: AgentMetrics | null }) {
+  // Return placeholder if metrics not loaded
+  if (!metrics) {
+    return (
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        {[1, 2, 3, 4].map((i) => (
+          <Card key={i}>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Loading...</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">--</div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    )
+  }
+
   return (
     <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
       <Card>
@@ -278,7 +296,7 @@ function MetricsOverview({ metrics }: { metrics: AgentMetrics }) {
           <Activity className="h-4 w-4 text-muted-foreground" />
         </CardHeader>
         <CardContent>
-          <div className="text-2xl font-bold">{metrics.total_queries.toLocaleString()}</div>
+          <div className="text-2xl font-bold">{(metrics.total_queries ?? 0).toLocaleString()}</div>
           <p className="text-xs text-muted-foreground">Last 30 days</p>
         </CardContent>
       </Card>
@@ -289,10 +307,10 @@ function MetricsOverview({ metrics }: { metrics: AgentMetrics }) {
           <TrendingUp className="h-4 w-4 text-muted-foreground" />
         </CardHeader>
         <CardContent>
-          <div className="text-2xl font-bold">{(metrics.avg_confidence * 100).toFixed(1)}%</div>
+          <div className="text-2xl font-bold">{((metrics.avg_confidence ?? 0) * 100).toFixed(1)}%</div>
           <div className="flex gap-1 mt-2">
-            <Badge variant={metrics.avg_confidence >= 0.8 ? "default" : "secondary"} className="text-xs">
-              {metrics.avg_confidence >= 0.8 ? "High" : metrics.avg_confidence >= 0.6 ? "Medium" : "Low"}
+            <Badge variant={(metrics.avg_confidence ?? 0) >= 0.8 ? "default" : "secondary"} className="text-xs">
+              {(metrics.avg_confidence ?? 0) >= 0.8 ? "High" : (metrics.avg_confidence ?? 0) >= 0.6 ? "Medium" : "Low"}
             </Badge>
           </div>
         </CardContent>
@@ -304,9 +322,9 @@ function MetricsOverview({ metrics }: { metrics: AgentMetrics }) {
           <Zap className="h-4 w-4 text-muted-foreground" />
         </CardHeader>
         <CardContent>
-          <div className="text-2xl font-bold">{metrics.avg_response_time_ms.toFixed(0)}ms</div>
+          <div className="text-2xl font-bold">{(metrics.avg_response_time_ms ?? 0).toFixed(0)}ms</div>
           <p className="text-xs text-muted-foreground">
-            {metrics.avg_response_time_ms < 1000 ? "Excellent" : metrics.avg_response_time_ms < 2000 ? "Good" : "Slow"}
+            {(metrics.avg_response_time_ms ?? 0) < 1000 ? "Excellent" : (metrics.avg_response_time_ms ?? 0) < 2000 ? "Good" : "Slow"}
           </p>
         </CardContent>
       </Card>
@@ -317,9 +335,9 @@ function MetricsOverview({ metrics }: { metrics: AgentMetrics }) {
           <Users className="h-4 w-4 text-muted-foreground" />
         </CardHeader>
         <CardContent>
-          <div className="text-2xl font-bold">{(metrics.human_review_rate * 100).toFixed(1)}%</div>
+          <div className="text-2xl font-bold">{((metrics.human_review_rate ?? 0) * 100).toFixed(1)}%</div>
           <p className="text-xs text-muted-foreground">
-            {metrics.human_review_rate < 0.1 ? "Low" : metrics.human_review_rate < 0.3 ? "Moderate" : "High"}
+            {(metrics.human_review_rate ?? 0) < 0.1 ? "Low" : (metrics.human_review_rate ?? 0) < 0.3 ? "Moderate" : "High"}
           </p>
         </CardContent>
       </Card>

@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
             headers["X-Session-Token"] = userToken
         }
 
-        const response = await fetch(`${apiBaseUrl}/admin/database-storage`, { headers })
+        const response = await fetch(`${apiBaseUrl}/api/admin/database-storage`, { headers })
 
         if (!response.ok) {
             return NextResponse.json(
@@ -38,7 +38,7 @@ export async function GET(request: NextRequest) {
         return NextResponse.json(storage, {
             headers: { "X-Cache": "MISS" },
         })
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error("Database storage cache error:", error)
         return NextResponse.json(
             { error: error.message || "Internal server error" },

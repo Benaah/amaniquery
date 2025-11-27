@@ -26,9 +26,9 @@ class AmaniQueryRetriever(BaseRetriever):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         
-        # Initialize Qdrant
-        qdrant_url = os.getenv("QDRANT_URL", "http://localhost:6333")
-        qdrant_key = os.getenv("QDRANT_API_KEY", None)
+        # Initialize Qdrant Cloud
+        qdrant_url = os.getenv("QDRANT_URL")  # Cloud-based, no localhost fallback
+        qdrant_key = os.getenv("QDRANT_API_KEY")
         self.qdrant_client = QdrantClient(url=qdrant_url, api_key=qdrant_key)
         
         # Initialize Query Parser

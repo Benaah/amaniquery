@@ -10,7 +10,7 @@ This module implements the LangGraph tool_executor node with:
 - Graceful degradation with cached fallbacks
 - OpenTelemetry instrumentation for latency tracking
 
-All tools query the LOCAL Qdrant vector store - NO external API calls.
+All tools query the CLOUD Qdrant vector store - NO external API calls.
 
 Author: Eng. Onyango Benard
 Version: 2.0
@@ -491,7 +491,7 @@ class LegalToolsImplementation:
     Implementation of all legal research tools using the kb_search tool
     and Qdrant vector store with namespace filtering.
     
-    All tools query the LOCAL vector store - NO external API calls.
+    All tools query the CLOUD vector store - NO external API calls.
     
     Architecture:
     ─────────────
@@ -505,7 +505,7 @@ class LegalToolsImplementation:
     │   ├── historical       → Historical legal documents                     │
     │   └── global_trends    → International context                          │
     │                                                                          │
-    │   NO EXTERNAL API CALLS - All data from local vector store              │
+    │   NO EXTERNAL API CALLS - All data from cloud vector store              │
     └─────────────────────────────────────────────────────────────────────────┘
     """
     

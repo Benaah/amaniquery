@@ -483,10 +483,64 @@ async def _handle_regular_message(
                 "title": src.get("filename", "Image"),
                 "url": "",
                 "source_name": src.get("source_file", "Uploaded Image"),
+                "category": "vision",
+                "excerpt": f"Image similarity: {src.get('similarity', 0):.2f}",
+            })
+        result["sources"] = vision_sources
+        result["retrieved_chunks"] = result.get("retrieved_images", 0)
+    # Try AmaniQ v2 agent for intelligent processing
+    elif amaniq_v2_agent is not None:
+        try:
+            logger.info("[Chat] Using AmaniQ v2 agent for query")
+            # Get conversation history
+            messages = chat_manager.get_messages(session_id, limit=5)
+            conversation_history = [
+                {"role": msg.role, "content": msg.content}
+                for msg in messages
+            ]
+            
+            # Execute AmaniQ v2 pipeline
+            amaniq_result = await amaniq_v2_agent.chat(
+                message=message.content,
+                thread_id=session_id,
+                message_history=conversation_history,
+            )
+            
+            # Format for chat response
+            result = {
+                "answer": amaniq_result.get("answer", ""),
+                "sources": amaniq_result.get("sources", []),
+                "retrieved_chunks": len(amaniq_result.get("sources", [])),
+                "model_used": f"AmaniQ-v2-{amaniq_result.get('persona', 'wanjiku')}",
+                "structured_data": {
+                    "confidence": amaniq_result.get("confidence", 0.0),
+                    "persona": amaniq_result.get("persona"),
+                    "intent": amaniq_result.get("intent"),
+                }
+            }
+            logger.info(f"[Chat] AmaniQ v2 completed with confidence {amaniq_result.get('confidence', 0):.2f}")
+        except Exception as e:
+            logger.warning(f"[Chat] AmaniQ v2 error: {e}, falling back to RAG")
+            if rag_pipeline is not None:
+                result = rag_pipeline.query(
+                    query=message.content,
+                    top_k=3,
+                    max_tokens=1000,
+                    temperature=0.7,
+                    session_id=session_id,
+                )
+            else:
+                raise HTTPException(status_code=503, detail="No query service available")
+    elif rag_pipeline is not None:
+        result = rag_pipeline.query(
+            query=message.content,
+            top_k=3,
             max_tokens=1000,
             temperature=0.7,
             session_id=session_id
         )
+    else:
+        raise HTTPException(status_code=503, detail="No query service available")
     
     # Add user message
     attachments_data = _get_attachments(message.attachment_ids, session_id, chat_manager)

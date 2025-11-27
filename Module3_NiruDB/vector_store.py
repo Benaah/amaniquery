@@ -1062,9 +1062,9 @@ class VectorStore:
                     raise
 
             # 2. Define backends to try in order
-            # Primary -> ChromaDB -> QDrant -> Upstash
+            # Primary -> QDrant (cloud) -> ChromaDB (local) -> Upstash
             backends_to_try = [self.backend]
-            fallbacks = ["chromadb", "qdrant", "upstash"]
+            fallbacks = ["qdrant", "chromadb", "upstash"]
             for fb in fallbacks:
                 if fb != self.backend and fb not in backends_to_try:
                     backends_to_try.append(fb)
@@ -1105,11 +1105,17 @@ class VectorStore:
                             if backend == "chromadb":
                                 self.client = self.chromadb_client
                                 if namespace:
-                                    self.collection_name = f"{original_collection_name}_{namespace}"
-                                    self.collection = self.chromadb_client.get_or_create_collection(
-                                        name=self.collection_name,
-                                        metadata={"description": f"AmaniQuery ChromaDB collection: {self.collection_name}"}
-                                    )
+                                    # Handle namespace - can be a string or list
+                                    namespace_str = namespace[0] if isinstance(namespace, list) and namespace else namespace if isinstance(namespace, str) else None
+                                    if namespace_str:
+                                        self.collection_name = f"{original_collection_name}_{namespace_str}"
+                                        self.collection = self.chromadb_client.get_or_create_collection(
+                                            name=self.collection_name,
+                                            metadata={"description": f"AmaniQuery ChromaDB collection: {self.collection_name}"}
+                                        )
+                                    else:
+                                        self.collection = self.chromadb_collection
+                                        self.collection_name = original_collection_name
                                 else:
                                     self.collection = self.chromadb_collection
                                     self.collection_name = original_collection_name
@@ -1118,12 +1124,18 @@ class VectorStore:
                                 self.client = self.backends["qdrant"]
                                 # QDrant handles collection name in _execute_query logic (via self.collection_name)
                                 if namespace:
-                                    self.collection_name = f"{original_collection_name}_{namespace}"
-                                    # Ensure collection exists
-                                    try:
-                                        self.client.get_collection(self.collection_name)
-                                    except:
-                                        pass # Might fail if not exists, query will return empty
+                                    # Handle namespace - can be a string or list
+                                    namespace_str = namespace[0] if isinstance(namespace, list) and namespace else namespace if isinstance(namespace, str) else None
+                                    if namespace_str:
+                                        self.collection_name = f"{original_collection_name}_{namespace_str}"
+                                        logger.debug(f"Fallback using Qdrant collection: {self.collection_name}")
+                                        # Ensure collection exists
+                                        try:
+                                            self.client.get_collection(self.collection_name)
+                                        except:
+                                            pass # Might fail if not exists, query will return empty
+                                    else:
+                                        self.collection_name = original_collection_name
                                 else:
                                     self.collection_name = original_collection_name
 
@@ -1172,10 +1184,18 @@ class VectorStore:
         
         try:
             if namespace:
-                if backend in ["qdrant", "chromadb"]:
+                # Handle namespace - can be a string or list
+                if isinstance(namespace, list):
+                    # Use first namespace if it's a list
+                    namespace_str = namespace[0] if namespace else None
+                else:
+                    namespace_str = namespace
+                
+                if namespace_str and backend in ["qdrant", "chromadb"]:
                     # For primary backend, we might need to update collection name if not already updated
                     if self.collection_name == original_collection_name: # Simple check
-                         self.collection_name = f"{original_collection_name}_{namespace}"
+                         self.collection_name = f"{original_collection_name}_{namespace_str}"
+                         logger.debug(f"Using namespaced collection: {self.collection_name}")
                          
                     # For QDrant primary, ensure collection exists
                     if backend == "qdrant" and backend == self.backend: # Only if it's the primary/active one
@@ -1187,8 +1207,8 @@ class VectorStore:
                                  collection_name=self.collection_name,
                                  vectors_config=models.VectorParams(size=384, distance=models.Distance.COSINE)
                              )
-                elif backend == "es":
-                     self.collection_name = f"{original_collection_name}_{namespace}"
+                elif namespace_str and backend == "es":
+                     self.collection_name = f"{original_collection_name}_{namespace_str}"
 
             if backend == "upstash":
                 return self._query_upstash(query_embedding, n_results, filter, namespace)

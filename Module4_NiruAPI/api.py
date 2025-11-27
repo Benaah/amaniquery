@@ -516,30 +516,35 @@ async def lifespan(app: FastAPI):
         vision_rag_service = None
     
     # ============================================================
-    # Initialize Amaniq v2 Agent (LangGraph-based orchestration)
+    # Initialize Amaniq v2 Agent (REQUIRED - The Brain of the System)
     # ============================================================
     try:
         from Module4_NiruAPI.agents.amaniq_v2 import AmaniQAgent, AmaniQConfig
         
-        if vector_store and rag_pipeline and rag_pipeline.llm_service:
-            # Create config for the agent
-            agent_config = AmaniQConfig(
-                enable_caching=cache_manager is not None,
-                enable_prefetch=True,
-                enable_telemetry=True,
-                enable_persistence=True,
-            )
-            
-            amaniq_v2_agent = AmaniQAgent(config=agent_config)
-            # Initialize asynchronously in background
-            asyncio.create_task(amaniq_v2_agent.initialize())
-            logger.info("✓ Amaniq v2 Agent initialized (LangGraph-based orchestration)")
-        else:
-            logger.warning("Amaniq v2 agent not initialized: vector_store or rag_pipeline not available")
-            amaniq_v2_agent = None
+        if not vector_store:
+            raise RuntimeError("Vector store is required for AmaniQ v2 agent but was not initialized")
+        if not rag_pipeline:
+            raise RuntimeError("RAG pipeline is required for AmaniQ v2 agent but was not initialized")
+        if not rag_pipeline.llm_service:
+            raise RuntimeError("LLM service is required for AmaniQ v2 agent but was not initialized")
+        
+        # Create config for the agent
+        agent_config = AmaniQConfig(
+            enable_caching=cache_manager is not None,
+            enable_prefetch=True,
+            enable_telemetry=True,
+            enable_persistence=True,
+        )
+        
+        amaniq_v2_agent = AmaniQAgent(config=agent_config)
+        # Initialize synchronously to ensure it's ready before the API starts
+        await amaniq_v2_agent.initialize()
+        logger.info("✓ AmaniQ v2 Agent initialized (REQUIRED - System Brain)")
+        
     except Exception as e:
-        logger.warning(f"Amaniq v2 agent orchestration not available: {e}")
-        amaniq_v2_agent = None
+        logger.error(f"CRITICAL: AmaniQ v2 agent is REQUIRED but failed to initialize: {e}")
+        logger.error("AmaniQ v2 is the brain of the system and MUST be available")
+        raise RuntimeError(f"Failed to initialize required AmaniQ v2 agent: {e}") from e
     
     # Inject dependencies into routers
     _inject_router_dependencies()

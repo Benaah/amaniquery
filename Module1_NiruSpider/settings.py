@@ -89,6 +89,6 @@ LLM_MAX_TOKENS = int(os.getenv('LLM_MAX_TOKENS', 200))
 
 # Vector DB Configuration
 VECTOR_DB = os.getenv('VECTOR_DB', 'qdrant')  # Options: 'weaviate', 'qdrant'
-VECTOR_DB_URL = os.getenv('QDRANT_URL', 'http://localhost:8080')
+VECTOR_DB_URL = os.getenv('QDRANT_URL')  # Cloud-based, no localhost fallback
 VECTOR_DB_COLLECTION = os.getenv('VECTOR_DB_COLLECTION', 'amaniquery_docs')
 EMBEDDING_MODEL = os.getenv('EMBEDDING_MODEL', 'sentence-transformers/all-MiniLM-L6-v2')

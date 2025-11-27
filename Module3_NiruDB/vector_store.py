@@ -1101,47 +1101,13 @@ class VectorStore:
                         try:
                             # Setup fallback state
                             self.backend = backend
-                            
+
                             if backend == "chromadb":
                                 self.client = self.chromadb_client
-                                if namespace:
-                                    # Handle namespace - can be a string or list
-                                    namespace_str = namespace[0] if isinstance(namespace, list) and namespace else namespace if isinstance(namespace, str) else None
-                                    if namespace_str:
-                                        self.collection_name = f"{original_collection_name}_{namespace_str}"
-                                        self.collection = self.chromadb_client.get_or_create_collection(
-                                            name=self.collection_name,
-                                            metadata={"description": f"AmaniQuery ChromaDB collection: {self.collection_name}"}
-                                        )
-                                    else:
-                                        self.collection = self.chromadb_collection
-                                        self.collection_name = original_collection_name
-                                else:
-                                    self.collection = self.chromadb_collection
-                                    self.collection_name = original_collection_name
-                                    
                             elif backend == "qdrant":
                                 self.client = self.backends["qdrant"]
-                                # QDrant handles collection name in _execute_query logic (via self.collection_name)
-                                if namespace:
-                                    # Handle namespace - can be a string or list
-                                    namespace_str = namespace[0] if isinstance(namespace, list) and namespace else namespace if isinstance(namespace, str) else None
-                                    if namespace_str:
-                                        self.collection_name = f"{original_collection_name}_{namespace_str}"
-                                        logger.debug(f"Fallback using Qdrant collection: {self.collection_name}")
-                                        # Ensure collection exists
-                                        try:
-                                            self.client.get_collection(self.collection_name)
-                                        except:
-                                            pass # Might fail if not exists, query will return empty
-                                    else:
-                                        self.collection_name = original_collection_name
-                                else:
-                                    self.collection_name = original_collection_name
-
                             elif backend == "upstash":
                                 self.client = self.backends["upstash"]
-                                # Upstash uses metadata filter, collection name doesn't change on client
                                 self.collection_name = original_collection_name
 
                             # Execute query
@@ -1193,7 +1159,8 @@ class VectorStore:
                 
                 if namespace_str and backend in ["qdrant", "chromadb"]:
                     # For primary backend, we might need to update collection name if not already updated
-                    if self.collection_name == original_collection_name: # Simple check
+                    # Check if namespace is already in the collection name to avoid duplication
+                    if self.collection_name == original_collection_name and not original_collection_name.endswith(f"_{namespace_str}"):
                          self.collection_name = f"{original_collection_name}_{namespace_str}"
                          logger.debug(f"Using namespaced collection: {self.collection_name}")
                          

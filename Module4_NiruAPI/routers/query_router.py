@@ -187,80 +187,66 @@ async def query(request: QueryRequest):
                 result["sources"] = sources
                 return result
             
-            # Try AmanIQ v2 agent if available (for non-vision queries)
-            elif amaniq_v2_agent is not None:
-                logger.info("[AmanIQ v2] Using agent orchestration for query")
-                
-                try:
-                    # Get conversation history if session exists
-                    conversation_history = []
-                    if request.session_id and chat_manager:
-                        try:
-                            messages = chat_manager.get_messages(request.session_id, limit=5)
-                            conversation_history = [
-                                {"role": msg.role, "content": msg.content}
-                                for msg in messages
-                            ]
-                        except Exception:
-                            conversation_history = []
-                    
-                    # Execute AmanIQ v2 pipeline
-                    amaniq_result = await amaniq_v2_agent.chat(
-                        message=request.query,
-                        thread_id=request.session_id,
-                        message_history=conversation_history,
-                    )
-                    
-                    # Extract response data
-                    answer = amaniq_result.get("answer", "")
-                    confidence = amaniq_result.get("confidence", 0.0)
-                    sources_data = amaniq_result.get("sources", [])
-                    
-                    # Format sources
-                    sources = []
-                    for src in sources_data:
-                        sources.append({
-                            "title": src.get("title", "Source"),
-                            "url": src.get("url", ""),
-                            "source_name": src.get("source_type", "Unknown"),
-                            "category": src.get("source_type", "general"),
-                            "excerpt": src.get("content", "")[:200] if src.get("content") else "",
-                        })
-                    
-                    result = {
-                        "answer": answer,
-                        "sources": sources,
-                        "query_time": amaniq_result.get("latency_ms", 0) / 1000,
-                        "retrieved_chunks": len(sources_data),
-                        "model_used": f"AmanIQ-v2-{amaniq_result.get('persona', 'wanjiku')}",
-                        "structured_data": {
-                            "confidence": confidence,
-                            "persona": amaniq_result.get("persona"),
-                            "intent": amaniq_result.get("intent"),
-                            "reasoning_steps": amaniq_result.get("reasoning_steps", 0),
-                        }
-                    }
-                    
-                    logger.info(f"[AmanIQ v2] Query completed with confidence {confidence:.2f}")
-                    return result
-                    
-                except Exception as e:
-                    # Fall back to standard RAG pipeline
-                    logger.warning(f"[AmanIQ v2] Error: {e}, falling back to standard RAG pipeline")
-                    result = rag_pipeline.query(
-                        query=request.query,
-                        top_k=request.top_k,
-                        category=request.category,
-                        source=request.source,
-                        temperature=request.temperature,
-                        max_tokens=request.max_tokens,
-                        session_id=request.session_id
-                    )
-                    return result
+            # Use AmaniQ v2 agent for all non-vision queries (REQUIRED)
+            logger.info("[AmaniQ v2] Using agent orchestration (System Brain)")
             
-            else:
-                # Use regular RAG (AmanIQ v2 not available)
-                logger.info("[RAG] Using standard RAG pipeline")
+            try:
+                # Get conversation history if session exists
+                conversation_history = []
+                if request.session_id and chat_manager:
+                    try:
+                        messages = chat_manager.get_messages(request.session_id, limit=5)
+                        conversation_history = [
+                            {"role": msg.role, "content": msg.content}
+                            for msg in messages
+                        ]
+                    except Exception:
+                        conversation_history = []
+                
+                # Execute AmaniQ v2 pipeline (THE BRAIN)
+                amaniq_result = await amaniq_v2_agent.chat(
+                    message=request.query,
+                    thread_id=request.session_id,
+                    message_history=conversation_history,
+                )
+                
+                # Extract response data
+                answer = amaniq_result.get("answer", "")
+                confidence = amaniq_result.get("confidence", 0.0)
+                sources_data = amaniq_result.get("sources", [])
+                
+                # Format sources
+                sources = []
+                for src in sources_data:
+                    sources.append({
+                        "title": src.get("title", "Source"),
+                        "url": src.get("url", ""),
+                        "source_name": src.get("source_type", "Unknown"),
+                        "category": src.get("source_type", "general"),
+                        "excerpt": src.get("content", "")[:200] if src.get("content") else "",
+                    })
+                
+                result = {
+                    "answer": answer,
+                    "sources": sources,
+                    "query_time": amaniq_result.get("latency_ms", 0) / 1000,
+                    "retrieved_chunks": len(sources_data),
+                    "model_used": f"AmaniQ-v2-{amaniq_result.get('persona', 'wanjiku')}",
+                    "structured_data": {
+                        "confidence": confidence,
+                        "persona": amaniq_result.get("persona"),
+                        "intent": amaniq_result.get("intent"),
+                        "reasoning_steps": amaniq_result.get("reasoning_steps", 0),
+                    }
+                }
+                
+                logger.info(f"[AmaniQ v2] Query completed with confidence {confidence:.2f}")
+                return result
+                
+            except Exception as e:
+                # ONLY on error: Fall back to standard RAG pipeline
+                logger.error(f"[AmaniQ v2] CRITICAL ERROR: {e}")
+                logger.warning("[RAG] Emergency fallback to standard RAG pipeline")
                 result = rag_pipeline.query(
                     query=request.query,
                     top_k=request.top_k,

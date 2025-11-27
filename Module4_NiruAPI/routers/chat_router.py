@@ -104,7 +104,7 @@ def get_chat_manager():
     global chat_manager
     if chat_manager is None:
         logger.warning("Chat manager not initialized via dependency injection, attempting lazy initialization")
-        try:
+def get_chat_manager():
             from Module3_NiruDB.chat_manager import ChatDatabaseManager
             chat_manager = ChatDatabaseManager()
             logger.info("Chat manager lazily initialized successfully")
@@ -113,6 +113,22 @@ def get_chat_manager():
             raise HTTPException(status_code=503, detail=f"Chat service not initialized: {e}")
     return chat_manager
 
+
+def get_amaniq_v2_agent():
+    """Get the AmaniQ v2 agent instance"""
+    global amaniq_v2_agent
+    if amaniq_v2_agent is None:
+        logger.warning("AmaniQ v2 agent not initialized via dependency injection, attempting lazy initialization")
+        try:
+            from Module4_NiruAPI.agents.amaniq_v2 import AmaniQAgent
+            amaniq_v2_agent = AmaniQAgent()
+            asyncio.run(amaniq_v2_agent.initialize())
+            logger.info("AmaniQ v2 agent lazily initialized successfully")
+        except Exception as e:
+            logger.error(f"Failed to lazily initialize AmaniQ v2 agent: {e}")
+            raise HTTPException(status_code=503, detail=f"AmaniQ v2 agent not initialized: {e}")
+    return amaniq_v2_agent
+    
 
 # =============================================================================
 # HELPER FUNCTIONS
@@ -326,60 +342,51 @@ async def _handle_streaming_message(
                 "excerpt": f"Image similarity: {src.get('similarity', 0):.2f}",
             })
         result["sources"] = vision_sources
-    # Try AmaniQ v2 agent for intelligent processing
-    elif amaniq_v2_agent is not None:
-        try:
-            logger.info("[Chat] Using AmaniQ v2 agent for query")
-            # Get conversation history
-            messages = chat_manager.get_messages(session_id, limit=5)
-            conversation_history = [
-                {"role": msg.role, "content": msg.content}
-                for msg in messages
-            ]
-            
-            # Execute AmaniQ v2 pipeline
-            amaniq_result = await amaniq_v2_agent.chat(
-                message=message.content,
-                thread_id=session_id,
-                message_history=conversation_history,
-            )
-            
-            # Format for chat response
-            result = {
-                "answer": amaniq_result.get("answer", ""),
-                "sources": amaniq_result.get("sources", []),
-                "retrieved_chunks": len(amaniq_result.get("sources", [])),
-                "model_used": f"AmaniQ-v2-{amaniq_result.get('persona', 'wanjiku')}",
-                "structured_data": {
-                    "confidence": amaniq_result.get("confidence", 0.0),
-                    "persona": amaniq_result.get("persona"),
-                    "intent": amaniq_result.get("intent"),
-                },
-                "answer_stream": None  # Non-streaming for now
-            }
-            logger.info(f"[Chat] AmaniQ v2 completed with confidence {amaniq_result.get('confidence', 0):.2f}")
-        except Exception as e:
-            logger.warning(f"[Chat] AmaniQ v2 error: {e}, falling back to RAG")
-            if rag_pipeline is not None:
-                result = rag_pipeline.query_stream(
-                    query=message.content,
-                    top_k=3,
-                    max_tokens=1000,
-                    temperature=0.7,
-                    session_id=session_id,
-                )
-            else:
-                raise HTTPException(status_code=503, detail="No query service available")
-    elif rag_pipeline is not None:
-        result = rag_pipeline.query_stream(
+    # Use AmaniQ v2 agent for all non-vision queries (REQUIRED)
+    logger.info("[Chat] Using AmaniQ v2 agent (System Brain)")
+    try:
+        # Get conversation history
+        messages = chat_manager.get_messages(session_id, limit=5)
+        conversation_history = [
+            {"role": msg.role, "content": msg.content}
+            for msg in messages
+        ]
+        
+        # Execute AmaniQ v2 pipeline (THE BRAIN)
+        amaniq_result = await amaniq_v2_agent.chat(
+            message=message.content,
+            thread_id=session_id,
+            message_history=conversation_history,
+        )
+        
+        # Format for chat response
+        result = {
+            "answer": amaniq_result.get("answer", ""),
+            "sources": amaniq_result.get("sources", []),
+            "retrieved_chunks": len(amaniq_result.get("sources", [])),
+            "model_used": f"AmaniQ-v2-{amaniq_result.get('persona', 'wanjiku')}",
+            "structured_data": {
+                "confidence": amaniq_result.get("confidence", 0.0),
+                "persona": amaniq_result.get("persona"),
+                "intent": amaniq_result.get("intent"),
+            },
+            "answer_stream": None  # Non-streaming for now
+        }
+        logger.info(f"[Chat] AmaniQ v2 completed with confidence {amaniq_result.get('confidence', 0):.2f}")
+    except Exception as e:
+        # ONLY on error: Fall back to standard RAG pipeline
+        logger.error(f"[Chat] AmaniQ v2 CRITICAL ERROR: {e}")
+        logger.warning("[RAG] Emergency fallback to standard RAG pipeline")
+        if rag_pipeline is not None:
+            result = rag_pipeline.query_stream(
                 query=message.content,
                 top_k=3,
                 max_tokens=1000,
                 temperature=0.7,
                 session_id=session_id,
             )
-    else:
-        raise HTTPException(status_code=503, detail="RAG pipeline is not initialized")
+        else:
+            raise HTTPException(status_code=503, detail="No query service available")
     
     # Add user message
     attachments_data = _get_attachments(message.attachment_ids, session_id, chat_manager)
@@ -488,59 +495,50 @@ async def _handle_regular_message(
             })
         result["sources"] = vision_sources
         result["retrieved_chunks"] = result.get("retrieved_images", 0)
-    # Try AmaniQ v2 agent for intelligent processing
-    elif amaniq_v2_agent is not None:
-        try:
-            logger.info("[Chat] Using AmaniQ v2 agent for query")
-            # Get conversation history
-            messages = chat_manager.get_messages(session_id, limit=5)
-            conversation_history = [
-                {"role": msg.role, "content": msg.content}
-                for msg in messages
-            ]
-            
-            # Execute AmaniQ v2 pipeline
-            amaniq_result = await amaniq_v2_agent.chat(
-                message=message.content,
-                thread_id=session_id,
-                message_history=conversation_history,
-            )
-            
-            # Format for chat response
-            result = {
-                "answer": amaniq_result.get("answer", ""),
-                "sources": amaniq_result.get("sources", []),
-                "retrieved_chunks": len(amaniq_result.get("sources", [])),
-                "model_used": f"AmaniQ-v2-{amaniq_result.get('persona', 'wanjiku')}",
-                "structured_data": {
-                    "confidence": amaniq_result.get("confidence", 0.0),
-                    "persona": amaniq_result.get("persona"),
-                    "intent": amaniq_result.get("intent"),
-                }
-            }
-            logger.info(f"[Chat] AmaniQ v2 completed with confidence {amaniq_result.get('confidence', 0):.2f}")
-        except Exception as e:
-            logger.warning(f"[Chat] AmaniQ v2 error: {e}, falling back to RAG")
-            if rag_pipeline is not None:
-                result = rag_pipeline.query(
-                    query=message.content,
-                    top_k=3,
-                    max_tokens=1000,
-                    temperature=0.7,
-                    session_id=session_id,
-                )
-            else:
-                raise HTTPException(status_code=503, detail="No query service available")
-    elif rag_pipeline is not None:
-        result = rag_pipeline.query(
-            query=message.content,
-            top_k=3,
-            max_tokens=1000,
-            temperature=0.7,
-            session_id=session_id
+    # Use AmaniQ v2 agent for all non-vision queries (REQUIRED)
+    logger.info("[Chat] Using AmaniQ v2 agent (System Brain)")
+    try:
+        # Get conversation history
+        messages = chat_manager.get_messages(session_id, limit=5)
+        conversation_history = [
+            {"role": msg.role, "content": msg.content}
+            for msg in messages
+        ]
+        
+        # Execute AmaniQ v2 pipeline (THE BRAIN)
+        amaniq_result = await amaniq_v2_agent.chat(
+            message=message.content,
+            thread_id=session_id,
+            message_history=conversation_history,
         )
-    else:
-        raise HTTPException(status_code=503, detail="No query service available")
+        
+        # Format for chat response
+        result = {
+            "answer": amaniq_result.get("answer", ""),
+            "sources": amaniq_result.get("sources", []),
+            "retrieved_chunks": len(amaniq_result.get("sources", [])),
+            "model_used": f"AmaniQ-v2-{amaniq_result.get('persona', 'wanjiku')}",
+            "structured_data": {
+                "confidence": amaniq_result.get("confidence", 0.0),
+                "persona": amaniq_result.get("persona"),
+                "intent": amaniq_result.get("intent"),
+            }
+        }
+        logger.info(f"[Chat] AmaniQ v2 completed with confidence {amaniq_result.get('confidence', 0):.2f}")
+    except Exception as e:
+        # ONLY on error: Fall back to standard RAG pipeline
+        logger.error(f"[Chat] AmaniQ v2 CRITICAL ERROR: {e}")
+        logger.warning("[RAG] Emergency fallback to standard RAG pipeline")
+        if rag_pipeline is not None:
+            result = rag_pipeline.query(
+                query=message.content,
+                top_k=3,
+                max_tokens=1000,
+                temperature=0.7,
+                session_id=session_id,
+            )
+        else:
+            raise HTTPException(status_code=503, detail="No query service available")
     
     # Add user message
     attachments_data = _get_attachments(message.attachment_ids, session_id, chat_manager)

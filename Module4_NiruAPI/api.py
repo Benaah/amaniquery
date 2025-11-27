@@ -518,32 +518,68 @@ async def lifespan(app: FastAPI):
     # ============================================================
     # Initialize Amaniq v2 Agent (REQUIRED - The Brain of the System)
     # ============================================================
+    logger.info("=" * 80)
+    logger.info("INITIALIZING AMANIQ V2 AGENT (SYSTEM BRAIN)")
+    logger.info("=" * 80)
+    
     try:
+        logger.info("Step 1: Importing AmaniQ v2 modules...")
         from Module4_NiruAPI.agents.amaniq_v2 import AmaniQAgent, AmaniQConfig
+        logger.info("✓ Import successful")
         
+        logger.info("Step 2: Validating dependencies...")
         if not vector_store:
             raise RuntimeError("Vector store is required for AmaniQ v2 agent but was not initialized")
+        logger.info("  ✓ Vector store available")
+        
         if not rag_pipeline:
             raise RuntimeError("RAG pipeline is required for AmaniQ v2 agent but was not initialized")
+        logger.info("  ✓ RAG pipeline available")
+        
         if not rag_pipeline.llm_service:
             raise RuntimeError("LLM service is required for AmaniQ v2 agent but was not initialized")
+        logger.info("  ✓ LLM service available")
         
+        logger.info("Step 3: Creating agent configuration...")
         # Create config for the agent
         agent_config = AmaniQConfig(
             enable_caching=cache_manager is not None,
             enable_prefetch=True,
             enable_telemetry=True,
-            enable_persistence=True,
+            enable_persistence=False,  # Disable persistence for faster startup
         )
+        logger.info(f"  ✓ Config created (caching={cache_manager is not None})")
         
+        logger.info("Step 4: Creating AmaniQAgent instance...")
         amaniq_v2_agent = AmaniQAgent(config=agent_config)
-        # Initialize synchronously to ensure it's ready before the API starts
+        logger.info("  ✓ Instance created")
+        
+        logger.info("Step 5: Initializing agent (building graph, etc.)...")
         await amaniq_v2_agent.initialize()
-        logger.info("✓ AmaniQ v2 Agent initialized (REQUIRED - System Brain)")
+        logger.info("  ✓ Initialization complete")
+        
+        logger.info("Step 6: Verifying agent state...")
+        if amaniq_v2_agent is None:
+            raise RuntimeError("Agent instance is None after initialization!")
+        if not amaniq_v2_agent._initialized:
+            raise RuntimeError("Agent._initialized is False after initialization!")
+        if amaniq_v2_agent.graph is None:
+            raise RuntimeError("Agent.graph is None after initialization!")
+        logger.info(f"  ✓ Agent verified (graph type: {type(amaniq_v2_agent.graph).__name__})")
+        
+        logger.info("=" * 80)
+        logger.info("✅ AMANIQ V2 AGENT INITIALIZED SUCCESSFULLY")
+        logger.info("=" * 80)
         
     except Exception as e:
-        logger.error(f"CRITICAL: AmaniQ v2 agent is REQUIRED but failed to initialize: {e}")
-        logger.error("AmaniQ v2 is the brain of the system and MUST be available")
+        logger.error("=" * 80)
+        logger.error("❌ CRITICAL ERROR: AMANIQ V2 AGENT INITIALIZATION FAILED")
+        logger.error("=" * 80)
+        logger.error(f"Error: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        logger.error("The API cannot start without the AmaniQ v2 agent (system brain)")
+        logger.error("=" * 80)
         raise RuntimeError(f"Failed to initialize required AmaniQ v2 agent: {e}") from e
     
     # Inject dependencies into routers
@@ -584,7 +620,18 @@ def _inject_router_dependencies():
     cr.vision_rag_service = vision_rag_service
     cr.rag_pipeline = rag_pipeline
     cr.vector_store = vector_store
-    cr.amaniq_v2_agent = amaniq_v2_agent
+    cr.amaniq_v2_graph = amaniq_v2_agent.graph if amaniq_v2_agent else None
+    
+    # Verify critical dependencies
+    if amaniq_v2_agent is None:
+        logger.error("CRITICAL: amaniq_v2_agent is None during dependency injection!")
+    elif amaniq_v2_agent.graph is None:
+        logger.error("CRITICAL: amaniq_v2_agent.graph is None during dependency injection!")
+    else:
+        logger.info(f"✅ AmaniQ v2 graph injected into chat_router (type={type(amaniq_v2_agent.graph).__name__})")
+    
+    if chat_manager is None:
+        logger.warning("chat_manager is None during dependency injection")
     
     # Set dependencies on admin router
     logger.info(f"Injecting dependencies into admin_router. crawler_manager is {'None' if crawler_manager is None else 'Set'}")

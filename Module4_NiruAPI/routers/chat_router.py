@@ -81,7 +81,7 @@ vision_storage = {}
 vision_rag_service = None
 rag_pipeline = None
 vector_store = None
-amaniq_v2_agent = None
+amaniq_v2_graph = None  # Store the compiled graph directly
 
 
 def get_rag_pipeline():
@@ -104,7 +104,7 @@ def get_chat_manager():
     global chat_manager
     if chat_manager is None:
         logger.warning("Chat manager not initialized via dependency injection, attempting lazy initialization")
-def get_chat_manager():
+        try:
             from Module3_NiruDB.chat_manager import ChatDatabaseManager
             chat_manager = ChatDatabaseManager()
             logger.info("Chat manager lazily initialized successfully")
@@ -114,20 +114,21 @@ def get_chat_manager():
     return chat_manager
 
 
-def get_amaniq_v2_agent():
-    """Get the AmaniQ v2 agent instance"""
-    global amaniq_v2_agent
-    if amaniq_v2_agent is None:
-        logger.warning("AmaniQ v2 agent not initialized via dependency injection, attempting lazy initialization")
-        try:
-            from Module4_NiruAPI.agents.amaniq_v2 import AmaniQAgent
-            amaniq_v2_agent = AmaniQAgent()
-            asyncio.run(amaniq_v2_agent.initialize())
-            logger.info("AmaniQ v2 agent lazily initialized successfully")
-        except Exception as e:
-            logger.error(f"Failed to lazily initialize AmaniQ v2 agent: {e}")
-            raise HTTPException(status_code=503, detail=f"AmaniQ v2 agent not initialized: {e}")
-    return amaniq_v2_agent
+def get_amaniq_v2_graph():
+    """Get the AmaniQ v2 compiled graph directly (avoids global model issues)"""
+    global amaniq_v2_graph
+    
+    if amaniq_v2_graph is None:
+        logger.error("CRITICAL: AmaniQ v2 graph is None - this should never happen!")
+        logger.error("The graph should have been initialized during API startup.")
+        logger.error("Check API startup logs for initialization errors.")
+        
+        raise HTTPException(
+            status_code=503, 
+            detail="AmaniQ v2 graph not initialized. This is a critical system error. Please contact support."
+        )
+    
+    return amaniq_v2_graph
     
 
 # =============================================================================
@@ -342,51 +343,71 @@ async def _handle_streaming_message(
                 "excerpt": f"Image similarity: {src.get('similarity', 0):.2f}",
             })
         result["sources"] = vision_sources
-    # Use AmaniQ v2 agent for all non-vision queries (REQUIRED)
-    logger.info("[Chat] Using AmaniQ v2 agent (System Brain)")
-    try:
-        # Get conversation history
-        messages = chat_manager.get_messages(session_id, limit=5)
-        conversation_history = [
-            {"role": msg.role, "content": msg.content}
-            for msg in messages
-        ]
-        
-        # Execute AmaniQ v2 pipeline (THE BRAIN)
-        amaniq_result = await amaniq_v2_agent.chat(
-            message=message.content,
-            thread_id=session_id,
-            message_history=conversation_history,
-        )
-        
-        # Format for chat response
-        result = {
-            "answer": amaniq_result.get("answer", ""),
-            "sources": amaniq_result.get("sources", []),
-            "retrieved_chunks": len(amaniq_result.get("sources", [])),
-            "model_used": f"AmaniQ-v2-{amaniq_result.get('persona', 'wanjiku')}",
-            "structured_data": {
-                "confidence": amaniq_result.get("confidence", 0.0),
-                "persona": amaniq_result.get("persona"),
-                "intent": amaniq_result.get("intent"),
-            },
-            "answer_stream": None  # Non-streaming for now
-        }
-        logger.info(f"[Chat] AmaniQ v2 completed with confidence {amaniq_result.get('confidence', 0):.2f}")
-    except Exception as e:
-        # ONLY on error: Fall back to standard RAG pipeline
-        logger.error(f"[Chat] AmaniQ v2 CRITICAL ERROR: {e}")
-        logger.warning("[RAG] Emergency fallback to standard RAG pipeline")
-        if rag_pipeline is not None:
-            result = rag_pipeline.query_stream(
-                query=message.content,
-                top_k=3,
-                max_tokens=1000,
-                temperature=0.7,
-                session_id=session_id,
-            )
-        else:
-            raise HTTPException(status_code=503, detail="No query service available")
+    else:
+        # Use AmaniQ v2 graph directly for all non-vision queries (REQUIRED)
+        logger.info("[Chat] Using AmaniQ v2 graph (System Brain)")
+        try:
+            # Get the AmaniQ v2 compiled graph directly
+            graph = get_amaniq_v2_graph()
+            
+            # Get conversation history
+            messages = chat_manager.get_messages(session_id, limit=5)
+            conversation_history = [
+                {"role": msg.role, "content": msg.content}
+                for msg in messages
+            ]
+            
+            # Build initial state for the graph - only include required fields
+            initial_state = {
+                "current_query": message.content,
+                "original_question": message.content,
+                "messages": conversation_history + [{"role": "user", "content": message.content}],
+                "thread_id": session_id,
+            }
+            
+            # Execute graph directly (THE BRAIN)
+            config = {"configurable": {"thread_id": session_id}}
+            final_state = await graph.ainvoke(initial_state, config=config)
+            
+            # Extract result from final state
+            amaniq_result = {
+                "answer": final_state.get("final_response", ""),
+                "sources": final_state.get("citations", []),
+                "confidence": final_state.get("response_confidence", 0.0),
+                "persona": final_state.get("supervisor_decision", {}).get("persona"),
+                "intent": final_state.get("intent"),
+            }
+            
+            # Format for chat response
+            result = {
+                "answer": amaniq_result.get("answer", ""),
+                "sources": amaniq_result.get("sources", []),
+                "retrieved_chunks": len(amaniq_result.get("sources", [])),
+                "model_used": f"AmaniQ-v2-{amaniq_result.get('persona', 'wanjiku')}",
+                "structured_data": {
+                    "confidence": amaniq_result.get("confidence", 0.0),
+                    "persona": amaniq_result.get("persona"),
+                    "intent": amaniq_result.get("intent"),
+                },
+                "answer_stream": None  # Non-streaming for now
+            }
+            logger.info(f"[Chat] AmaniQ v2 completed with confidence {amaniq_result.get('confidence', 0):.2f}")
+        except Exception as e:
+            # ONLY on error: Fall back to standard RAG pipeline
+            logger.error(f"[Chat] AmaniQ v2 CRITICAL ERROR: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            logger.warning("[RAG] Emergency fallback to standard RAG pipeline")
+            if rag_pipeline is not None:
+                result = rag_pipeline.query_stream(
+                    query=message.content,
+                    top_k=3,
+                    max_tokens=1000,
+                    temperature=0.7,
+                    session_id=session_id,
+                )
+            else:
+                raise HTTPException(status_code=503, detail="No query service available")
     
     # Add user message
     attachments_data = _get_attachments(message.attachment_ids, session_id, chat_manager)

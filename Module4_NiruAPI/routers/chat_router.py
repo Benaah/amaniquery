@@ -80,6 +80,7 @@ chat_manager = None
 vision_storage = {}
 vision_rag_service = None
 rag_pipeline = None
+vector_store = None
 
 
 def get_chat_manager():
@@ -507,7 +508,7 @@ async def upload_chat_attachment(
     """Upload a document attachment for a chat session"""
     chat_manager = get_chat_manager()
     
-    if _vector_store is None:
+    if vector_store is None:
         raise HTTPException(status_code=503, detail="Vector store not initialized")
     
     user_id = get_current_user_id(request)

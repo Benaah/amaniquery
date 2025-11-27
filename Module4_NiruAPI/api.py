@@ -578,8 +578,10 @@ def _inject_router_dependencies():
     cr.vision_storage = vision_storage
     cr.vision_rag_service = vision_rag_service
     cr.rag_pipeline = rag_pipeline
+    cr.vector_store = vector_store
     
     # Set dependencies on admin router
+    logger.info(f"Injecting dependencies into admin_router. crawler_manager is {'None' if crawler_manager is None else 'Set'}")
     ar.crawler_manager = crawler_manager
     ar.vector_store = vector_store
     ar.config_manager = config_manager

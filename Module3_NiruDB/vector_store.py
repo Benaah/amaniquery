@@ -985,24 +985,6 @@ class VectorStore:
             return formatted_results
         except Exception as e:
             logger.warning(f"Upstash sample fetch failed: {e}")
-            return []
-
-    def _get_sample_qdrant(self, limit: int) -> List[Dict]:
-        """Get sample documents from QDrant using scroll"""
-        try:
-            # Use scroll API which is much more efficient than search
-            scroll_result, _ = self.client.scroll(
-                collection_name=self.collection_name,
-                limit=limit,
-                with_payload=True,
-                with_vectors=False
-            )
-            
-            formatted_results = []
-            for hit in scroll_result:
-                payload = hit.payload if hasattr(hit, 'payload') else {}
-                metadata = {k: str(v) if not isinstance(v, str) else v for k, v in payload.items()}
-                point_id = hit.id if hasattr(hit, 'id') else None
                 formatted_results.append({"id": metadata.get("chunk_id", str(point_id) if point_id else ""), "text": metadata.get("text", ""), "metadata": metadata})
             
             logger.info(f"QDrant scroll returned {len(formatted_results)} results")

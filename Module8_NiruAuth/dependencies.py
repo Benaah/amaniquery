@@ -102,6 +102,12 @@ def get_current_user(
     user_cached = getattr(auth_context, "user", None)
     if user_cached is not None:
         logger.info(f"Using cached user {getattr(user_cached, 'id', 'unknown')} from auth context")
+        # Ensure user is attached to current session to avoid DetachedInstanceError
+        if db:
+            try:
+                user_cached = db.merge(user_cached)
+            except Exception as e:
+                logger.warning(f"Failed to merge cached user into current session: {e}")
         return user_cached
 
     # Fallback: Query DB if not cached (for backward compatibility)

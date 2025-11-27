@@ -985,12 +985,39 @@ class VectorStore:
             return formatted_results
         except Exception as e:
             logger.warning(f"Upstash sample fetch failed: {e}")
+            return []
+
+    def _get_sample_qdrant(self, limit: int = 2000) -> List[Dict]:
+        """Get sample documents from Qdrant for preview"""
+        try:
+            # Attempt to scroll through the collection
+            # This will fail if the collection does not exist
+            response = self.qdrant_client.scroll(
+                collection_name="amaniquery_docs_kenya_news",
+                limit=limit,
+                with_payload=True,
+                with_vectors=False,
+            )
+            
+            # Response is a tuple (points, next_page_offset)
+            points = response[0]
+            
+            formatted_results = []
+            for point in points:
+                point_id = point.id
+                payload = point.payload or {}
+                metadata = {k: str(v) if not isinstance(v, str) else v for k, v in payload.items()}
                 formatted_results.append({"id": metadata.get("chunk_id", str(point_id) if point_id else ""), "text": metadata.get("text", ""), "metadata": metadata})
             
             logger.info(f"QDrant scroll returned {len(formatted_results)} results")
             return formatted_results
+            
         except Exception as e:
             logger.warning(f"QDrant scroll failed: {e}")
+            # If the error indicates a missing collection, return an empty list
+            if "Collection `amaniquery_docs_kenya_news` doesn't exist!" in str(e):
+                logger.warning("Collection `amaniquery_docs_kenya_news` not found. Returning empty list.")
+                return []
             return []
 
     def _get_sample_chromadb(self, limit: int) -> List[Dict]:

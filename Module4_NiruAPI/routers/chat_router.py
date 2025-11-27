@@ -85,8 +85,16 @@ vector_store = None
 
 def get_chat_manager():
     """Get the chat manager instance"""
+    global chat_manager
     if chat_manager is None:
-        raise HTTPException(status_code=503, detail="Chat service not initialized")
+        logger.warning("Chat manager not initialized via dependency injection, attempting lazy initialization")
+        try:
+            from Module3_NiruDB.chat_manager import ChatDatabaseManager
+            chat_manager = ChatDatabaseManager()
+            logger.info("Chat manager lazily initialized successfully")
+        except Exception as e:
+            logger.error(f"Failed to lazily initialize chat manager: {e}")
+            raise HTTPException(status_code=503, detail=f"Chat service not initialized: {e}")
     return chat_manager
 
 

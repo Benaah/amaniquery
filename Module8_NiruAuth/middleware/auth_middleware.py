@@ -82,8 +82,6 @@ class AuthMiddleware(BaseHTTPMiddleware):
         
         # Skip if no database connection
         if not self.engine:
-            import logging
-            logger = logging.getLogger(__name__)
             logger.warning("AuthMiddleware: No database engine available, skipping authentication")
             return await call_next(request)
         
@@ -97,9 +95,18 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 
                 # Try to authenticate
                 auth_context = await self.authenticate_request(request, db)
-            
-            # Attach auth context to request state (even if None, for optional auth endpoints)
-            request.state.auth_context = auth_context
+                
+                # Attach auth context to request state inside the session block
+                # Note: The user object in auth_context will be detached when this block exits
+                request.state.auth_context = auth_context
+                
+                if auth_context:
+                    logger.debug(f"Auth context attached for user {auth_context.user_id}")
+                else:
+                    # Log why it's None if we have a session token
+                    session_token = request.cookies.get("session_token") or request.headers.get("X-Session-Token")
+                    if session_token:
+                        logger.warning(f"Auth context is None despite session token presence. Token: {session_token[:10]}...")
             
             # Continue with request (outside db context to avoid holding connection)
             response = await call_next(request)
@@ -113,8 +120,6 @@ class AuthMiddleware(BaseHTTPMiddleware):
             )
         except Exception as e:
             import traceback
-            import logging
-            logger = logging.getLogger(__name__)
             logger.error(f"AuthMiddleware error: {str(e)}\n{traceback.format_exc()}")
             return JSONResponse(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

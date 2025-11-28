@@ -113,9 +113,15 @@ pytest
 black
 flake8
 
-# Module 9: NiruSense (Ingestion & Processing)
+# Module 9: NiruSense (Kenyan NLP Processing Pipeline)
 minio
 playwright
 playwright-stealth
-asyncpg
+pydantic-settings>=2.1.0
+python-json-logger>=2.0.7
+# Note: transformers, torch, sentence-transformers already required by Module 7
+# Note: asyncpg already required above
+# Note: redis, qdrant-client already required above
+# Note: tenacity already required by Module 6
+
 

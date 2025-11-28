@@ -597,33 +597,35 @@ async def lifespan(app: FastAPI):
 
 def _inject_router_dependencies():
     """Inject service dependencies into routers"""
-    # Import router modules directly (not from __init__.py) to access module-level state
-    import Module4_NiruAPI.routers.query_router as qr
-    import Module4_NiruAPI.routers.chat_router as cr
-    import Module4_NiruAPI.routers.admin_router as ar
-    import Module4_NiruAPI.routers.research_router as rr
-    import Module4_NiruAPI.routers.sms_router as sr
-    import Module4_NiruAPI.routers.alignment_router as alr
-    import Module4_NiruAPI.routers.monitoring_router as mr
-    import Module4_NiruAPI.routers.hybrid_rag_router as hr
+    # Import router modules using sys.modules to avoid naming conflicts
+    import sys
+    query_router_module = sys.modules['Module4_NiruAPI.routers.query_router']
+    chat_router_module = sys.modules['Module4_NiruAPI.routers.chat_router']
+    admin_router_module = sys.modules['Module4_NiruAPI.routers.admin_router']
+    research_router_module = sys.modules['Module4_NiruAPI.routers.research_router']
+    sms_router_module = sys.modules['Module4_NiruAPI.routers.sms_router']
+    alignment_router_module = sys.modules['Module4_NiruAPI.routers.alignment_router']
+    monitoring_router_module = sys.modules['Module4_NiruAPI.routers.monitoring_router']
+    hybrid_rag_router_module = sys.modules['Module4_NiruAPI.routers.hybrid_rag_router']
     
     # Set dependencies on query router using state container
-    qr._state.vector_store = vector_store
-    qr._state.rag_pipeline = rag_pipeline
-    qr._state.cache_manager = cache_manager
-    qr._state.amaniq_v2_agent = amaniq_v2_agent
-    qr._state.database_storage = database_storage
-    qr._state.chat_manager = chat_manager
-    qr._state.vision_rag_service = vision_rag_service
-    qr._state.vision_storage = vision_storage
+    query_router_module._state.vector_store = vector_store
+    query_router_module._state.rag_pipeline = rag_pipeline
+    query_router_module._state.cache_manager = cache_manager
+    query_router_module._state.amaniq_v2_agent = amaniq_v2_agent
+    query_router_module._state.database_storage = database_storage
+    query_router_module._state.chat_manager = chat_manager
+    query_router_module._state.vision_rag_service = vision_rag_service
+    query_router_module._state.vision_storage = vision_storage
     
     # Set dependencies on chat router using state container
-    cr._state.chat_manager = chat_manager
-    cr._state.vision_storage = vision_storage
-    cr._state.vision_rag_service = vision_rag_service
-    cr._state.rag_pipeline = rag_pipeline
-    cr._state.vector_store = vector_store
-    cr._state.amaniq_v2_graph = amaniq_v2_agent.graph if amaniq_v2_agent else None
+    chat_router_module._state.chat_manager = chat_manager
+    chat_router_module._state.vision_storage = vision_storage
+    chat_router_module._state.vision_rag_service = vision_rag_service
+    chat_router_module._state.rag_pipeline = rag_pipeline
+    chat_router_module._state.vector_store = vector_store
+    chat_router_module._state.amaniq_v2_agent = amaniq_v2_agent  # Inject the full agent, not just the graph
+    chat_router_module._state.amaniq_v2_graph = amaniq_v2_agent.graph if amaniq_v2_agent else None
     
     # Verify critical dependencies
     if amaniq_v2_agent is None:
@@ -638,37 +640,37 @@ def _inject_router_dependencies():
     
     # Set dependencies on admin router
     logger.info(f"Injecting dependencies into admin_router. crawler_manager is {'None' if crawler_manager is None else 'Set'}")
-    ar.crawler_manager = crawler_manager
-    ar.vector_store = vector_store
-    ar.config_manager = config_manager
-    ar.database_storage = database_storage
-    ar.cache_manager = cache_manager
+    admin_router_module.crawler_manager = crawler_manager
+    admin_router_module.vector_store = vector_store
+    admin_router_module.config_manager = config_manager
+    admin_router_module.database_storage = database_storage
+    admin_router_module.cache_manager = cache_manager
     
     # Set dependencies on research router using state container
-    rr._state.agentic_research_module = agentic_research_module
-    rr._state.research_module = research_module
-    rr._state.report_generator = report_generator
-    rr._state.cache_manager = cache_manager
-    rr._state.chat_manager = chat_manager
+    research_router_module._state.agentic_research_module = agentic_research_module
+    research_router_module._state.research_module = research_module
+    research_router_module._state.report_generator = report_generator
+    research_router_module._state.cache_manager = cache_manager
+    research_router_module._state.chat_manager = chat_manager
     
     # Set dependencies on SMS router
-    sr.sms_pipeline = sms_pipeline
-    sr.sms_service = sms_service
+    sms_router_module.sms_pipeline = sms_pipeline
+    sms_router_module.sms_service = sms_service
     
     # Set dependencies on alignment router
-    alr.alignment_pipeline = alignment_pipeline
-    alr.rag_pipeline = rag_pipeline
-    alr.cache_manager = cache_manager
+    alignment_router_module.alignment_pipeline = alignment_pipeline
+    alignment_router_module.rag_pipeline = rag_pipeline
+    alignment_router_module.cache_manager = cache_manager
     
     # Set dependencies on hybrid RAG router
-    hr.hybrid_rag_pipeline = hybrid_rag_pipeline
-    hr.rag_pipeline = rag_pipeline
-    hr.cache_manager = cache_manager
-    hr.chat_manager = chat_manager
+    hybrid_rag_router_module.hybrid_rag_pipeline = hybrid_rag_pipeline
+    hybrid_rag_router_module.rag_pipeline = rag_pipeline
+    hybrid_rag_router_module.cache_manager = cache_manager
+    hybrid_rag_router_module.chat_manager = chat_manager
     
     # Set dependencies on monitoring router
     if database_storage:
-        mr.db_session_factory = database_storage.SessionLocal
+        monitoring_router_module.db_session_factory = database_storage.SessionLocal
     
     logger.info("Router dependencies injected")
 

@@ -141,8 +141,8 @@ class SupervisorDecision(BaseModel):
     reasoning: str = Field(
         ...,
         min_length=10,
-        max_length=200,
-        description="Brief chain-of-thought explanation (max 200 chars)"
+        max_length=1000,
+        description="Brief chain-of-thought explanation (max 1000 chars)"
     )
     
     # Conditional fields based on intent

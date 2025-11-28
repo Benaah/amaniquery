@@ -42,7 +42,11 @@ def download_models():
         print(f"📥 Downloading model: {model_name}...")
         try:
             # Download Tokenizer
-            AutoTokenizer.from_pretrained(model_name)
+            if model_name == "Davlan/xlm-roberta-base-ner-hrl":
+                # Fix for 'NoneType' object has no attribute 'endswith' error
+                AutoTokenizer.from_pretrained(model_name, use_fast=False)
+            else:
+                AutoTokenizer.from_pretrained(model_name)
             # Download Model
             model_class.from_pretrained(model_name)
             print(f"✅ Successfully downloaded {model_name}")

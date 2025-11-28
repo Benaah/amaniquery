@@ -890,7 +890,7 @@ ${researchProcess.tools_used && researchProcess.tools_used.length > 0
         ...getAuthHeaders()
       }
       const response = await fetch(
-        `${API_BASE_URL}/chat/share?session_id=${encodeURIComponent(currentSessionId)}`,
+        `${API_BASE_URL}/api/v1/chat/share?session_id=${encodeURIComponent(currentSessionId)}`,
         {
           method: "POST",
           headers

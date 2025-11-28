@@ -28,7 +28,7 @@ export async function GET(
         }
 
         const response = await fetch(
-            `${apiBaseUrl}/chat/sessions/${sessionId}/messages`,
+            `${apiBaseUrl}/api/v1/chat/sessions/${sessionId}/messages`,
             { headers }
         )
 

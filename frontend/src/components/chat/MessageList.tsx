@@ -328,7 +328,7 @@ export function MessageList({
                                 return (
                                   <a
                                     key={attachment.id}
-                                    href={`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/chat/sessions/${message.session_id}/attachments/${attachment.id}/content`}
+                                    href={`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/v1/chat/sessions/${message.session_id}/attachments/${attachment.id}/content`}
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     className="flex items-start gap-2 p-2 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 transition-colors cursor-pointer group/att"

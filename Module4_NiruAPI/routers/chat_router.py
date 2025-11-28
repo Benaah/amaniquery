@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from loguru import logger
 from pydantic import BaseModel
 
-router = APIRouter(prefix="/chat", tags=["Chat"])
+router = APIRouter(prefix="/api/v1/chat", tags=["Chat"])
 
 
 # =============================================================================

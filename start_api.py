@@ -326,6 +326,38 @@ def main():
                 logger.warning("     Note: The secret is only shown once when creating a key in LiveKit Cloud")
         else:
             logger.info("ℹ️  Voice agent disabled (set ENABLE_VOICE_AGENT=true to enable)")
+
+    # Start NiruSense Orchestrator (Background Service)
+    enable_nirusense = os.getenv("ENABLE_NIRUSENSE", "false").lower() == "true"
+    if enable_nirusense:
+        print("\n🧠 Starting NiruSense Orchestrator...")
+        try:
+            from Module9_NiruSense.nirusense_service import start_nirusense_thread
+            
+            # Start NiruSense in a separate thread
+            nirusense_thread = threading.Thread(
+                target=start_nirusense_thread,
+                daemon=True,
+                name="NiruSenseOrchestrator"
+            )
+            nirusense_thread.start()
+            logger.info("✔ NiruSense orchestrator thread started")
+            
+            # Check if it's running
+            import time
+            time.sleep(1.0)
+            if nirusense_thread.is_alive():
+                logger.info("✔ NiruSense orchestrator is running")
+            else:
+                logger.error("✗ NiruSense thread died immediately - check logs")
+                
+        except ImportError as e:
+            logger.error(f"✗ Failed to import NiruSense: {e}")
+        except Exception as e:
+            logger.error(f"✗ Failed to start NiruSense: {e}")
+    else:
+        logger.info("ℹ️  NiruSense disabled (set ENABLE_NIRUSENSE=true to enable)")
+
     
     print("=" * 60)
     

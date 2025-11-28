@@ -182,8 +182,12 @@ async def process_document(data: Dict[str, Any]) -> Dict[str, Any]:
 async def main():
     """Main orchestrator loop - consumes from Redis stream and processes documents"""
     # Setup signal handlers
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
+    try:
+        signal.signal(signal.SIGINT, signal_handler)
+        signal.signal(signal.SIGTERM, signal_handler)
+    except ValueError:
+        # Signal only works in main thread
+        logger.warning("Could not register signal handlers (running in background thread?)")
     
     # Connect to database
     logger.info("Connecting to PostgreSQL...")

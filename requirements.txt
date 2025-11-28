@@ -119,6 +119,7 @@ playwright
 playwright-stealth
 pydantic-settings>=2.1.0
 python-json-logger>=2.0.7
+huggingface_hub[hf_xet]
 # Note: transformers, torch, sentence-transformers already required by Module 7
 # Note: asyncpg already required above
 # Note: redis, qdrant-client already required above

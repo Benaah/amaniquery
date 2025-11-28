@@ -127,6 +127,102 @@ class PostgresClient:
         if self.pool:
             await self.pool.close()
             self.pool = None
+    
+    async def cleanup_old_data(self, days: int = 90):
+        """
+        Cleanup old documents and analysis results
+        
+        Args:
+            days: Delete documents older than this many days
+        """
+        try:
+            async with self.pool.acquire() as conn:
+                # Count and delete old analysis results first
+                analysis_count = await conn.fetchval(
+                    """
+                    SELECT COUNT(*) FROM analysis_results
+                    WHERE document_id IN (
+                        SELECT id FROM documents
+                        WHERE created_at < NOW() - $1 * INTERVAL '1 day'
+                    )
+                    """,
+                    days
+                )
+                
+                await conn.execute(
+                    """
+                    DELETE FROM analysis_results
+                    WHERE document_id IN (
+                        SELECT id FROM documents
+                        WHERE created_at < NOW() - $1 * INTERVAL '1 day'
+                    )
+                    """,
+                    days
+                )
+                
+                # Count and delete old documents  
+                docs_count = await conn.fetchval(
+                    """
+                    SELECT COUNT(*) FROM documents
+                    WHERE created_at < NOW() - $1 * INTERVAL '1 day'
+                    """,
+                    days
+                )
+                
+                await conn.execute(
+                    """
+                    DELETE FROM documents
+                    WHERE created_at < NOW() - $1 * INTERVAL '1 day'
+                    """,
+                    days
+                )
+                
+                return {
+                    "documents_deleted": docs_count,
+                    "analysis_deleted": analysis_count
+                }
+        except Exception as e:
+            return {"error": str(e)}
+    
+    async def get_failed_documents(self, limit: int = 100):
+        """
+        Get documents that failed processing (no analysis results)
+        
+        Args:
+            limit: Maximum number of failed documents to retrieve
+            
+        Returns:
+            List of document data for reprocessing
+        """
+        try:
+            async with self.pool.acquire() as conn:
+                rows = await conn.fetch(
+                    """
+                    SELECT d.id, d.url, d.raw_content, d.source_domain,
+                           d.published_at, d.created_at
+                    FROM documents d
+                    LEFT JOIN analysis_results ar ON d.id = ar.document_id
+                    WHERE ar.document_id IS NULL
+                    AND d.created_at > NOW() - INTERVAL '7 days'
+                    ORDER BY d.created_at DESC
+                    LIMIT $1
+                    """,
+                    limit
+                )
+                
+                return [
+                    {
+                        "id": str(row["id"]),
+                        "url": row["url"],
+                        "text": row["raw_content"],
+                        "source": row["source_domain"],
+                        "source_domain": row["source_domain"],
+                        "published_at": row["published_at"].isoformat() if row["published_at"] else None,
+                        "timestamp": int(row["created_at"].timestamp()) if row["created_at"] else None
+                    }
+                    for row in rows
+                ]
+        except Exception as e:
+            return []
 
 postgres = PostgresClient()
-

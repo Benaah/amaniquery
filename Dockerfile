@@ -7,7 +7,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     NODE_ENV=production \
     REDIS_URL=redis://localhost:6379/0 \
     ENABLE_SCHEDULER=true \
-    SCHEDULER_BACKEND=apscheduler
+    SCHEDULER_BACKEND=apscheduler \
+    HF_HOME=/app/models
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \

@@ -1,0 +1,33 @@
+# Add these lines to your start_api.py after line 328 (after voice agent setup, before "print('=' * 60)"):
+
+    # Check if NiruSense should be started
+    enable_nirusense = os.getenv("ENABLE_NIRUSENSE", "false").lower() == "true"
+    
+    # Log NiruSense configuration
+    print("\n🧠 NiruSense Processing Pipeline Configuration:")
+    print(f"   Enabled: {enable_nirusense}")
+    if enable_nirusense:
+        print("   NiruSense will process documents from Redis stream")
+        print("   - Language identification and Sheng decoding")
+        print("   - Topic classification (15+ Kenyan topics)")
+        print("   - Entity extraction (politicians, locations, etc.)")
+        print("   - Sentiment/emotion analysis")
+        print("   - Quality scoring and summarization")
+        print("   - Vector embedding with nomic-embed-text-v1.5")
+    
+    # Start NiruSense orchestrator if enabled
+    if enable_nirusense:
+        print("\n🧠 Starting NiruSense Processing Pipeline...")
+        try:
+            from Module9_NiruSense.nirusense_service import start_nirusense_thread
+            nirusense_started = start_nirusense_thread()
+            if nirusense_started:
+                print("✔ NiruSense orchestrator is running")
+            else:
+                print("⚠️  NiruSense failed to start")
+                print("   Documents won't be processed automatically")
+        except Exception as e:
+            logger.error(f"Failed to start NiruSense: {e}")
+            print("⚠️  NiruSense not available - check logs for details")
+    else:
+        print("\nℹ️  NiruSense disabled (set ENABLE_NIRUSENSE=true to enable)")

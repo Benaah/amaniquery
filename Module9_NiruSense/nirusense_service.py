@@ -63,6 +63,16 @@ def start_nirusense_thread():
         
         if nirusense_thread.is_alive():
             logger.info("✔ NiruSense orchestrator is running")
+            
+            # Start scheduler if enabled
+            try:
+                from Module9_NiruSense.scheduler import get_nirusense_scheduler
+                scheduler = get_nirusense_scheduler()
+                if scheduler.start():
+                    logger.info("✔ NiruSense scheduler started")
+            except Exception as e:
+                logger.warning(f"NiruSense scheduler not started: {e}")
+            
             return True
         else:
             logger.error("✗ NiruSense thread died immediately")

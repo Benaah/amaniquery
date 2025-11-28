@@ -3,11 +3,11 @@ import json
 import time
 import signal
 from typing import Dict, Any
-from minio import Minio
 import redis.asyncio as redis
 from .config import settings
 from .storage.postgres import postgres
 from .storage.qdrant import qdrant_storage
+from .storage.elasticsearch import es_client
 from .embedding import embedding_generator
 from .monitoring import logger, metrics
 from .agents.core import LanguageIdentifier, SlangDecoder
@@ -26,13 +26,9 @@ bias_detector = BiasDetector()
 summarizer = Summarizer()
 quality_scorer = QualityScorer()
 
-# Initialize MinIO Client
-minio_client = Minio(
-    settings.MINIO_ENDPOINT,
-    access_key=settings.MINIO_ACCESS_KEY,
-    secret_key=settings.MINIO_SECRET_KEY,
-    secure=settings.MINIO_SECURE
-)
+# Elasticsearch index for document storage
+ES_INDEX = settings.ELASTICSEARCH_INDEX if hasattr(settings, 'ELASTICSEARCH_INDEX') else "amani_query"
+logger.info(f"Using Elasticsearch index: {ES_INDEX}")
 
 # Shutdown flag
 shutdown_event = asyncio.Event()

@@ -50,35 +50,40 @@ class QueryResponse(BaseModel):
 
 
 # =============================================================================
-# DEPENDENCIES - These will be injected from the main app
+# DEPENDENCIES - State container to avoid global variable issues
 # =============================================================================
 
-# Module-level globals to be set by main app via dependency injection
-vector_store = None
-rag_pipeline = None
-cache_manager = None
-amaniq_v2_agent = None
-database_storage = None
-chat_manager = None
-vision_rag_service = None
-vision_storage = None
+class QueryRouterState:
+    """State container for query router dependencies"""
+    vector_store = None
+    rag_pipeline = None
+    cache_manager = None
+    amaniq_v2_agent = None
+    database_storage = None
+    chat_manager = None
+    vision_rag_service = None
+    vision_storage = None
+
+_state = QueryRouterState()
 
 
 def get_rag_pipeline():
     """Get the RAG pipeline instance"""
-    if rag_pipeline is None:
+    if _state.rag_pipeline is None:
         raise HTTPException(status_code=503, detail="RAG pipeline not initialized")
-    return rag_pipeline
+    return _state.rag_pipeline
 
 
 def get_amaniq_v2_agent():
     """Get the AmanIQ v2 agent instance"""
-    return amaniq_v2_agent
+    if _state.amaniq_v2_agent is None:
+        raise HTTPException(status_code=503, detail="AmanIQ v2 agent not initialized")
+    return _state.amaniq_v2_agent
 
 
 def get_cache_manager():
     """Get the cache manager instance"""
-    return cache_manager
+    return _state.cache_manager
 
 
 # =============================================================================
@@ -87,25 +92,25 @@ def get_cache_manager():
 
 def save_query_to_chat(session_id: str, query: str, result: Dict, role: str = "user"):
     """Helper function to save query and response to chat database"""
-    if chat_manager is None or not session_id:
+    if _state.chat_manager is None or not session_id:
         return
     
     try:
         # Validate session exists
-        session = chat_manager.get_session(session_id)
+        session = _state.chat_manager.get_session(session_id)
         if not session:
             logger.warning(f"Session {session_id} not found, skipping message save")
             return
         
         # Save user message
-        chat_manager.add_message(
+        _state.chat_manager.add_message(
             session_id=session_id,
             content=query,
             role="user"
         )
         
         # Save assistant response
-        chat_manager.add_message(
+        _state.chat_manager.add_message(
             session_id=session_id,
             content=result.get("answer", ""),
             role="assistant",
@@ -116,8 +121,8 @@ def save_query_to_chat(session_id: str, query: str, result: Dict, role: str = "u
         
         # Generate session title if needed
         if not session.title:
-            title = chat_manager.generate_session_title(session_id)
-            chat_manager.update_session_title(session_id, title)
+            title = _state.chat_manager.generate_session_title(session_id)
+            _state.chat_manager.update_session_title(session_id, title)
         
         logger.debug(f"Saved query to chat session {session_id}")
     except Exception as e:
@@ -149,14 +154,12 @@ async def query(request: QueryRequest):
     
     **Vision RAG:** If session has uploaded images/PDFs, automatically uses Vision RAG.
     """
-    rag_pipeline = get_rag_pipeline()
-    
     try:
         # Check if session has vision data and use Vision RAG if available
         use_vision_rag = False
         session_images = []
-        if request.session_id and vision_rag_service and vision_storage:
-            session_images = vision_storage.get(request.session_id, [])
+        if request.session_id and _state.vision_rag_service and _state.vision_storage:
+            session_images = _state.vision_storage.get(request.session_id, [])
             if session_images:
                 use_vision_rag = True
                 logger.info(f"Using Vision RAG for session {request.session_id} with {len(session_images)} image(s)")
@@ -165,7 +168,7 @@ async def query(request: QueryRequest):
         async def compute_response():
             if use_vision_rag:
                 # Use Vision RAG
-                result = vision_rag_service.query(
+                result = _state.vision_rag_service.query(
                     question=request.query,
                     session_images=session_images,
                     top_k=min(request.top_k, 3),
@@ -187,81 +190,67 @@ async def query(request: QueryRequest):
                 result["sources"] = sources
                 return result
             
-            # Try AmanIQ v2 agent if available (for non-vision queries)
-            elif amaniq_v2_agent is not None:
-                logger.info("[AmanIQ v2] Using agent orchestration for query")
-                
-                try:
-                    # Get conversation history if session exists
-                    conversation_history = []
-                    if request.session_id and chat_manager:
-                        try:
-                            messages = chat_manager.get_messages(request.session_id, limit=5)
-                            conversation_history = [
-                                {"role": msg.role, "content": msg.content}
-                                for msg in messages
-                            ]
-                        except Exception:
-                            conversation_history = []
-                    
-                    # Execute AmanIQ v2 pipeline
-                    amaniq_result = await amaniq_v2_agent.chat(
-                        message=request.query,
-                        thread_id=request.session_id,
-                        message_history=conversation_history,
-                    )
-                    
-                    # Extract response data
-                    answer = amaniq_result.get("answer", "")
-                    confidence = amaniq_result.get("confidence", 0.0)
-                    sources_data = amaniq_result.get("sources", [])
-                    
-                    # Format sources
-                    sources = []
-                    for src in sources_data:
-                        sources.append({
-                            "title": src.get("title", "Source"),
-                            "url": src.get("url", ""),
-                            "source_name": src.get("source_type", "Unknown"),
-                            "category": src.get("source_type", "general"),
-                            "excerpt": src.get("content", "")[:200] if src.get("content") else "",
-                        })
-                    
-                    result = {
-                        "answer": answer,
-                        "sources": sources,
-                        "query_time": amaniq_result.get("latency_ms", 0) / 1000,
-                        "retrieved_chunks": len(sources_data),
-                        "model_used": f"AmanIQ-v2-{amaniq_result.get('persona', 'wanjiku')}",
-                        "structured_data": {
-                            "confidence": confidence,
-                            "persona": amaniq_result.get("persona"),
-                            "intent": amaniq_result.get("intent"),
-                            "reasoning_steps": amaniq_result.get("reasoning_steps", 0),
-                        }
-                    }
-                    
-                    logger.info(f"[AmanIQ v2] Query completed with confidence {confidence:.2f}")
-                    return result
-                    
-                except Exception as e:
-                    # Fall back to standard RAG pipeline
-                    logger.warning(f"[AmanIQ v2] Error: {e}, falling back to standard RAG pipeline")
-                    result = rag_pipeline.query(
-                        query=request.query,
-                        top_k=request.top_k,
-                        category=request.category,
-                        source=request.source,
-                        temperature=request.temperature,
-                        max_tokens=request.max_tokens,
-                        session_id=request.session_id
-                    )
-                    return result
+            # Use AmaniQ v2 agent for all non-vision queries (REQUIRED)
+            logger.info("[AmaniQ v2] Using agent orchestration (System Brain)")
             
-            else:
-                # Use regular RAG (AmanIQ v2 not available)
-                logger.info("[RAG] Using standard RAG pipeline")
-                result = rag_pipeline.query(
+            try:
+                # Get conversation history if session exists
+                conversation_history = []
+                if request.session_id and _state.chat_manager:
+                    try:
+                        messages = _state.chat_manager.get_messages(request.session_id, limit=5)
+                        conversation_history = [
+                            {"role": msg.role, "content": msg.content}
+                            for msg in messages
+                        ]
+                    except Exception:
+                        conversation_history = []
+                
+                # Execute AmaniQ v2 pipeline (THE BRAIN)
+                amaniq_result = await _state.amaniq_v2_agent.chat(
+                    message=request.query,
+                    thread_id=request.session_id,
+                    message_history=conversation_history,
+                )
+                
+                # Extract response data
+                answer = amaniq_result.get("answer", "")
+                confidence = amaniq_result.get("confidence", 0.0)
+                sources_data = amaniq_result.get("sources", [])
+                
+                # Format sources
+                sources = []
+                for src in sources_data:
+                    sources.append({
+                        "title": src.get("title", "Source"),
+                        "url": src.get("url", ""),
+                        "source_name": src.get("source_type", "Unknown"),
+                        "category": src.get("source_type", "general"),
+                        "excerpt": src.get("content", "")[:200] if src.get("content") else "",
+                    })
+                
+                result = {
+                    "answer": answer,
+                    "sources": sources,
+                    "query_time": amaniq_result.get("latency_ms", 0) / 1000,
+                    "retrieved_chunks": len(sources_data),
+                    "model_used": f"AmaniQ-v2-{amaniq_result.get('persona', 'wanjiku')}",
+                    "structured_data": {
+                        "confidence": confidence,
+                        "persona": amaniq_result.get("persona"),
+                        "intent": amaniq_result.get("intent"),
+                        "reasoning_steps": amaniq_result.get("reasoning_steps", 0),
+                    }
+                }
+                
+                logger.info(f"[AmaniQ v2] Query completed with confidence {confidence:.2f}")
+                return result
+                
+            except Exception as e:
+                # ONLY on error: Fall back to standard RAG pipeline
+                logger.error(f"[AmaniQ v2] CRITICAL ERROR: {e}")
+                logger.warning("[RAG] Emergency fallback to standard RAG pipeline")
+                result = get_rag_pipeline().query(
                     query=request.query,
                     top_k=request.top_k,
                     category=request.category,
@@ -273,7 +262,7 @@ async def query(request: QueryRequest):
                 return result
 
         # Execute with caching
-        if cache_manager and not use_vision_rag:
+        if _state.cache_manager and not use_vision_rag:
             # Determine TTL type based on query content
             ttl_type = "default"
             q_lower = request.query.lower()
@@ -327,11 +316,9 @@ async def query_stream(request: QueryRequest):
     - User sees response immediately as it's generated
     - Best for user experience
     """
-    rag_pipeline = get_rag_pipeline()
-    
     try:
         # Run RAG query with streaming
-        result = rag_pipeline.query_stream(
+        result = get_rag_pipeline().query_stream(
             query=request.query,
             top_k=request.top_k,
             category=request.category,
@@ -360,6 +347,7 @@ async def query_stream(request: QueryRequest):
             full_answer = ""
             try:
                 answer_stream = result["answer_stream"]
+                rag_pipeline = get_rag_pipeline()
                 
                 if rag_pipeline.llm_provider in ["openai", "moonshot"]:
                     # OpenAI-style streaming

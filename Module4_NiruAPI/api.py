@@ -63,6 +63,7 @@ from Module4_NiruAPI.routers.sms_router import router as sms_router
 from Module4_NiruAPI.routers.alignment_router import router as alignment_router
 from Module4_NiruAPI.routers.monitoring_router import router as monitoring_router
 from Module4_NiruAPI.routers.hybrid_rag_router import router as hybrid_rag_router
+from Module4_NiruAPI.routers.nirusense_router import router as nirusense_router
 
 # Load environment
 load_dotenv()
@@ -516,30 +517,71 @@ async def lifespan(app: FastAPI):
         vision_rag_service = None
     
     # ============================================================
-    # Initialize Amaniq v2 Agent (LangGraph-based orchestration)
+    # Initialize Amaniq v2 Agent (REQUIRED - The Brain of the System)
     # ============================================================
+    logger.info("=" * 80)
+    logger.info("INITIALIZING AMANIQ V2 AGENT (SYSTEM BRAIN)")
+    logger.info("=" * 80)
+    
     try:
+        logger.info("Step 1: Importing AmaniQ v2 modules...")
         from Module4_NiruAPI.agents.amaniq_v2 import AmaniQAgent, AmaniQConfig
+        logger.info("✓ Import successful")
         
-        if vector_store and rag_pipeline and rag_pipeline.llm_service:
-            # Create config for the agent
-            agent_config = AmaniQConfig(
-                enable_caching=cache_manager is not None,
-                enable_prefetch=True,
-                enable_telemetry=True,
-                enable_persistence=True,
-            )
-            
-            amaniq_v2_agent = AmaniQAgent(config=agent_config)
-            # Initialize asynchronously in background
-            asyncio.create_task(amaniq_v2_agent.initialize())
-            logger.info("✓ Amaniq v2 Agent initialized (LangGraph-based orchestration)")
-        else:
-            logger.warning("Amaniq v2 agent not initialized: vector_store or rag_pipeline not available")
-            amaniq_v2_agent = None
+        logger.info("Step 2: Validating dependencies...")
+        if not vector_store:
+            raise RuntimeError("Vector store is required for AmaniQ v2 agent but was not initialized")
+        logger.info("  ✓ Vector store available")
+        
+        if not rag_pipeline:
+            raise RuntimeError("RAG pipeline is required for AmaniQ v2 agent but was not initialized")
+        logger.info("  ✓ RAG pipeline available")
+        
+        if not rag_pipeline.llm_service:
+            raise RuntimeError("LLM service is required for AmaniQ v2 agent but was not initialized")
+        logger.info("  ✓ LLM service available")
+        
+        logger.info("Step 3: Creating agent configuration...")
+        # Create config for the agent
+        agent_config = AmaniQConfig(
+            enable_caching=cache_manager is not None,
+            enable_prefetch=True,
+            enable_telemetry=True,
+            enable_persistence=False,  # Disable persistence for faster startup
+        )
+        logger.info(f"  ✓ Config created (caching={cache_manager is not None})")
+        
+        logger.info("Step 4: Creating AmaniQAgent instance...")
+        amaniq_v2_agent = AmaniQAgent(config=agent_config)
+        logger.info("  ✓ Instance created")
+        
+        logger.info("Step 5: Initializing agent (building graph, etc.)...")
+        await amaniq_v2_agent.initialize()
+        logger.info("  ✓ Initialization complete")
+        
+        logger.info("Step 6: Verifying agent state...")
+        if amaniq_v2_agent is None:
+            raise RuntimeError("Agent instance is None after initialization!")
+        if not amaniq_v2_agent._initialized:
+            raise RuntimeError("Agent._initialized is False after initialization!")
+        if amaniq_v2_agent.graph is None:
+            raise RuntimeError("Agent.graph is None after initialization!")
+        logger.info(f"  ✓ Agent verified (graph type: {type(amaniq_v2_agent.graph).__name__})")
+        
+        logger.info("=" * 80)
+        logger.info("✅ AMANIQ V2 AGENT INITIALIZED SUCCESSFULLY")
+        logger.info("=" * 80)
+        
     except Exception as e:
-        logger.warning(f"Amaniq v2 agent orchestration not available: {e}")
-        amaniq_v2_agent = None
+        logger.error("=" * 80)
+        logger.error("❌ CRITICAL ERROR: AMANIQ V2 AGENT INITIALIZATION FAILED")
+        logger.error("=" * 80)
+        logger.error(f"Error: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        logger.error("The API cannot start without the AmaniQ v2 agent (system brain)")
+        logger.error("=" * 80)
+        raise RuntimeError(f"Failed to initialize required AmaniQ v2 agent: {e}") from e
     
     # Inject dependencies into routers
     _inject_router_dependencies()
@@ -556,59 +598,80 @@ async def lifespan(app: FastAPI):
 
 def _inject_router_dependencies():
     """Inject service dependencies into routers"""
-    # Import router modules to set their globals
-    from Module4_NiruAPI.routers import query_router as qr
-    from Module4_NiruAPI.routers import chat_router as cr
-    from Module4_NiruAPI.routers import admin_router as ar
-    from Module4_NiruAPI.routers import research_router as rr
-    from Module4_NiruAPI.routers import sms_router as sr
-    from Module4_NiruAPI.routers import alignment_router as alr
-    from Module4_NiruAPI.routers import monitoring_router as mr
-    from Module4_NiruAPI.routers import hybrid_rag_router as hr
+    # Import router modules using sys.modules to avoid naming conflicts
+    import sys
+    query_router_module = sys.modules['Module4_NiruAPI.routers.query_router']
+    chat_router_module = sys.modules['Module4_NiruAPI.routers.chat_router']
+    admin_router_module = sys.modules['Module4_NiruAPI.routers.admin_router']
+    research_router_module = sys.modules['Module4_NiruAPI.routers.research_router']
+    sms_router_module = sys.modules['Module4_NiruAPI.routers.sms_router']
+    alignment_router_module = sys.modules['Module4_NiruAPI.routers.alignment_router']
+    monitoring_router_module = sys.modules['Module4_NiruAPI.routers.monitoring_router']
+    hybrid_rag_router_module = sys.modules['Module4_NiruAPI.routers.hybrid_rag_router']
     
-    # Set dependencies on query router
-    qr.vector_store = vector_store
-    qr.rag_pipeline = rag_pipeline
-    qr.cache_manager = cache_manager
-    qr.amaniq_v2_agent = amaniq_v2_agent
-    qr.database_storage = database_storage
+    # Set dependencies on query router using state container
+    query_router_module._state.vector_store = vector_store
+    query_router_module._state.rag_pipeline = rag_pipeline
+    query_router_module._state.cache_manager = cache_manager
+    query_router_module._state.amaniq_v2_agent = amaniq_v2_agent
+    query_router_module._state.database_storage = database_storage
+    query_router_module._state.chat_manager = chat_manager
+    query_router_module._state.vision_rag_service = vision_rag_service
+    query_router_module._state.vision_storage = vision_storage
     
-    # Set dependencies on chat router
-    cr.chat_manager = chat_manager
-    cr.vision_storage = vision_storage
-    cr.vision_rag_service = vision_rag_service
-    cr.rag_pipeline = rag_pipeline
+    # Set dependencies on chat router using state container
+    chat_router_module._state.chat_manager = chat_manager
+    chat_router_module._state.vision_storage = vision_storage
+    chat_router_module._state.vision_rag_service = vision_rag_service
+    chat_router_module._state.rag_pipeline = rag_pipeline
+    chat_router_module._state.vector_store = vector_store
+    chat_router_module._state.amaniq_v2_agent = amaniq_v2_agent  # Inject the full agent, not just the graph
+    chat_router_module._state.amaniq_v2_graph = amaniq_v2_agent.graph if amaniq_v2_agent else None
+    
+    # Verify critical dependencies
+    if amaniq_v2_agent is None:
+        logger.error("CRITICAL: amaniq_v2_agent is None during dependency injection!")
+    elif amaniq_v2_agent.graph is None:
+        logger.error("CRITICAL: amaniq_v2_agent.graph is None during dependency injection!")
+    else:
+        logger.info(f"✅ AmaniQ v2 graph injected into chat_router (type={type(amaniq_v2_agent.graph).__name__})")
+    
+    if chat_manager is None:
+        logger.warning("chat_manager is None during dependency injection")
     
     # Set dependencies on admin router
-    ar.crawler_manager = crawler_manager
-    ar.vector_store = vector_store
-    ar.config_manager = config_manager
-    ar.database_storage = database_storage
+    logger.info(f"Injecting dependencies into admin_router. crawler_manager is {'None' if crawler_manager is None else 'Set'}")
+    admin_router_module.crawler_manager = crawler_manager
+    admin_router_module.vector_store = vector_store
+    admin_router_module.config_manager = config_manager
+    admin_router_module.database_storage = database_storage
+    admin_router_module.cache_manager = cache_manager
     
-    # Set dependencies on research router
-    rr.agentic_research_module = agentic_research_module
-    rr.research_module = research_module
-    rr.report_generator = report_generator
-    rr.cache_manager = cache_manager
+    # Set dependencies on research router using state container
+    research_router_module._state.agentic_research_module = agentic_research_module
+    research_router_module._state.research_module = research_module
+    research_router_module._state.report_generator = report_generator
+    research_router_module._state.cache_manager = cache_manager
+    research_router_module._state.chat_manager = chat_manager
     
     # Set dependencies on SMS router
-    sr.sms_pipeline = sms_pipeline
-    sr.sms_service = sms_service
+    sms_router_module.sms_pipeline = sms_pipeline
+    sms_router_module.sms_service = sms_service
     
     # Set dependencies on alignment router
-    alr.alignment_pipeline = alignment_pipeline
-    alr.rag_pipeline = rag_pipeline
-    alr.cache_manager = cache_manager
+    alignment_router_module.alignment_pipeline = alignment_pipeline
+    alignment_router_module.rag_pipeline = rag_pipeline
+    alignment_router_module.cache_manager = cache_manager
     
     # Set dependencies on hybrid RAG router
-    hr.hybrid_rag_pipeline = hybrid_rag_pipeline
-    hr.rag_pipeline = rag_pipeline
-    hr.cache_manager = cache_manager
-    hr.chat_manager = chat_manager
+    hybrid_rag_router_module.hybrid_rag_pipeline = hybrid_rag_pipeline
+    hybrid_rag_router_module.rag_pipeline = rag_pipeline
+    hybrid_rag_router_module.cache_manager = cache_manager
+    hybrid_rag_router_module.chat_manager = chat_manager
     
     # Set dependencies on monitoring router
     if database_storage:
-        mr.db_session_factory = database_storage.SessionLocal
+        monitoring_router_module.db_session_factory = database_storage.SessionLocal
     
     logger.info("Router dependencies injected")
 
@@ -684,6 +747,7 @@ app.include_router(sms_router)
 app.include_router(alignment_router)
 app.include_router(monitoring_router)
 app.include_router(hybrid_rag_router)
+app.include_router(nirusense_router)
 
 
 # ============================================================

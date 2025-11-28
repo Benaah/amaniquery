@@ -37,7 +37,7 @@ class ToolName(str, Enum):
     These are the ACTUAL tools registered in tool_registry.py.
     All tools query local data or perform specific operations.
     """
-    KB_SEARCH = "kb_search"           # Knowledge base search (Qdrant vector store)
+    KB_SEARCH = "kb_search"           # Knowledge base search (cloud Qdrant vector store)
     WEB_SEARCH = "web_search"         # Web search via DuckDuckGo
     NEWS_SEARCH = "news_search"       # News article search
     CALCULATOR = "calculator"         # Mathematical calculations
@@ -48,7 +48,7 @@ class ToolName(str, Enum):
 
 # Tool descriptions for supervisor context
 TOOL_DESCRIPTIONS: Dict[str, str] = {
-    "kb_search": "Search the local knowledge base (Qdrant vector store) for Kenyan legal content: case law, Constitution, Hansard, statutes. Use for: legal research, case citations, constitutional provisions, parliamentary records.",
+    "kb_search": "Search the cloud knowledge base (Qdrant vector store) for Kenyan legal content: case law, Constitution, Hansard, statutes. Use for: legal research, case citations, constitutional provisions, parliamentary records.",
     "web_search": "Search the web via DuckDuckGo for general information. Use for: current events, external legal resources, international law references, general knowledge queries.",
     "news_search": "Search for recent news articles. Use for: current events, breaking news, recent legal developments, trending topics in Kenya.",
     "calculator": "Perform mathematical calculations. Use for: legal fee calculations, penalty computations, time limit calculations, interest rates, date calculations.",
@@ -321,7 +321,7 @@ You MUST classify every query into exactly ONE of these intents:
 ### Rule 2: TOOL NAMES ARE SACRED
 You may ONLY use these exact tool names. ANY other name is a hallucination and will crash the system:
 ```
-kb_search       - Knowledge base search (Qdrant) for legal content, case law, Constitution, Hansard
+kb_search       - Knowledge base search (cloud Qdrant) for legal content, case law, Constitution, Hansard
 web_search      - Web search via DuckDuckGo for general information
 news_search     - Search for recent news articles
 calculator      - Mathematical calculations (fees, penalties, interest)
@@ -358,7 +358,7 @@ You MUST output ONLY valid JSON matching the SupervisorDecision schema. No markd
 
 | Tool | Use For |
 |------|---------|
-| kb_search | Kenyan case law, Constitution, Hansard, statutes from local Qdrant vector store |
+| kb_search | Kenyan case law, Constitution, Hansard, statutes from cloud Qdrant vector store |
 | web_search | General web information, external legal resources, international law references |
 | news_search | Current events, recent legal developments, breaking news about cases |
 | calculator | Legal fee calculations, penalty computations, time limits, interest rates |

@@ -155,9 +155,9 @@ class RedisCache:
         
         try:
             import redis.asyncio as aioredis
-            import os
             
-            redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
+            # HARDCODED: Backend always uses local Docker Redis
+            redis_url = "redis://localhost:6379/0"
             self._redis = aioredis.from_url(
                 redis_url,
                 encoding="utf-8",
@@ -168,7 +168,7 @@ class RedisCache:
             )
             # Test connection
             await self._redis.ping()
-            logger.info(f"Redis connected: {redis_url}")
+            logger.info(f"✅ Backend Redis connected: {redis_url}")
             self._initialized = True
             return True
             

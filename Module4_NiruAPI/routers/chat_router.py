@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from loguru import logger
 from pydantic import BaseModel
 
-router = APIRouter(prefix="/chat", tags=["Chat"])
+router = APIRouter(prefix="/api/v1/chat", tags=["Chat"])
 
 
 # =============================================================================
@@ -73,21 +73,65 @@ class FeedbackResponse(BaseModel):
 
 
 # =============================================================================
-# DEPENDENCIES - Module-level globals set by main app
+# DEPENDENCIES - State container to avoid global variable issues
 # =============================================================================
 
-chat_manager = None
-vision_storage = {}
-vision_rag_service = None
-rag_pipeline = None
+class RouterState:
+    """State container for router dependencies to avoid Python global variable issues"""
+    chat_manager = None
+    vision_storage = {}
+    vision_rag_service = None
+    rag_pipeline = None
+    vector_store = None
+    amaniq_v2_agent = None
+    amaniq_v2_graph = None
+
+# Single global instance
+_state = RouterState()
+
+
+def get_rag_pipeline():
+    """Get RAG pipeline with lazy initialization fallback"""
+    if _state.rag_pipeline is None:
+        logger.warning("RAG pipeline not initialized via dependency injection, attempting lazy initialization")
+        try:
+            from Module4_NiruAPI.rag_pipeline import RAGPipeline
+            _state.rag_pipeline = RAGPipeline()
+            logger.info("RAG pipeline lazily initialized successfully")
+        except Exception as e:
+            logger.error(f"Failed to lazily initialize RAG pipeline: {e}")
+            raise HTTPException(status_code=503, detail=f"RAG service not initialized: {e}")
+    return _state.rag_pipeline
 
 
 def get_chat_manager():
     """Get the chat manager instance"""
-    if chat_manager is None:
-        raise HTTPException(status_code=503, detail="Chat service not initialized")
-    return chat_manager
+    if _state.chat_manager is None:
+        logger.warning("Chat manager not initialized via dependency injection, attempting lazy initialization")
+        try:
+            from Module3_NiruDB.chat_manager import ChatDatabaseManager
+            _state.chat_manager = ChatDatabaseManager()
+            logger.info("Chat manager lazily initialized successfully")
+        except Exception as e:
+            logger.error(f"Failed to lazily initialize chat manager: {e}")
+            raise HTTPException(status_code=503, detail=f"Chat service not initialized: {e}")
+    return _state.chat_manager
 
+
+def get_amaniq_v2_graph():
+    """Get the AmaniQ v2 compiled graph directly (avoids global model issues)"""
+    if _state.amaniq_v2_graph is None:
+        logger.error("CRITICAL: AmaniQ v2 graph is None - this should never happen!")
+        logger.error("The graph should have been initialized during API startup.")
+        logger.error("Check API startup logs for initialization errors.")
+        
+        raise HTTPException(
+            status_code=503, 
+            detail="AmaniQ v2 graph not initialized. This is a critical system error. Please contact support."
+        )
+    
+    return _state.amaniq_v2_graph
+    
 
 # =============================================================================
 # HELPER FUNCTIONS
@@ -233,13 +277,13 @@ async def add_chat_message(session_id: str, message: ChatMessageCreate, request:
             # Check for vision data
             use_vision_rag = False
             session_images = []
-            if vision_rag_service and vision_storage:
-                session_images = vision_storage.get(session_id, [])
+            if _state.vision_rag_service and _state.vision_storage:
+                session_images = _state.vision_storage.get(session_id, [])
                 if session_images:
                     use_vision_rag = True
             
-            if not use_vision_rag and rag_pipeline is None:
-                raise HTTPException(status_code=503, detail="RAG service not initialized")
+            if not use_vision_rag:
+                get_rag_pipeline()  # Ensure rag_pipeline is initialized
             
             if message.stream:
                 # Return streaming response
@@ -280,9 +324,9 @@ async def _handle_streaming_message(
     """Handle streaming message response"""
     # Process query
     if use_vision_rag:
-        if vision_rag_service is None or not hasattr(vision_rag_service, "query"):
+        if _state.vision_rag_service is None or not hasattr(_state.vision_rag_service, "query"):
             raise HTTPException(status_code=503, detail="Vision RAG service not initialized")
-        result = vision_rag_service.query(
+        result = _state.vision_rag_service.query(
             question=message.content,
             session_images=session_images,
             top_k=3,
@@ -301,16 +345,71 @@ async def _handle_streaming_message(
                 "excerpt": f"Image similarity: {src.get('similarity', 0):.2f}",
             })
         result["sources"] = vision_sources
-    elif rag_pipeline is not None:
-        result = rag_pipeline.query_stream(
-                query=message.content,
-                top_k=3,
-                max_tokens=1000,
-                temperature=0.7,
-                session_id=session_id,
-            )
     else:
-        raise HTTPException(status_code=503, detail="RAG pipeline is not initialized")
+        # Use AmaniQ v2 graph directly for all non-vision queries (REQUIRED)
+        logger.info("[Chat] Using AmaniQ v2 graph (System Brain)")
+        try:
+            # Get the AmaniQ v2 compiled graph directly
+            graph = get_amaniq_v2_graph()
+            
+            # Get conversation history
+            messages = chat_manager.get_messages(session_id, limit=5)
+            conversation_history = [
+                {"role": msg.role, "content": msg.content}
+                for msg in messages
+            ]
+            
+            # Build initial state for the graph - only include required fields
+            initial_state = {
+                "current_query": message.content,
+                "original_question": message.content,
+                "messages": conversation_history + [{"role": "user", "content": message.content}],
+                "thread_id": session_id,
+            }
+            
+            # Execute graph directly (THE BRAIN)
+            config = {"configurable": {"thread_id": session_id}}
+            final_state = await graph.ainvoke(initial_state, config=config)
+            
+            # Extract result from final state
+            amaniq_result = {
+                "answer": final_state.get("final_response", ""),
+                "sources": final_state.get("citations", []),
+                "confidence": final_state.get("response_confidence", 0.0),
+                "persona": final_state.get("supervisor_decision", {}).get("persona"),
+                "intent": final_state.get("intent"),
+            }
+            
+            # Format for chat response
+            result = {
+                "answer": amaniq_result.get("answer", ""),
+                "sources": amaniq_result.get("sources", []),
+                "retrieved_chunks": len(amaniq_result.get("sources", [])),
+                "model_used": f"AmaniQ-v2-{amaniq_result.get('persona', 'wanjiku')}",
+                "structured_data": {
+                    "confidence": amaniq_result.get("confidence", 0.0),
+                    "persona": amaniq_result.get("persona"),
+                    "intent": amaniq_result.get("intent"),
+                },
+                "answer_stream": None  # Non-streaming for now
+            }
+            logger.info(f"[Chat] AmaniQ v2 completed with confidence {amaniq_result.get('confidence', 0):.2f}")
+        except Exception as e:
+            # ONLY on error: Fall back to standard RAG pipeline
+            logger.error(f"[Chat] AmaniQ v2 CRITICAL ERROR: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            logger.warning("[RAG] Emergency fallback to standard RAG pipeline")
+            if _state.rag_pipeline is not None:
+                result = _state.rag_pipeline.query_stream(
+                    query=message.content,
+                    top_k=3,
+                    max_tokens=1000,
+                    temperature=0.7,
+                    session_id=session_id,
+                )
+            else:
+                raise HTTPException(status_code=503, detail="No query service available")
     
     # Add user message
     attachments_data = _get_attachments(message.attachment_ids, session_id, chat_manager)
@@ -400,7 +499,7 @@ async def _handle_regular_message(
 ):
     """Handle regular (non-streaming) message response"""
     if use_vision_rag:
-        result = vision_rag_service.query(
+        result = _state.vision_rag_service.query(
             question=message.content,
             session_images=session_images,
             top_k=3,
@@ -419,22 +518,51 @@ async def _handle_regular_message(
             })
         result["sources"] = vision_sources
         result["retrieved_chunks"] = result.get("retrieved_images", 0)
-    elif rag_pipeline is not None:
-        result = rag_pipeline.query(
-            query=message.content,
-            top_k=3,
-            max_tokens=1000,
-            temperature=0.7,
-            session_id=session_id
-        )
     else:
-        result = rag_pipeline.query(
-            query=message.content,
-            top_k=3,
-            max_tokens=1000,
-            temperature=0.7,
-            session_id=session_id
-        )
+        # Use AmaniQ v2 agent for all non-vision queries (REQUIRED)
+        logger.info("[Chat] Using AmaniQ v2 agent (System Brain)")
+        try:
+            # Get conversation history
+            messages = chat_manager.get_messages(session_id, limit=5)
+            conversation_history = [
+                {"role": msg.role, "content": msg.content}
+                for msg in messages
+            ]
+            
+            # Execute AmaniQ v2 pipeline (THE BRAIN)
+            amaniq_result = await _state.amaniq_v2_agent.chat(
+                message=message.content,
+                thread_id=session_id,
+                message_history=conversation_history,
+            )
+            
+            # Format for chat response
+            result = {
+                "answer": amaniq_result.get("answer", ""),
+                "sources": amaniq_result.get("sources", []),
+                "retrieved_chunks": len(amaniq_result.get("sources", [])),
+                "model_used": f"AmaniQ-v2-{amaniq_result.get('persona', 'wanjiku')}",
+                "structured_data": {
+                    "confidence": amaniq_result.get("confidence", 0.0),
+                    "persona": amaniq_result.get("persona"),
+                    "intent": amaniq_result.get("intent"),
+                }
+            }
+            logger.info(f"[Chat] AmaniQ v2 completed with confidence {amaniq_result.get('confidence', 0):.2f}")
+        except Exception as e:
+            # ONLY on error: Fall back to standard RAG pipeline
+            logger.error(f"[Chat] AmaniQ v2 CRITICAL ERROR: {e}")
+            logger.warning("[RAG] Emergency fallback to standard RAG pipeline")
+            if _state.rag_pipeline is not None:
+                result = _state.rag_pipeline.query(
+                    query=message.content,
+                    top_k=3,
+                    max_tokens=1000,
+                    temperature=0.7,
+                    session_id=session_id,
+                )
+            else:
+                raise HTTPException(status_code=503, detail="No query service available")
     
     # Add user message
     attachments_data = _get_attachments(message.attachment_ids, session_id, chat_manager)
@@ -507,7 +635,7 @@ async def upload_chat_attachment(
     """Upload a document attachment for a chat session"""
     chat_manager = get_chat_manager()
     
-    if _vector_store is None:
+    if _state.vector_store is None:
         raise HTTPException(status_code=503, detail="Vector store not initialized")
     
     user_id = get_current_user_id(request)
@@ -548,16 +676,16 @@ async def upload_chat_attachment(
             collection_name = f"chat_session_{session_id}"
             processor.store_chunks_in_vector_store(
                 chunks=result["chunks"],
-                vector_store=_vector_store,
+                vector_store=_state.vector_store,
                 collection_name=collection_name
             )
         
         # Store vision data if available
         vision_data = result.get("vision_data")
         if vision_data and vision_data.get("images"):
-            if session_id not in vision_storage:
-                vision_storage[session_id] = []
-            vision_storage[session_id].extend(vision_data["images"])
+            if session_id not in _state.vision_storage:
+                _state.vision_storage[session_id] = []
+            _state.vision_storage[session_id].extend(vision_data["images"])
         
         return {
             "attachment": result["attachment"],
@@ -579,7 +707,7 @@ async def get_vision_content(session_id: str, request: Request):
     if not verify_session_ownership(session_id, user_id, chat_manager):
         raise HTTPException(status_code=403, detail="Access denied")
     
-    session_images = vision_storage.get(session_id, [])
+    session_images = _state.vision_storage.get(session_id, [])
     
     content_list = []
     for img_data in session_images:

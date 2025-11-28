@@ -185,7 +185,7 @@ export function Chat() {
         "Content-Type": "application/json",
         ...getAuthHeaders()
       }
-      const response = await fetch(`${API_BASE_URL}/chat/sessions`, {
+      const response = await fetch(`${API_BASE_URL}/api/v1/chat/sessions`, {
         method: "POST",
         headers,
         body: JSON.stringify({ title })
@@ -253,7 +253,7 @@ export function Chat() {
         const headers: Record<string, string> = {
           ...getAuthHeaders()
         }
-        const response = await fetch(`${API_BASE_URL}/chat/sessions/${sessionId}/attachments`, {
+        const response = await fetch(`${API_BASE_URL}/api/v1/chat/sessions/${sessionId}/attachments`, {
           method: "POST",
           headers,
           body: formData,
@@ -302,7 +302,7 @@ export function Chat() {
               ...getAuthHeaders()
             }
             const attachmentPromises = attachmentIds.map(id =>
-              fetch(`${API_BASE_URL}/chat/sessions/${sessionId}/attachments/${id}`, {
+              fetch(`${API_BASE_URL}/api/v1/chat/sessions/${sessionId}/attachments/${id}`, {
                 headers
               })
                 .then(res => res.ok ? res.json() : null)
@@ -379,7 +379,7 @@ export function Chat() {
             "Content-Type": "application/json",
             ...getAuthHeaders()
           }
-          response = await fetch(`${API_BASE_URL}/chat/sessions/${sessionId}/messages`, {
+          response = await fetch(`${API_BASE_URL}/api/v1/chat/sessions/${sessionId}/messages`, {
             method: "POST",
             headers,
             body: JSON.stringify({
@@ -689,7 +689,7 @@ ${researchProcess.tools_used && researchProcess.tools_used.length > 0
         "Content-Type": "application/json",
         ...getAuthHeaders()
       }
-      const response = await fetch(`${API_BASE_URL}/chat/feedback`, {
+      const response = await fetch(`${API_BASE_URL}/api/v1/chat/feedback`, {
         method: "POST",
         headers,
         body: JSON.stringify({

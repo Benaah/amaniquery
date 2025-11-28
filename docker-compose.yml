@@ -43,10 +43,21 @@ services:
       - EMBEDDING_MODEL=all-MiniLM-L6-v2
       - REDIS_URL=redis://redis:6379/0
       - DATABASE_URL=postgresql://amaniquery:amaniquery_password@postgres:5432/amaniquery
+      # NiruSense MinIO Configuration
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=admin
+      - MINIO_SECRET_KEY=miniopassword123
+      - MINIO_SECURE=false
+      - MINIO_BUCKET=bronze-raw
+      # NiruSense Configuration
+      - ENABLE_NIRUSENSE=false  # Set to true to enable
+      - ENABLE_NIRUSENSE_SCHEDULER=false
     depends_on:
       chroma:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      minio:
         condition: service_healthy
       postgres:
         condition: service_started
@@ -94,24 +105,6 @@ services:
   # Redis Cache
   redis:
     image: redis:alpine
-    container_name: amaniquery_redis
-    command: redis-server --maxmemory 2gb --maxmemory-policy allkeys-lru --save "" --appendonly no --tcp-keepalive 300 --timeout 0
-    ports:
-      - "6379:6379"
-    networks:
-      - amaniquery_network
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-
-  # Crawler Scheduler Service
-  scheduler:
-    build:
-      context: .
-      dockerfile: Dockerfile
     container_name: amaniquery_scheduler
     command: python start_scheduler.py
     environment:
@@ -190,6 +183,7 @@ services:
 volumes:
   chroma_data:
   postgres_data:
+  minio_data:
 
 networks:
   amaniquery_network:

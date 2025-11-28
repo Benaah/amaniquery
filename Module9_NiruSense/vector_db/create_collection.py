@@ -5,9 +5,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Configuration
-QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
-QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", None)
+# Configuration - Qdrant Cloud
+QDRANT_URL = os.getenv("QDRANT_URL")  # Cloud-based, no localhost fallback
+QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
 COLLECTION_NAME = "kenyan_sentiments_2025"
 VECTOR_SIZE = 1024 # Davlan/afriberta-large
 

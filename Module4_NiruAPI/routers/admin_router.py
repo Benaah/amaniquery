@@ -43,6 +43,63 @@ database_storage = None
 cache_manager = None  # Optional async cache manager
 
 
+def get_crawler_manager():
+    """Get crawler manager with lazy initialization fallback"""
+    global crawler_manager
+    if crawler_manager is None:
+        logger.warning("Crawler manager not initialized via dependency injection, attempting lazy initialization")
+        try:
+            from Module4_NiruAPI.crawler_manager import CrawlerManager
+            crawler_manager = CrawlerManager()
+            logger.info("Crawler manager lazily initialized successfully")
+        except Exception as e:
+            logger.error(f"Failed to lazily initialize crawler manager: {e}")
+            # Don't raise here, let the endpoint handle the None check or raise 503
+    return crawler_manager
+
+
+def get_vector_store():
+    """Get vector store with lazy initialization fallback"""
+    global vector_store
+    if vector_store is None:
+        logger.warning("Vector store not initialized via dependency injection, attempting lazy initialization")
+        try:
+            from Module3_NiruDB.vector_store import VectorStore
+            vector_store = VectorStore()
+            logger.info("Vector store lazily initialized successfully")
+        except Exception as e:
+            logger.error(f"Failed to lazily initialize vector store: {e}")
+    return vector_store
+
+
+def get_config_manager():
+    """Get config manager with lazy initialization fallback"""
+    global config_manager
+    if config_manager is None:
+        logger.warning("Config manager not initialized via dependency injection, attempting lazy initialization")
+        try:
+            from Module4_NiruAPI.config_manager import ConfigManager
+            config_manager = ConfigManager()
+            logger.info("Config manager lazily initialized successfully")
+        except Exception as e:
+            logger.error(f"Failed to lazily initialize config manager: {e}")
+    return config_manager
+
+
+def get_database_storage():
+    """Get database storage with lazy initialization fallback"""
+    global database_storage
+    if database_storage is None:
+        logger.warning("Database storage not initialized via dependency injection, attempting lazy initialization")
+        try:
+            from Module3_NiruDB.database_storage import DatabaseStorage
+            database_storage = DatabaseStorage()
+            logger.info("Database storage lazily initialized successfully")
+        except Exception as e:
+            logger.error(f"Failed to lazily initialize database storage: {e}")
+    return database_storage
+
+
 def get_admin_dependency():
     """Get admin dependency - conditional based on ENABLE_AUTH"""
     if os.getenv("ENABLE_AUTH", "false").lower() == "true":
@@ -71,6 +128,7 @@ async def get_crawler_status(
     admin=Depends(_admin_dependency)
 ):
     """Get status of all crawlers - cached for 5 seconds"""
+    crawler_manager = get_crawler_manager()
     if crawler_manager is None:
         raise HTTPException(status_code=503, detail="Crawler manager not initialized")
     
@@ -172,6 +230,7 @@ async def search_documents(
     admin=Depends(_admin_dependency)
 ):
     """Search and retrieve documents from the database"""
+    vector_store = get_vector_store()
     if vector_store is None:
         raise HTTPException(status_code=503, detail="Vector store not initialized")
     
@@ -239,6 +298,7 @@ async def get_document(
     admin=Depends(_admin_dependency)
 ):
     """Get a specific document by ID"""
+    vector_store = get_vector_store()
     if vector_store is None:
         raise HTTPException(status_code=503, detail="Vector store not initialized")
     
@@ -266,6 +326,8 @@ async def get_config_list(
     admin=Depends(_admin_dependency)
 ):
     """Get list of all configuration keys - cached for 300 seconds"""
+    config_manager = get_config_manager()
+    config_manager = get_config_manager()
     if config_manager is None:
         return {
             "error": "Config manager not initialized",
@@ -298,6 +360,7 @@ async def set_config(
     admin=Depends(_admin_dependency)
 ):
     """Set a configuration value"""
+    config_manager = get_config_manager()
     if config_manager is None:
         raise HTTPException(
             status_code=503,
@@ -323,6 +386,7 @@ async def update_config_entry(
     admin=Depends(_admin_dependency)
 ):
     """Update a configuration value"""
+    config_manager = get_config_manager()
     if config_manager is None:
         raise HTTPException(
             status_code=503,
@@ -351,6 +415,7 @@ async def delete_config_entry(
     admin=Depends(_admin_dependency)
 ):
     """Delete a configuration value"""
+    config_manager = get_config_manager()
     if config_manager is None:
         raise HTTPException(
             status_code=503,
@@ -379,6 +444,7 @@ async def get_database_stats(
     admin=Depends(_admin_dependency)
 ):
     """Get statistics for all vector database backends - cached for 60 seconds"""
+    vector_store = get_vector_store()
     if vector_store is None:
         raise HTTPException(status_code=503, detail="Vector store not initialized")
     
@@ -448,6 +514,7 @@ async def getdatabase_storage_stats(
     admin=Depends(_admin_dependency)
 ):
     """Get database storage statistics - cached for 60 seconds"""
+    database_storage = get_database_storage()
     if database_storage is None:
         raise HTTPException(status_code=503, detail="Database storage not initialized")
     

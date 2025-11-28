@@ -24,7 +24,7 @@ export default function SharedChatPage() {
   useEffect(() => {
     const fetchSharedSession = async () => {
       try {
-        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/chat/shared/${id}`)
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/v1/chat/shared/${id}`)
         if (!response.ok) {
           throw new Error("Failed to load shared chat")
         }
@@ -93,8 +93,8 @@ export default function SharedChatPage() {
         </div>
       </header>
       
-      <div className="flex-1 flex flex-col relative z-10 h-full overflow-hidden min-w-0">
-         <div className="flex-1 flex flex-col max-w-5xl mx-auto w-full">
+      <div className="flex-1 flex flex-col relative z-10 min-h-0 overflow-hidden">
+         <div className="flex-1 flex flex-col max-w-5xl mx-auto w-full min-h-0">
             <MessageList
               messages={messages}
               isLoading={false}

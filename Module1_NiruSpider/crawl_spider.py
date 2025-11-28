@@ -6,6 +6,17 @@ import sys
 import signal
 import threading
 from pathlib import Path
+
+# Install AsyncioSelectorReactor before any other Twisted imports
+# This fixes the "reactor already installed" error when Scrapy tries to install it
+try:
+    import asyncio
+    from twisted.internet import asyncioreactor
+    if "twisted.internet.reactor" not in sys.modules:
+        asyncioreactor.install()
+except Exception as e:
+    print(f"Warning: Could not install AsyncioSelectorReactor: {e}")
+
 from scrapy.crawler import CrawlerProcess
 from scrapy.utils.project import get_project_settings
 

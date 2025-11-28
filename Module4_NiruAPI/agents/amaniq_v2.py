@@ -854,40 +854,63 @@ class AmaniQAgent:
         
         try:
             # Build graph
+            logger.info("Building AmaniQ v2 graph...")
             self.graph = create_amaniq_v2_graph(
                 config=self.config,
                 enable_persistence=self.config.enable_persistence,
             )
             
-            # Initialize caching
+            if self.graph is None:
+                raise RuntimeError("Graph creation returned None")
+            
+            logger.info("Graph built successfully")
+            
+            # Initialize caching (optional - don't fail if this fails)
             if self.config.enable_caching:
-                self.caching_middleware = CachingMiddleware()
-                await self.caching_middleware.initialize()
+                try:
+                    self.caching_middleware = CachingMiddleware()
+                    await self.caching_middleware.initialize()
+                    logger.info("Caching middleware initialized")
+                except Exception as e:
+                    logger.warning(f"Caching middleware failed to initialize: {e}, continuing without cache")
+                    self.caching_middleware = None
             
-            # Initialize prefetch
+            # Initialize prefetch (optional - don't fail if this fails)
             if self.config.enable_prefetch:
-                self.prefetch_middleware = PrefetchMiddleware()
-                
-                # Set up search function for prefetch
-                cached_search = CachedKBSearch()
-                await cached_search.initialize()
-                
-                async def search_fn(query: str, namespaces: List[str]) -> Dict[str, Any]:
-                    return await cached_search.search(query, namespace=namespaces)
-                
-                await self.prefetch_middleware.initialize(search_fn)
+                try:
+                    self.prefetch_middleware = PrefetchMiddleware()
+                    
+                    # Set up search function for prefetch
+                    cached_search = CachedKBSearch()
+                    await cached_search.initialize()
+                    
+                    async def search_fn(query: str, namespaces: List[str]) -> Dict[str, Any]:
+                        return await cached_search.search(query, namespace=namespaces)
+                    
+                    await self.prefetch_middleware.initialize(search_fn)
+                    logger.info("Prefetch middleware initialized")
+                except Exception as e:
+                    logger.warning(f"Prefetch middleware failed to initialize: {e}, continuing without prefetch")
+                    self.prefetch_middleware = None
             
-            # Initialize telemetry
+            # Initialize telemetry (optional - don't fail if this fails)
             if self.config.enable_telemetry:
-                TelemetryMetrics.initialize()
+                try:
+                    TelemetryMetrics.initialize()
+                    logger.info("Telemetry initialized")
+                except Exception as e:
+                    logger.warning(f"Telemetry failed to initialize: {e}, continuing without telemetry")
             
             self._initialized = True
-            logger.info("AmaniQ v2 Agent initialized successfully")
+            logger.info("✅ AmaniQ v2 Agent initialized successfully")
             return True
             
         except Exception as e:
-            logger.error(f"Agent initialization failed: {e}")
-            return False
+            logger.error(f"❌ CRITICAL: Agent initialization failed: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            # Re-raise to ensure the API startup fails if the brain can't initialize
+            raise RuntimeError(f"Failed to initialize AmaniQ v2 Agent: {e}") from e
     
     async def chat(
         self,
@@ -908,15 +931,27 @@ class AmaniQAgent:
         Returns:
             Response dict with answer, confidence, sources, etc.
         """
+        # Ensure agent is initialized
         if not self._initialized:
+            logger.warning("Agent not initialized, initializing now...")
             await self.initialize()
+        
+        # Double-check graph is available
+        if self.graph is None:
+            logger.error("CRITICAL: Graph is None after initialization!")
+            raise RuntimeError("AmaniQ v2 graph failed to initialize properly")
         
         request_id = str(uuid4())
         thread_id = thread_id or str(uuid4())
         
+        logger.info(f"[AmaniQ v2] Processing chat request {request_id[:8]}... for thread {thread_id[:8]}...")
+        
         # Start prefetch if enabled
         if self.prefetch_middleware:
-            await self.prefetch_middleware.on_message_received(request_id, message)
+            try:
+                await self.prefetch_middleware.on_message_received(request_id, message)
+            except Exception as e:
+                logger.warning(f"Prefetch failed: {e}, continuing without prefetch")
         
         # Build initial state
         messages = message_history or []
@@ -934,23 +969,22 @@ class AmaniQAgent:
             # Run graph
             start_time = time.time()
             
-            # Get prefetch results if available
-            if self.prefetch_middleware and self.graph:
-                # We need to run supervisor first to check intent
-                # For now, we'll check after supervisor runs
-                pass
-            
+            logger.info(f"[AmaniQ v2] Invoking graph for: {message[:100]}...")
             result = await self.graph.ainvoke(initial_state)
             
             total_latency_ms = (time.time() - start_time) * 1000
+            
+            logger.info(f"[AmaniQ v2] Graph completed in {total_latency_ms:.0f}ms")
             
             # Format response
             return self._format_response(result, total_latency_ms)
             
         except Exception as e:
-            logger.error(f"Chat error: {e}")
+            logger.error(f"[AmaniQ v2] Chat error: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             return {
-                "answer": f"I apologize, but I encountered an error: {str(e)}. Please try again.",
+                "answer": f"I apologize, but I encountered an error processing your request: {str(e)}. Please try again.",
                 "confidence": 0.0,
                 "error": str(e),
                 "request_id": request_id,

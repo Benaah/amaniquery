@@ -160,20 +160,23 @@ class SessionProvider:
                     
                     try:
                         if expires_at <= now:
-                            logger.debug(f"Cached session expired, invalidating cache")
+                            logger.debug(f"Cached session expired, invalidating cache and checking DB")
                             SessionProvider._session_cache.invalidate(token_hash)
-                            return None
+                            # Do not return None here, fall through to DB check
+                            # return None
                     except TypeError:
                         SessionProvider._session_cache.invalidate(token_hash)
-                        return None
+                        # return None
                 
                 if not cached_session.is_active:
                     logger.debug(f"Cached session not active, invalidating cache")
                     SessionProvider._session_cache.invalidate(token_hash)
-                    return None
+                    # return None
                 
-                # Return cached session (skip DB query and last_activity update)
-                return cached_session
+                # Only return if we are sure it's valid and active
+                if cached_session.is_active and (not cached_session.expires_at or expires_at > now):
+                    # Return cached session (skip DB query and last_activity update)
+                    return cached_session
         except Exception as e:
             logger.warning(f"Error retrieving session from cache: {e}. Falling back to DB.")
             # Remove from cache if it caused an error

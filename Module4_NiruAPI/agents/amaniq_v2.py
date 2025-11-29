@@ -330,18 +330,37 @@ async def entry_node(state: AmaniQState) -> AmaniQState:
                 config = AmaniQConfig()
                 client = MoonshotClient.get_client(config)
                 
+                # Fetch current task clusters for better classification
+                try:
+                    from Module4_NiruAPI.agents.task_clustering import ClusterAnalyzer
+                    analyzer = ClusterAnalyzer()
+                    clusters = analyzer.get_current_clusters(limit=12)
+                    cluster_names = [c["cluster_name"] for c in clusters]
+                    cluster_descriptions = "\n".join([
+                        f"- {c['cluster_name']}: {c['description']}"
+                        for c in clusters
+                    ])
+                except Exception as e:
+                    logger.warning(f"Could not fetch clusters: {e}")
+                    cluster_names = []
+                    cluster_descriptions = "No clusters available"
+                
                 profile_prompt = f"""
                 Build a user profile from the last {len(history)} interactions of user {user_id}.
                 
                 Return a JSON object with EXACTLY these keys:
                 - "expertise_level": (layperson / lawyer / researcher / journalist)
-                - "task_groups": [list of top 3 recurring task groups]
+                - "task_groups": [list of top 3 task groups from: {cluster_names if cluster_names else 'general legal research, case law lookup, constitutional queries, news tracking'}]
                 - "preferred_answer_style": (concise / detailed / bullet_points / kenya_law_format)
                 - "frequent_topics": [list of frequently tracked bills or topics]
+                
+                Available task clusters:
+                {cluster_descriptions}
                 
                 Interactions:
                 {json.dumps(history[-20:], default=str)}
                 """
+                
                 
                 response = client.chat.completions.create(
                     model="moonshot-v1-8k",

@@ -860,6 +860,91 @@ class ChatDatabaseManagerV2:
                 "created_at": msg.created_at.isoformat(),
                 "session_id": msg.session_id
             } for msg in messages]
+    
+    def get_recent_queries(
+        self,
+        limit: int = 50,
+        user_id: Optional[str] = None,
+        hours: int = 24
+    ) -> List[Dict[str, Any]]:
+        """
+        Get recent user queries for clustering analysis.
+        
+        Args:
+            limit: Maximum number of queries to return
+            user_id: Optional filter by user_id
+            hours: Only fetch queries from last N hours
+        
+        Returns:
+            List of query dictionaries with metadata
+        """
+        with self._get_db_session() as db:
+            from datetime import datetime, timedelta
+            cutoff_time = datetime.utcnow() - timedelta(hours=hours)
+            
+            query = db.query(ChatMessage).join(ChatSession).filter(
+                ChatMessage.role == "user",
+                ChatMessage.created_at >= cutoff_time
+            )
+            
+            if user_id:
+                query = query.filter(ChatSession.user_id == user_id)
+            
+            messages = query.order_by(ChatMessage.created_at.desc()).limit(limit).all()
+            
+            return [{
+                "id": msg.id,
+                "content": msg.content,
+                "created_at": msg.created_at.isoformat(),
+                "session_id": msg.session_id,
+                "user_id": msg.session.user_id if msg.session else None,
+            } for msg in messages]
+    
+    def get_query_intents(
+        self,
+        limit: int = 100
+    ) -> List[Dict[str, Any]]:
+        """
+        Get recent queries with their detected intents from sources metadata.
+        
+        Args:
+            limit: Maximum number of queries
+        
+        Returns:
+            List of queries with intent information
+        """
+        with self._get_db_session() as db:
+            # Get user messages and their corresponding assistant responses
+            user_messages = db.query(ChatMessage).filter(
+                ChatMessage.role == "user"
+            ).order_by(ChatMessage.created_at.desc()).limit(limit).all()
+            
+            results = []
+            for user_msg in user_messages:
+                # Find the next assistant message in the same session
+                assistant_msg = db.query(ChatMessage).filter(
+                    ChatMessage.session_id == user_msg.session_id,
+                    ChatMessage.role == "assistant",
+                    ChatMessage.created_at > user_msg.created_at
+                ).order_by(ChatMessage.created_at).first()
+                
+                intent = None
+                if assistant_msg and assistant_msg.sources:
+                    # Try to extract intent from sources metadata
+                    for source in assistant_msg.sources:
+                        if isinstance(source, dict) and "intent" in source:
+                            intent = source["intent"]
+                            break
+                
+                results.append({
+                    "query": user_msg.content,
+                    "intent": intent,
+                    "created_at": user_msg.created_at.isoformat(),
+                    "session_id": user_msg.session_id
+                })
+            
+            return results
+
 
     
 

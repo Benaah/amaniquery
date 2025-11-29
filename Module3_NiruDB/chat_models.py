@@ -59,6 +59,21 @@ class UserFeedback(Base):
     feedback_metadata = Column(JSON, nullable=True)  # Additional metadata
     created_at = Column(DateTime, default=datetime.utcnow)
 
+class TaskCluster(Base):
+    """Task cluster model for grouping similar user queries"""
+    __tablename__ = "task_clusters"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    cluster_name = Column(String, nullable=False, unique=True)
+    description = Column(Text, nullable=False)
+    representative_queries = Column(JSON, nullable=False)  # List of 3-5 example queries
+    metadata_tags = Column(JSON, nullable=True)  # Additional metadata
+    query_count = Column(Integer, default=0)  # Number of queries matching this cluster
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    last_updated = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 # Pydantic models for API
 class ChatSessionCreate(BaseModel):
     title: Optional[str] = None
@@ -113,6 +128,32 @@ class FeedbackResponse(BaseModel):
     feedback_type: str
     comment: Optional[str]
     created_at: datetime
+
+class TaskClusterCreate(BaseModel):
+    cluster_name: str
+    description: str
+    representative_queries: List[str]  # 3-5 example queries
+    metadata_tags: Optional[List[str]] = None
+
+class TaskClusterResponse(BaseModel):
+    id: int
+    cluster_name: str
+    description: str
+    representative_queries: List[str]
+    metadata_tags: Optional[List[str]]
+    query_count: int
+    is_active: bool
+    created_at: datetime
+    last_updated: datetime
+
+class ClusterSuggestion(BaseModel):
+    """Model for suggested new clusters from analysis"""
+    group_name: str
+    description: str
+    representative_queries: List[str]
+    suggested_metadata_tags: List[str]
+    confidence: float  # 0.0 to 1.0
+
 
 # Database connection and session management
 def create_database_engine(database_url: str):

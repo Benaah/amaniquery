@@ -65,6 +65,8 @@ from Module4_NiruAPI.routers.monitoring_router import router as monitoring_route
 from Module4_NiruAPI.routers.hybrid_rag_router import router as hybrid_rag_router
 from Module4_NiruAPI.routers.nirusense_router import router as nirusense_router
 from Module4_NiruAPI.routers.clustering_router import router as clustering_router
+from Module4_NiruAPI.routers.finetuning_router import router as finetuning_router
+
 
 
 # Load environment
@@ -751,6 +753,8 @@ app.include_router(monitoring_router)
 app.include_router(hybrid_rag_router)
 app.include_router(nirusense_router)
 app.include_router(clustering_router)
+app.include_router(finetuning_router)
+
 
 
 

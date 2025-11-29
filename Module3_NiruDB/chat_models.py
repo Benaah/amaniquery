@@ -73,6 +73,38 @@ class TaskCluster(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     last_updated = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+class TrainingDataset(Base):
+    """Training dataset for fine-tuning from production interactions"""
+    __tablename__ = "training_dataset"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    message_id = Column(String, ForeignKey("chat_messages.id"), nullable=True)
+    
+    # Content
+    user_query = Column(Text, nullable=False)
+    assistant_response = Column(Text, nullable=False)
+    sources = Column(JSON, nullable=True)  # Citations and sources used
+    
+    # Quality metrics
+    quality_score = Column(Float, nullable=False)  # 1-5 scale
+    score_criteria = Column(JSON, nullable=True)  # Detailed scoring breakdown
+    keep_for_finetune = Column(Boolean, default=False)
+    scoring_reason = Column(Text, nullable=True)
+    
+    # Metadata
+    intent = Column(String, nullable=True)  # From supervisor
+    expertise_level = Column(String, nullable=True)  # From user profile
+    cluster_tags = Column(JSON, nullable=True)  # Related task clusters
+    
+    # Export tracking
+    exported_at = Column(DateTime, nullable=True)
+    export_format = Column(String, nullable=True)  # 'alpaca', 'sharegpt', etc.
+    
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 
 # Pydantic models for API
 class ChatSessionCreate(BaseModel):
@@ -153,6 +185,42 @@ class ClusterSuggestion(BaseModel):
     representative_queries: List[str]
     suggested_metadata_tags: List[str]
     confidence: float  # 0.0 to 1.0
+
+class TrainingDataCreate(BaseModel):
+    user_query: str
+    assistant_response: str
+    sources: Optional[List[dict]] = None
+    quality_score: float
+    score_criteria: Optional[dict] = None
+    keep_for_finetune: bool
+    scoring_reason: Optional[str] = None
+    intent: Optional[str] = None
+    expertise_level: Optional[str] = None
+    cluster_tags: Optional[List[str]] = None
+
+class TrainingDataResponse(BaseModel):
+    id: int
+    user_query: str
+    assistant_response: str
+    sources: Optional[List[dict]]
+    quality_score: float
+    score_criteria: Optional[dict]
+    keep_for_finetune: bool
+    scoring_reason: Optional[str]
+    intent: Optional[str]
+    expertise_level: Optional[str]
+    cluster_tags: Optional[List[str]]
+    exported_at: Optional[datetime]
+    export_format: Optional[str]
+    created_at: datetime
+
+class QualityScoreResult(BaseModel):
+    """Result of quality scoring"""
+    score: float
+    keep_for_finetune: bool
+    criteria: dict
+    reason: str
+
 
 
 # Database connection and session management

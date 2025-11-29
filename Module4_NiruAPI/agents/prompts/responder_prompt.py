@@ -452,6 +452,14 @@ def build_responder_messages(
     
     # Add context about user if available
     if user_context:
+        # Get task-aware style guidelines
+        try:
+            from .task_styles import format_style_instructions
+            style_instructions = format_style_instructions(user_context)
+        except Exception as e:
+            logger.warning(f"Could not load task styles: {e}")
+            style_instructions = ""
+        
         context_str = f"""
 ## USER CONTEXT
 - Expertise Level: {user_context.get('expertise_level', 'unknown')}
@@ -459,6 +467,8 @@ def build_responder_messages(
 - Frequent Topics: {', '.join(user_context.get('frequent_topics', []))}
 - Preferred Style: {user_context.get('preferred_answer_style', 'standard')}
 - Session Queries So Far: {user_context.get('session_query_count', 0)}
+
+{style_instructions}
 """
         messages[0]["content"] += context_str
     

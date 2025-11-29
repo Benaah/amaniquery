@@ -136,6 +136,10 @@ from .prefetch import (
 
 from .tools.tool_registry import ToolRegistry
 
+# ReAct Agent
+from .nodes.react_node import react_agent_node
+from .tools.agentic_tools import initialize_agentic_tools, get_agentic_tools
+
 
 # =============================================================================
 # CONFIGURATION
@@ -240,9 +244,17 @@ class AmaniQState(TypedDict, total=False):
     user_id: str
     user_profile: Dict[str, Any]
     
+    # ReAct Agent
+    react_iterations: List[Dict[str, Any]]  # ReAct loop iterations
+    react_final_answer: Optional[str]  # Answer from ReAct
+    react_success: bool  # Whether ReAct completed successfully
+    react_failed: bool  # Whether ReAct failed
+    react_max_iterations_reached: bool  # Max iterations hit
+    
     # Timestamps
     started_at: str
     completed_at: Optional[str]
+
 
 
 # =============================================================================
@@ -751,13 +763,28 @@ def route_from_entry(state: AmaniQState) -> Literal["supervisor", "respond"]:
     return "supervisor"
 
 
-def route_from_supervisor(state: AmaniQState) -> Literal["clarify", "tools", "respond", "escalate"]:
-    """Route based on supervisor intent"""
+def route_from_supervisor(state: AmaniQState) -> Literal["clarify", "tools", "react", "respond", "escalate"]:
+    """Route based on supervisor intent and query complexity"""
     intent = state.get("intent", "")
+    query = state.get("current_query", "")
+    
+    # Check for complex queries that need multi-step reasoning
+    is_complex = (
+        # Multi-part questions
+        any(word in query.lower() for word in ["and", "also", "additionally", "furthermore"]) and len(query.split()) > 15
+        # Questions requiring multiple sources
+        or any(phrase in query.lower() for phrase in ["what was the vote", "what does it say", "compare", "status and"])
+        # Temporal queries (need status then content)
+        or ("bill" in query.lower() and any(word in query.lower() for word in ["passed", "status", "voted", "vote count"]))
+    )
     
     if intent == "CLARIFY":
         return "clarify"
     elif intent in ("LEGAL_RESEARCH", "NEWS_SUMMARY"):
+        # Route complex queries to ReAct for multi-step reasoning
+        if is_complex:
+            logger.info(f"[Router] Complex query detected - routing to ReAct agent")
+            return "react"
         return "tools"
     elif intent == "GENERAL_CHAT":
         return "respond"
@@ -813,6 +840,9 @@ def create_amaniq_v2_graph(
     workflow.add_node("tool_executor", tool_executor_wrapper)
     workflow.add_node("responder", responder_node)
     
+    # ReAct Agent Node
+    workflow.add_node("react_agent", react_agent_node)
+    
     # Clarification nodes
     workflow.add_node("clarification_entry", clarification_entry_wrapper)
     workflow.add_node("clarification_resume", clarification_resume_wrapper)
@@ -838,6 +868,7 @@ def create_amaniq_v2_graph(
         {
             "clarify": "clarification_entry",
             "tools": "tool_executor",
+            "react": "react_agent",  # NEW: Route complex queries to ReAct
             "respond": "responder",
             "escalate": "responder",
         }
@@ -845,6 +876,9 @@ def create_amaniq_v2_graph(
     
     # Tool executor → Responder
     workflow.add_edge("tool_executor", "responder")
+    
+    # ReAct agent → Responder (after multi-step reasoning)
+    workflow.add_edge("react_agent", "responder")
     
     # Clarification sub-graph
     workflow.add_conditional_edges(

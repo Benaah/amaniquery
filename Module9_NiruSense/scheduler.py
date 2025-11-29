@@ -120,7 +120,7 @@ class NiruSenseScheduler:
         """Process a batch of pending documents from the queue"""
         try:
             logger.info("📊 Running scheduled batch processing...")
-            from processing.monitoring import metrics
+            from .processing.monitoring import metrics
             
             # Get current stats
             stats = metrics.get_metrics()
@@ -140,7 +140,7 @@ class NiruSenseScheduler:
         try:
             logger.info("🧹 Running scheduled cleanup...")
             import asyncio
-            from processing.storage.postgres import postgres
+            from .processing.storage.postgres import postgres
             
             # Delete analysis results older than configured days
             cleanup_days = int(os.getenv("NIRUSENSE_CLEANUP_DAYS", "90"))
@@ -163,7 +163,7 @@ class NiruSenseScheduler:
     def _update_metrics(self):
         """Update and log metrics"""
         try:
-            from processing.monitoring import metrics
+            from .processing.monitoring import metrics
             
             stats = metrics.get_metrics()
             logger.info(f"📊 Metrics: {stats['documents_processed']} processed, "
@@ -178,8 +178,8 @@ class NiruSenseScheduler:
         try:
             logger.info("🔄 Running scheduled reprocessing of failed documents...")
             import asyncio
-            from processing.storage.postgres import postgres
-            from processing.orchestrator import process_document
+            from .processing.storage.postgres import postgres
+            from .processing.orchestrator import process_document
             
             # Get failed documents (documents without analysis results)
             failed_docs = await postgres.get_failed_documents(limit=50)

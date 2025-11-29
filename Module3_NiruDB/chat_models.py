@@ -1,8 +1,10 @@
 """
 Database Models for Chat Sessions, Messages, and Feedback
 """
+from __future__ import annotations
+
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, Boolean, Float, ForeignKey, JSON
 from sqlalchemy.orm import relationship, sessionmaker, declarative_base
 from pydantic import BaseModel
@@ -202,9 +204,9 @@ class TrainingDataResponse(BaseModel):
     id: int
     user_query: str
     assistant_response: str
-    sources: Optional[List[dict]]
+    sources: Optional[List[Dict[str, Any]]]
     quality_score: float
-    score_criteria: Optional[dict]
+    score_criteria: Optional[Dict[str, Any]]
     keep_for_finetune: bool
     scoring_reason: Optional[str]
     intent: Optional[str]

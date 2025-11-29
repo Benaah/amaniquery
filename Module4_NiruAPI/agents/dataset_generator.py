@@ -126,7 +126,7 @@ class DatasetGenerator:
                     TrainingDataset.quality_score.desc()
                 ).limit(limit).all()
                 
-               return [TrainingDataResponse(
+                return [TrainingDataResponse(
                     id=r.id,
                     user_query=r.user_query,
                     assistant_response=r.assistant_response,

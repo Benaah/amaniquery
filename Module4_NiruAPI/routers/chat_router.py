@@ -828,7 +828,7 @@ async def submit_general_feedback(
     Auto-scores positive feedback for training dataset.
     """
     try:
-        chat_manager = request.app.state.chat_manager
+        chat_manager = get_chat_manager()
         
         # Validate message exists
         message = chat_manager.get_message(feedback.message_id)

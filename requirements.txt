@@ -127,4 +127,3 @@ huggingface_hub[hf_xet]
 # Note: redis, qdrant-client already required above
 # Note: tenacity already required by Module 6
 
-

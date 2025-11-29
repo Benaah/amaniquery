@@ -18,6 +18,7 @@ import {
   FileText,
   Activity,
   Brain,
+  ArrowBigUp,
 } from "lucide-react"
 import { Button } from "./ui/button"
 import { cn } from "@/lib/utils"
@@ -50,6 +51,7 @@ export function AdminSidebar() {
     { href: "/admin/users", icon: Users, label: "Users" },
     { href: "/admin/blog", icon: FileText, label: "Blog" },
     { href: "/admin/analytics", icon: Activity, label: "Analytics" },
+    { href: "/admin/training", icon: ArrowBigUp, label: "Training" },
     { href: "/admin/agent-monitoring", icon: Brain, label: "Agent Monitoring" },
     { href: "/admin/settings", icon: Settings, label: "Settings" },
   ]

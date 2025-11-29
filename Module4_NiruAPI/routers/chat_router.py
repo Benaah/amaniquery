@@ -7,7 +7,7 @@ import asyncio
 from datetime import datetime
 from typing import Optional, Dict, List, Any
 from pathlib import Path
-from fastapi import APIRouter, HTTPException, Request, Depends, File, UploadFile
+from fastapi import APIRouter, HTTPException, Request, Depends, File, UploadFile, BackgroundTasks
 from fastapi.responses import FileResponse, StreamingResponse
 from loguru import logger
 from pydantic import BaseModel
@@ -289,13 +289,13 @@ async def add_chat_message(session_id: str, message: ChatMessageCreate, request:
                 # Return streaming response
                 return await _handle_streaming_message(
                     session_id, session, message, chat_manager,
-                    use_vision_rag, session_images
+                    use_vision_rag, session_images, user_id=user_id
                 )
             else:
                 # Return regular response
                 return await _handle_regular_message(
                     session_id, session, message, chat_manager,
-                    use_vision_rag, session_images
+                    use_vision_rag, session_images, user_id=user_id
                 )
         else:
             # Non-user message (e.g., system)
@@ -319,7 +319,7 @@ async def add_chat_message(session_id: str, message: ChatMessageCreate, request:
 
 async def _handle_streaming_message(
     session_id: str, session, message: ChatMessageCreate, chat_manager,
-    use_vision_rag: bool, session_images: list
+    use_vision_rag: bool, session_images: list, user_id: Optional[str] = None
 ):
     """Handle streaming message response"""
     # Process query
@@ -365,6 +365,7 @@ async def _handle_streaming_message(
                 "original_question": message.content,
                 "messages": conversation_history + [{"role": "user", "content": message.content}],
                 "thread_id": session_id,
+                "user_id": user_id,
             }
             
             # Execute graph directly (THE BRAIN)
@@ -495,7 +496,7 @@ async def _handle_streaming_message(
 
 async def _handle_regular_message(
     session_id: str, session, message: ChatMessageCreate, chat_manager,
-    use_vision_rag: bool, session_images: list
+    use_vision_rag: bool, session_images: list, user_id: Optional[str] = None
 ):
     """Handle regular (non-streaming) message response"""
     if use_vision_rag:
@@ -534,11 +535,13 @@ async def _handle_regular_message(
                 message=message.content,
                 thread_id=session_id,
                 message_history=conversation_history,
+                user_id=user_id,
             )
             
             # Format for chat response
             result = {
-                "answer": amaniq_result.get("answer", ""),
+                "answer": amaniq_result.get("content", amaniq_result.get("answer", "")),
+                "reasoning_content": amaniq_result.get("reasoning_content", ""),
                 "sources": amaniq_result.get("sources", []),
                 "retrieved_chunks": len(amaniq_result.get("sources", [])),
                 "model_used": f"AmaniQ-v2-{amaniq_result.get('persona', 'wanjiku')}",
@@ -574,9 +577,14 @@ async def _handle_regular_message(
     )
     
     # Add assistant response
+    # Embed reasoning in content if present
+    final_content = result["answer"]
+    if result.get("reasoning_content"):
+        final_content = f"<reasoning>{result['reasoning_content']}</reasoning>\n\n{final_content}"
+
     chat_manager.add_message(
         session_id=session_id,
-        content=result["answer"],
+        content=final_content,
         role="assistant",
         token_count=result.get("retrieved_chunks", 0),
         model_used=result.get("model_used", "unknown"),
@@ -727,20 +735,120 @@ async def get_vision_content(session_id: str, request: Request):
     }
 
 
-@router.post("/feedback", response_model=FeedbackResponse)
-async def add_feedback(feedback: FeedbackCreate, request: Request):
-    """Add feedback for a chat message"""
+
+
+@router.post("/messages/{message_id}/feedback", response_model=FeedbackResponse)
+async def submit_feedback(
+    message_id: str,
+    feedback: FeedbackCreate,
+    request: Request,
+    background_tasks: BackgroundTasks
+):
+    """
+    Submit feedback for a chat message.
+    Auto-scores positive feedback for training dataset.
+    """
     chat_manager = get_chat_manager()
     
     try:
         user_id = get_current_user_id(request)
         
+        # Validate message exists first
+        try:
+            from Module3_NiruDB.chat_models import ChatMessage
+            with chat_manager._get_db_session() as db:
+                message = db.query(ChatMessage).filter(ChatMessage.id == message_id).first()
+                
+                if not message:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Message '{message_id}' not found. Please check the message ID."
+                    )
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error checking message: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail="Error validating message. Please try again."
+            )
+        
+        # Add feedback
         feedback_id = chat_manager.add_feedback(
-            message_id=feedback.message_id,
+            message_id=message_id,
             feedback_type=feedback.feedback_type,
             comment=feedback.comment,
             user_id=user_id
         )
+        
+        # Auto-score on positive feedback (background task)
+        if feedback.feedback_type in ["like", "positive"]:
+            logger.info(f"[Feedback] Positive feedback for {message_id} - triggering quality scoring")
+            background_tasks.add_task(
+                auto_score_from_feedback,
+                message_id=message_id,
+                chat_manager=chat_manager
+            )
+        
+        return FeedbackResponse(
+            id=feedback_id,
+            message_id=message_id,
+            feedback_type=feedback.feedback_type,
+            comment=feedback.comment,
+            created_at=datetime.utcnow()
+        )
+    except HTTPException:
+        raise
+    except ValueError as e:
+        # Message not found in add_feedback
+        raise HTTPException(
+            status_code=404,
+            detail=f"Invalid message ID: {str(e)}"
+        )
+    except Exception as e:
+        logger.error(f"Error adding feedback: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to submit feedback: {str(e)}"
+        )
+
+
+@router.post("/feedback", response_model=FeedbackResponse)
+async def submit_general_feedback(
+    feedback: FeedbackCreate,
+    request: Request,
+    background_tasks: BackgroundTasks
+):
+    """
+    Submit general feedback for a chat message.
+    
+    This endpoint accepts message_id in the request body for simpler API usage.
+    Auto-scores positive feedback for training dataset.
+    """
+    try:
+        chat_manager = request.app.state.chat_manager
+        
+        # Validate message exists
+        message = chat_manager.get_message(feedback.message_id)
+        if not message:
+            raise HTTPException(status_code=404, detail="Message not found")
+        
+        # Add feedback
+        feedback_id = chat_manager.add_feedback(
+            message_id=feedback.message_id,
+            feedback_type=feedback.feedback_type,
+            comment=feedback.comment
+        )
+        
+        # Auto-score on positive feedback (background task)
+        if feedback.feedback_type == "positive":
+            background_tasks.add_task(
+                auto_score_from_feedback,
+                message_id=feedback.message_id,
+                chat_manager=chat_manager
+            )
         
         return FeedbackResponse(
             id=feedback_id,
@@ -749,11 +857,27 @@ async def add_feedback(feedback: FeedbackCreate, request: Request):
             comment=feedback.comment,
             created_at=datetime.utcnow()
         )
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Error adding feedback: {e}")
+        logger.error(f"Error submitting general feedback: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+async def auto_score_from_feedback(message_id: str, chat_manager):
+    """Background task to score interaction when user gives positive feedback"""
+    try:
+        from Module4_NiruAPI.agents.quality_scorer import score_and_save_interaction
+        
+        result = await score_and_save_interaction(message_id, chat_manager)
+        
+        if result:
+            logger.info(f"[Feedback] Auto-scored {message_id} → training dataset ID: {result}")
+        else:
+            logger.info(f"[Feedback] Scored {message_id} but didn't meet training threshold")
+            
+    except Exception as e:
+        logger.error(f"[Feedback] Failed to auto-score {message_id}: {e}")
 
 
 @router.get("/feedback/stats")

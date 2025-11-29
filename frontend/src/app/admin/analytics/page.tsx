@@ -35,6 +35,106 @@ interface AnalyticsData {
   requests_over_time: Array<{ date: string; count: number }>
 }
 
+function FeedbackTrainingMetrics() {
+  const [metrics, setMetrics] = useState<any>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    const fetchMetrics = async () => {
+      try {
+        const [feedbackRes, trainingRes, clusterRes] = await Promise.all([
+          fetch("/api/v1/feedback/analytics"),
+          fetch("/api/v1/finetuning/stats"),
+          fetch("/api/v1/clusters/stats")
+        ])
+
+        const data = {
+          feedback: feedbackRes.ok ? await feedbackRes.json() : null,
+          training: trainingRes.ok ? await trainingRes.json() : null,
+          clusters: clusterRes.ok ? await clusterRes.json() : null
+        }
+
+        setMetrics(data)
+      } catch (error) {
+        console.error("Failed to fetch continuous learning metrics:", error)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchMetrics()
+  }, [])
+
+  if (loading) {
+    return (
+      <div className="flex justify-center py-6">
+        <Loader2 className="w-6 h-6 animate-spin" />
+      </div>
+    )
+  }
+
+  if (!metrics) return null
+
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <Card className="border-l-4 border-l-blue-500">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-medium">Total Feedback</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="text-2xl font-bold">
+            {metrics.feedback?.feedback_distribution?.total || 0}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {metrics.feedback?.feedback_distribution?.positive_rate?.toFixed(1)}% positive
+          </p>
+        </CardContent>
+      </Card>
+
+      <Card className="border-l-4 border-l-green-500">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-medium">Training Ready</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="text-2xl font-bold">
+            {metrics.training?.kept_for_training || 0}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Avg: {metrics.training?.average_score?.toFixed(2) || "N/A"}
+          </p>
+        </CardContent>
+      </Card>
+
+      <Card className="border-l-4 border-l-orange-500">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-medium">Pending Export</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="text-2xl font-bold">
+            {metrics.training?.awaiting_export || 0}
+          </div>
+          <p className="text-xs text-muted-foreground">Ready for fine-tuning</p>
+        </CardContent>
+      </Card>
+
+      <Card className="border-l-4 border-l-purple-500">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-medium">Task Clusters</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="text-2xl font-bold">
+            {metrics.clusters?.active_clusters || 0}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {metrics.clusters?.total_queries_classified || 0} queries classified
+          </p>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
+
 export default function AdminAnalyticsPage() {
   const { isAuthenticated, isAdmin, loading } = useAuth()
   const router = useRouter()
@@ -110,6 +210,13 @@ export default function AdminAnalyticsPage() {
             </div>
           ) : analytics ? (
             <>
+              {/* AmaniQ Continuous Learning Metrics */}
+              <div className="mb-6">
+                <h2 className="text-xl font-semibold mb-4">AmaniQ Continuous Learning</h2>
+                <FeedbackTrainingMetrics />
+              </div>
+
+              {/* Original System Analytics */}
               {/* Overview Stats */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <Card>

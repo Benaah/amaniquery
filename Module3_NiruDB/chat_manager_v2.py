@@ -804,33 +804,150 @@ class ChatDatabaseManagerV2:
         """Async create session"""
         if not self._async_available:
             return self.create_session(title, user_id)
-        
+            
         session_id = str(uuid.uuid4())
-        now = datetime.utcnow()
         
-        async with self.AsyncSessionFactory() as db:
+        async with self.AsyncSessionFactory() as session:
             chat_session = ChatSession(
                 id=session_id,
                 title=title,
                 user_id=user_id,
-                created_at=now,
-                updated_at=now,
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow(),
                 is_active=True
             )
-            db.add(chat_session)
-            await db.commit()
+            session.add(chat_session)
+            await session.commit()
         
+        # Cache update (sync cache is fine)
         self._session_cache.set(session_id, {
             "id": session_id,
             "title": title,
             "user_id": user_id,
             "is_active": True,
-            "created_at": now,
-            "updated_at": now
+            "created_at": datetime.utcnow(),
+            "updated_at": datetime.utcnow()
         })
+        self._message_count_cache.set(session_id, 0)
         
         return session_id
+
+    def get_user_interaction_history(
+        self,
+        user_id: str,
+        limit: int = 100
+    ) -> List[Dict[str, Any]]:
+        """
+        Get recent interaction history for a user across all sessions.
+        Returns a list of message dictionaries.
+        """
+        if not user_id:
+            return []
+            
+        with self._get_db_session() as db:
+            # Join ChatMessage with ChatSession to filter by user_id
+            # We want user messages and assistant responses
+            messages = db.query(ChatMessage).join(ChatSession).filter(
+                ChatSession.user_id == user_id
+            ).order_by(ChatMessage.created_at.desc()).limit(limit).all()
+            
+            # Reverse to get chronological order
+            messages.reverse()
+            
+            return [{
+                "role": msg.role,
+                "content": msg.content,
+                "created_at": msg.created_at.isoformat(),
+                "session_id": msg.session_id
+            } for msg in messages]
     
+    def get_recent_queries(
+        self,
+        limit: int = 50,
+        user_id: Optional[str] = None,
+        hours: int = 24
+    ) -> List[Dict[str, Any]]:
+        """
+        Get recent user queries for clustering analysis.
+        
+        Args:
+            limit: Maximum number of queries to return
+            user_id: Optional filter by user_id
+            hours: Only fetch queries from last N hours
+        
+        Returns:
+            List of query dictionaries with metadata
+        """
+        with self._get_db_session() as db:
+            from datetime import datetime, timedelta
+            cutoff_time = datetime.utcnow() - timedelta(hours=hours)
+            
+            query = db.query(ChatMessage).join(ChatSession).filter(
+                ChatMessage.role == "user",
+                ChatMessage.created_at >= cutoff_time
+            )
+            
+            if user_id:
+                query = query.filter(ChatSession.user_id == user_id)
+            
+            messages = query.order_by(ChatMessage.created_at.desc()).limit(limit).all()
+            
+            return [{
+                "id": msg.id,
+                "content": msg.content,
+                "created_at": msg.created_at.isoformat(),
+                "session_id": msg.session_id,
+                "user_id": msg.session.user_id if msg.session else None,
+            } for msg in messages]
+    
+    def get_query_intents(
+        self,
+        limit: int = 100
+    ) -> List[Dict[str, Any]]:
+        """
+        Get recent queries with their detected intents from sources metadata.
+        
+        Args:
+            limit: Maximum number of queries
+        
+        Returns:
+            List of queries with intent information
+        """
+        with self._get_db_session() as db:
+            # Get user messages and their corresponding assistant responses
+            user_messages = db.query(ChatMessage).filter(
+                ChatMessage.role == "user"
+            ).order_by(ChatMessage.created_at.desc()).limit(limit).all()
+            
+            results = []
+            for user_msg in user_messages:
+                # Find the next assistant message in the same session
+                assistant_msg = db.query(ChatMessage).filter(
+                    ChatMessage.session_id == user_msg.session_id,
+                    ChatMessage.role == "assistant",
+                    ChatMessage.created_at > user_msg.created_at
+                ).order_by(ChatMessage.created_at).first()
+                
+                intent = None
+                if assistant_msg and assistant_msg.sources:
+                    # Try to extract intent from sources metadata
+                    for source in assistant_msg.sources:
+                        if isinstance(source, dict) and "intent" in source:
+                            intent = source["intent"]
+                            break
+                
+                results.append({
+                    "query": user_msg.content,
+                    "intent": intent,
+                    "created_at": user_msg.created_at.isoformat(),
+                    "session_id": user_msg.session_id
+                })
+            
+            return results
+
+
+    
+
     async def acreate_session_with_message(
         self,
         content: str,

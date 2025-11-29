@@ -1,4 +1,4 @@
-# Module 6: NiruVoice - LiveKit Voice Agent
+# Module 6: NiruVoice - AmaniQ Voice Agent
 
 ![NiruVoice](../imgs/voice_module.png)
 
@@ -9,11 +9,11 @@ This module provides a professional voice agent using LiveKit Agents framework t
 - **Professional Voice Interface**: Clear, authoritative voice responses suitable for legal and policy queries
 - **RAG Integration**: Leverages AmaniQuery's existing RAG pipeline for accurate, sourced responses
 - **Conversation Context**: Maintains conversation history for multi-turn queries
-- **Multiple STT/TTS Providers**: Supports OpenAI Whisper, AssemblyAI (STT) and OpenAI TTS, Silero (TTS) with automatic failover
+- **Kimi Voice Integration**: Uses Kimi Voice for high-quality ASR and TTS, with LiveKit as fallback framework
 - **Session Management**: Tracks voice sessions with automatic timeout and cleanup (optional Redis persistence)
 - **Concise Responses**: Optimized for voice (2-3 minute max response length)
 - **Resilience & Error Handling**: Retry logic with exponential backoff, circuit breakers, and graceful error recovery
-- **Provider Failover**: Automatic failover between multiple STT/TTS providers with health monitoring
+- **Provider Failover**: Automatic failover between Kimi Voice and LiveKit with health monitoring
 - **Performance Optimizations**: Response caching, rate limiting, and connection pooling
 - **Monitoring & Observability**: Metrics collection, health checks, and Prometheus integration
 - **Scalable Architecture**: Designed for horizontal scaling with distributed session storage
@@ -49,6 +49,62 @@ Module6_NiruVoice/
 ├── requirements.txt         # Dependencies
 └── README.md               # This file
 ```
+
+## System Architecture Diagram
+
+```mermaid
+flowchart TD
+    A[User] --> B[Microphone]
+    B --> C[Kimi Voice ASR]
+    C --> D[AmaniQuery RAG Agent]
+    D --> E[Kimi Voice TTS]
+    E --> F[Speaker]
+    F --> A
+    
+    style A fill:#1e3a8a,stroke:#3b82f6,stroke-width:2px
+    style B fill:#1e40af,stroke:#60a5fa,stroke-width:2px
+    style C fill:#1d4ed8,stroke:#93c5fd,stroke-width:2px
+    style D fill:#1e3a8a,stroke:#3b82f6,stroke-width:2px
+    style E fill:#1d4ed8,stroke:#93c5fd,stroke-width:2px
+    style F fill:#1e40af,stroke:#60a5fa,stroke-width:2px
+    
+    linkStyle 0 stroke:#10b981,stroke-width:3px
+    linkStyle 1 stroke:#10b981,stroke-width:3px
+    linkStyle 2 stroke:#10b981,stroke-width:3px
+    linkStyle 3 stroke:#10b981,stroke-width:3px
+    linkStyle 4 stroke:#10b981,stroke-width:3px
+    linkStyle 5 stroke:#10b981,stroke-width:3px
+```
+
+## Design Inspirations
+
+### Futuristic System Architecture Illustration
+
+A clean, modern, futuristic system architecture diagram of a voice-enabled RAG chatbot in a dark-blue and cyan color palette. Show a central circular flow: User → Microphone → Kimi Voice (ASR) → AmaniQuery RAG Agent → Kimi Voice (TTS) → Speaker → User. Use glowing neon lines, floating holographic icons (mic, brain, document, speaker), subtle Kenyan flag accent colors (green, red, black), minimalistic style, dark background, high-tech UI aesthetic, isometric 3D perspective, professional infographic style --ar 16:9 --v 6 --stylize 250
+
+### African Futurism Lion Illustration
+
+A powerful African futurism illustration: a glowing holographic lion made of legal documents, parliamentary hansards, and news articles floating above Nairobi skyline at night. The lion's eyes emit blue light beams scanning documents. In the foreground, a Retrieval-Augmented Generation pipeline visualized as golden data streams flowing into the lion's mind. Kenyan flag colors subtly integrated, cinematic lighting, ultra-realistic, dramatic, national geographic style --ar 3:2 --v 6 --q 2
+
+### Split-Screen UI Concept
+
+Split-screen futuristic UI: left side shows sound waves entering a glowing AI brain labeled "Kimi-Audio 7B" performing ASR (speech → text), right side shows text transforming into golden sound waves (TTS). Center: a beautiful African woman speaking into a sleek microphone, her voice visualized as colorful African-patterned sound waves. Dark background with electric blue and purple neon accents, cyberpunk aesthetic with Kenyan cultural motifs --ar 16:9 --stylize 300
+
+### Isometric Dashboard Concept
+
+Isometric view of a sleek voice chatbot control center dashboard floating in space. Multiple panels showing: live audio waveform, transcription text, RAG retrieval results, TTS synthesis progress, and playback speaker. All connected by glowing data pipelines. African geometric patterns subtly in background, dark mode UI, Apple-inspired design language, premium tech aesthetic, blue-purple gradient lighting --ar 16:9
+
+### Kimi-Audio 7B Portrait
+
+Epic portrait of the Kimi-Audio 7B-Instruct model as a majestic crystalline AI core floating in space, emitting blue-purple audio waveforms in all directions. African woman's silhouette speaking Swahili/English, her voice transforming into digital tokens entering the core. Moonshot AI logo subtly visible. Cosmic background with Kenyan star constellation, ultra-realistic, cinematic, dramatic lighting --ar 3:2
+
+### ASR Process Infographic
+
+Step-by-step horizontal infographic: 1) African man speaking into phone → 2) Raw waveform → 3) Kimi-Audio processing (glowing brain icon) → 4) Clean transcribed text in Swahili/English. Each step connected by glowing arrows, clean white background with Kenyan color accents, modern flat design, educational illustration style --ar 21:9
+
+### TTS Process Infographic
+
+Reverse of ASR flow: Clean text → Kimi-Audio core → Natural African female voice waveform → Speaker playing response. Show expressive emotion in waveform (happy, confident tone). Same style as above, horizontal educational infographic, white background, Kenyan colors --ar 21:9
 
 ## Prerequisites
 
@@ -87,8 +143,8 @@ LIVEKIT_API_KEY=your_api_key
 LIVEKIT_API_SECRET=your_api_secret
 
 # Voice Agent Configuration (Optional - defaults shown)
-VOICE_STT_PROVIDER=openai          # openai,assemblyai (comma-separated for multiple)
-VOICE_TTS_PROVIDER=openai          # openai,silero (comma-separated for multiple)
+VOICE_STT_PROVIDER=kimi          # kimi,livekit (comma-separated for multiple)
+VOICE_TTS_PROVIDER=kimi          # kimi,livekit (comma-separated for multiple)
 VOICE_LANGUAGE=en                  # en or sw (Swahili)
 VOICE_MAX_RESPONSE_LENGTH=500      # Maximum words in response
 VOICE_ENABLE_FOLLOW_UPS=true      # Enable conversation context
@@ -196,13 +252,13 @@ LiveKit provides a playground for testing agents:
 
 ### STT Providers
 
-- **OpenAI Whisper** (default): High accuracy, supports multiple languages
-- **AssemblyAI**: Alternative STT provider with good accuracy
+- **Kimi Voice** (default): High-quality ASR using Kimi-Audio 7B model
+- **LiveKit**: Fallback STT provider with automatic failover
 
 ### TTS Providers
 
-- **OpenAI TTS** (default): Professional voices, natural speech
-- **Silero**: Open-source TTS, good for multiple languages
+- **Kimi Voice** (default): Professional voices using Kimi-Audio 7B model
+- **LiveKit**: Fallback TTS provider with automatic failover
 
 ### Language Support
 
@@ -212,12 +268,12 @@ LiveKit provides a playground for testing agents:
 ## How It Works
 
 1. **User Speaks**: Audio is captured and sent to LiveKit room
-2. **Speech-to-Text**: User's speech is converted to text using configured STT provider
+2. **Speech-to-Text**: User's speech is converted to text using Kimi Voice ASR (with LiveKit fallback)
 3. **RAG Query**: Text query is processed through AmaniQuery's RAG pipeline
 4. **Context Retrieval**: Relevant documents are retrieved from vector database
 5. **Response Generation**: LLM generates response based on retrieved context
 6. **Voice Formatting**: Response is formatted for natural speech (removes markdown, adds pauses)
-7. **Text-to-Speech**: Formatted response is converted to speech
+7. **Text-to-Speech**: Formatted response is converted to speech using Kimi Voice TTS (with LiveKit fallback)
 8. **Audio Output**: Speech is sent back to user through LiveKit room
 
 ## Integration with Existing Modules

@@ -34,6 +34,7 @@ import { ImagePreview } from "./ImagePreview"
 import { SHARE_PLATFORMS } from "./constants"
 import { AmaniQueryResponse } from "../AmaniQueryResponse"
 import { ImpactCalculator } from "./ImpactCalculator"
+import { ThinkingProcess } from "../ThinkingProcess"
 import type { Message, Source, SharePlatform, ShareSheetState, StructuredResponse, InteractiveWidget } from "./types"
 
 interface MessageListProps {
@@ -409,9 +410,30 @@ export function MessageList({
                               ? "prose-headings:text-primary-foreground prose-p:text-primary-foreground prose-strong:text-primary-foreground prose-em:text-primary-foreground prose-code:text-primary-foreground prose-pre:text-primary-foreground prose-a:text-primary-foreground/90 hover:prose-a:text-primary-foreground prose-li:text-primary-foreground" 
                               : ""
                           }`}>
-                            <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw, rehypeHighlight]}>
-                              {formatMessageWithCitations(message.content, message.sources)}
-                            </ReactMarkdown>
+                            {/* Check for reasoning block */}
+                            {(() => {
+                              const reasoningMatch = message.content.match(/<reasoning>([\s\S]*?)<\/reasoning>/);
+                              const reasoning = reasoningMatch ? reasoningMatch[1] : null;
+                              const displayContent = message.content.replace(/<reasoning>[\s\S]*?<\/reasoning>/, '').trim();
+
+                              return (
+                                <>
+                                  {reasoning && (
+                                    <div className="mb-4 not-prose">
+                                      {/* Import ThinkingProcess dynamically or ensure it's imported at top */}
+                                      <ThinkingProcess 
+                                        reasoning={reasoning} 
+                                        defaultExpanded={false}
+                                        className="bg-background/50"
+                                      />
+                                    </div>
+                                  )}
+                                  <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw, rehypeHighlight]}>
+                                    {formatMessageWithCitations(displayContent, message.sources)}
+                                  </ReactMarkdown>
+                                </>
+                              );
+                            })()}
                             
                             {/* Impact Agent Widgets for non-AK-RAG responses too (if any) */}
                             {message.interactive_widgets && message.interactive_widgets.length > 0 && (

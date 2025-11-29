@@ -815,6 +815,55 @@ async def submit_feedback(
         )
 
 
+@router.post("/feedback", response_model=FeedbackResponse)
+async def submit_general_feedback(
+    feedback: FeedbackCreate,
+    request: Request,
+    background_tasks: BackgroundTasks
+):
+    """
+    Submit general feedback for a chat message.
+    
+    This endpoint accepts message_id in the request body for simpler API usage.
+    Auto-scores positive feedback for training dataset.
+    """
+    try:
+        chat_manager = request.app.state.chat_manager
+        
+        # Validate message exists
+        message = chat_manager.get_message(feedback.message_id)
+        if not message:
+            raise HTTPException(status_code=404, detail="Message not found")
+        
+        # Add feedback
+        feedback_id = chat_manager.add_feedback(
+            message_id=feedback.message_id,
+            feedback_type=feedback.feedback_type,
+            comment=feedback.comment
+        )
+        
+        # Auto-score on positive feedback (background task)
+        if feedback.feedback_type == "positive":
+            background_tasks.add_task(
+                auto_score_from_feedback,
+                message_id=feedback.message_id,
+                chat_manager=chat_manager
+            )
+        
+        return FeedbackResponse(
+            id=feedback_id,
+            message_id=feedback.message_id,
+            feedback_type=feedback.feedback_type,
+            comment=feedback.comment,
+            created_at=datetime.utcnow()
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error submitting general feedback: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 async def auto_score_from_feedback(message_id: str, chat_manager):
     """Background task to score interaction when user gives positive feedback"""
     try:
@@ -829,25 +878,6 @@ async def auto_score_from_feedback(message_id: str, chat_manager):
             
     except Exception as e:
         logger.error(f"[Feedback] Failed to auto-score {message_id}: {e}")
-
-
-# Backward compatibility - old endpoint
-@router.post("/feedback", response_model=FeedbackResponse)
-async def add_feedback_legacy(
-    feedback: FeedbackCreate,
-    request: Request,
-    background_tasks: BackgroundTasks
-):
-    """
-    Legacy feedback endpoint (deprecated).
-    Use /messages/{message_id}/feedback instead.
-    """
-    return await submit_feedback(
-        message_id=feedback.message_id,
-        feedback=feedback,
-        request=request,
-        background_tasks=background_tasks
-    )
 
 
 @router.get("/feedback/stats")

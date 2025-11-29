@@ -694,7 +694,7 @@ ${researchProcess.tools_used && researchProcess.tools_used.length > 0
         headers,
         body: JSON.stringify({
           message_id: messageId,
-          feedback_type: feedbackType
+          feedback_type: feedbackType === "like" ? "positive" : "negative"
         })
       })
       

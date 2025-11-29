@@ -278,7 +278,7 @@ class TwitterScraperTool:
             max_results: Maximum number of results (max 100)
             search_type: Type of search (tweet, user, etc.)
             lang: Language code (e.g., 'en', 'sw' for Swahili)
-            result_type: Result type ('recent', 'popular', 'mixed')
+            result_type: Result type (deprecated - no longer supported by twikit)
             
         Returns:
             Twitter search results with sources and metadata
@@ -308,8 +308,8 @@ class TwitterScraperTool:
                     # Add optional parameters
                     if lang:
                         search_params['lang'] = lang
-                    if result_type:
-                        search_params['result_type'] = result_type
+                    
+                    # Note: result_type parameter removed as it's not supported in current twikit version
                     
                     # Perform search
                     tweets = self.client.search_tweet(**search_params)

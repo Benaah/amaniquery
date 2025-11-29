@@ -804,33 +804,65 @@ class ChatDatabaseManagerV2:
         """Async create session"""
         if not self._async_available:
             return self.create_session(title, user_id)
-        
+            
         session_id = str(uuid.uuid4())
-        now = datetime.utcnow()
         
-        async with self.AsyncSessionFactory() as db:
+        async with self.AsyncSessionFactory() as session:
             chat_session = ChatSession(
                 id=session_id,
                 title=title,
                 user_id=user_id,
-                created_at=now,
-                updated_at=now,
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow(),
                 is_active=True
             )
-            db.add(chat_session)
-            await db.commit()
+            session.add(chat_session)
+            await session.commit()
         
+        # Cache update (sync cache is fine)
         self._session_cache.set(session_id, {
             "id": session_id,
             "title": title,
             "user_id": user_id,
             "is_active": True,
-            "created_at": now,
-            "updated_at": now
+            "created_at": datetime.utcnow(),
+            "updated_at": datetime.utcnow()
         })
+        self._message_count_cache.set(session_id, 0)
         
         return session_id
+
+    def get_user_interaction_history(
+        self,
+        user_id: str,
+        limit: int = 100
+    ) -> List[Dict[str, Any]]:
+        """
+        Get recent interaction history for a user across all sessions.
+        Returns a list of message dictionaries.
+        """
+        if not user_id:
+            return []
+            
+        with self._get_db_session() as db:
+            # Join ChatMessage with ChatSession to filter by user_id
+            # We want user messages and assistant responses
+            messages = db.query(ChatMessage).join(ChatSession).filter(
+                ChatSession.user_id == user_id
+            ).order_by(ChatMessage.created_at.desc()).limit(limit).all()
+            
+            # Reverse to get chronological order
+            messages.reverse()
+            
+            return [{
+                "role": msg.role,
+                "content": msg.content,
+                "created_at": msg.created_at.isoformat(),
+                "session_id": msg.session_id
+            } for msg in messages]
+
     
+
     async def acreate_session_with_message(
         self,
         content: str,

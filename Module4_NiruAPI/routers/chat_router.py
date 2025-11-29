@@ -289,13 +289,13 @@ async def add_chat_message(session_id: str, message: ChatMessageCreate, request:
                 # Return streaming response
                 return await _handle_streaming_message(
                     session_id, session, message, chat_manager,
-                    use_vision_rag, session_images
+                    use_vision_rag, session_images, user_id=user_id
                 )
             else:
                 # Return regular response
                 return await _handle_regular_message(
                     session_id, session, message, chat_manager,
-                    use_vision_rag, session_images
+                    use_vision_rag, session_images, user_id=user_id
                 )
         else:
             # Non-user message (e.g., system)
@@ -319,7 +319,7 @@ async def add_chat_message(session_id: str, message: ChatMessageCreate, request:
 
 async def _handle_streaming_message(
     session_id: str, session, message: ChatMessageCreate, chat_manager,
-    use_vision_rag: bool, session_images: list
+    use_vision_rag: bool, session_images: list, user_id: Optional[str] = None
 ):
     """Handle streaming message response"""
     # Process query
@@ -365,6 +365,7 @@ async def _handle_streaming_message(
                 "original_question": message.content,
                 "messages": conversation_history + [{"role": "user", "content": message.content}],
                 "thread_id": session_id,
+                "user_id": user_id,
             }
             
             # Execute graph directly (THE BRAIN)
@@ -495,7 +496,7 @@ async def _handle_streaming_message(
 
 async def _handle_regular_message(
     session_id: str, session, message: ChatMessageCreate, chat_manager,
-    use_vision_rag: bool, session_images: list
+    use_vision_rag: bool, session_images: list, user_id: Optional[str] = None
 ):
     """Handle regular (non-streaming) message response"""
     if use_vision_rag:
@@ -534,6 +535,7 @@ async def _handle_regular_message(
                 message=message.content,
                 thread_id=session_id,
                 message_history=conversation_history,
+                user_id=user_id,
             )
             
             # Format for chat response

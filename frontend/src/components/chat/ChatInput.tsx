@@ -86,8 +86,10 @@ export function ChatInput({
             />
           </div>
         )}
-        <div className="rounded-2xl border border-white/10 bg-white/5 px-2 md:px-3 py-2 shadow-lg backdrop-blur-lg">
-          <div className="flex items-end gap-1.5 md:gap-2">
+        <div className="relative group rounded-2xl">
+          <div className="absolute -inset-0.5 bg-gradient-to-r from-blue-500 to-purple-600 rounded-2xl blur opacity-30 group-hover:opacity-75 transition duration-1000 group-hover:duration-200 animate-tilt"></div>
+          <div className="relative rounded-2xl border border-white/10 bg-black/90 px-2 md:px-3 py-2 shadow-lg backdrop-blur-lg">
+            <div className="flex items-end gap-1.5 md:gap-2">
             <div className="flex items-center gap-0.5 md:gap-1 flex-shrink-0">
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -188,7 +190,7 @@ export function ChatInput({
                     ? "Ask detailed legal research questions..."
                     : "Ask about Kenyan law..."
                 }
-                className="w-full border-0 bg-transparent text-sm md:text-base focus-visible:ring-0 py-2 md:py-2 resize-none min-h-[44px] max-h-[200px] overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
+                className="w-full border-0 bg-transparent text-sm md:text-base focus-visible:ring-0 py-2 md:py-2 resize-none min-h-[44px] max-h-[200px] overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] text-white placeholder:text-white/50"
                 disabled={isLoading}
                 rows={1}
               />
@@ -219,8 +221,9 @@ export function ChatInput({
             <Button type="submit" disabled={isLoading || (!input.trim() && selectedFiles.length === 0)} className="h-11 w-11 md:h-9 md:w-9 rounded-xl flex-shrink-0">
               {isLoading ? <Loader2 className="w-4 h-4 md:w-3.5 md:h-3.5 animate-spin" /> : <Send className="w-4 h-4 md:w-3.5 md:h-3.5" />}
             </Button>
-          </div>
+          </div>  
         </div>
+      </div>
       </form>
     </div>
   )

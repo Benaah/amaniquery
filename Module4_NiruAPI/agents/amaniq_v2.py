@@ -236,6 +236,10 @@ class AmaniQState(TypedDict, total=False):
     error: Optional[str]
     error_details: List[str]
     
+    # User Context
+    user_id: str
+    user_profile: Dict[str, Any]
+    
     # Timestamps
     started_at: str
     completed_at: Optional[str]
@@ -309,7 +313,47 @@ async def entry_node(state: AmaniQState) -> AmaniQState:
         "from_cache": False,
         "prefetch_used": False,
         "started_at": datetime.utcnow().isoformat(),
+        "user_id": state.get("user_id"),
+        "user_profile": state.get("user_profile"),
     }
+    
+    # Build User Profile if missing
+    user_id = state.get("user_id")
+    if user_id and not updates.get("user_profile"):
+        try:
+            from Module3_NiruDB.chat_manager_v2 import get_chat_manager
+            chat_manager = get_chat_manager()
+            history = chat_manager.get_user_interaction_history(user_id, limit=100)
+            
+            if history:
+                logger.info(f"Building user profile from {len(history)} interactions for {user_id}")
+                config = AmaniQConfig()
+                client = MoonshotClient.get_client(config)
+                
+                profile_prompt = f"""
+                Build a user profile from the last {len(history)} interactions of user {user_id}.
+                
+                Return a JSON object with EXACTLY these keys:
+                - "expertise_level": (layperson / lawyer / researcher / journalist)
+                - "task_groups": [list of top 3 recurring task groups]
+                - "preferred_answer_style": (concise / detailed / bullet_points / kenya_law_format)
+                - "frequent_topics": [list of frequently tracked bills or topics]
+                
+                Interactions:
+                {json.dumps(history[-20:], default=str)}
+                """
+                
+                response = client.chat.completions.create(
+                    model="moonshot-v1-8k",
+                    messages=[{"role": "user", "content": profile_prompt}],
+                    response_format={"type": "json_object"}
+                )
+                
+                user_profile = json.loads(response.choices[0].message.content)
+                updates["user_profile"] = user_profile
+                logger.info(f"Built user profile: {user_profile}")
+        except Exception as e:
+            logger.warning(f"Failed to build user profile: {e}")
     
     # Check answer cache
     try:
@@ -355,7 +399,7 @@ async def supervisor_node(state: AmaniQState) -> AmaniQState:
         supervisor_messages = build_supervisor_messages(
             user_query=query,
             message_history=messages_history,
-            user_context=None
+            user_context=state.get("user_profile")
         )
         
         # Check token count
@@ -562,6 +606,7 @@ async def responder_node(state: AmaniQState) -> AmaniQState:
         tool_results=tool_results,
         supervisor_decision=supervisor_decision,
         message_history=state.get("messages", []),
+        user_context=state.get("user_profile")
     )
     
     try:
@@ -918,6 +963,7 @@ class AmaniQAgent:
         thread_id: Optional[str] = None,
         message_history: Optional[List[Dict[str, Any]]] = None,
         metadata: Optional[Dict[str, Any]] = None,
+        user_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Process a chat message and return response.
@@ -963,6 +1009,7 @@ class AmaniQAgent:
             "messages": messages,
             "original_question": message,
             "current_query": message,
+            "user_id": user_id,
         }
         
         try:

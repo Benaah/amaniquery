@@ -450,6 +450,18 @@ def build_responder_messages(
         {"role": "system", "content": RESPONDER_SYSTEM_PROMPT}
     ]
     
+    # Add context about user if available
+    if user_context:
+        context_str = f"""
+## USER CONTEXT
+- Expertise Level: {user_context.get('expertise_level', 'unknown')}
+- Role/Tasks: {', '.join(user_context.get('task_groups', []))}
+- Frequent Topics: {', '.join(user_context.get('frequent_topics', []))}
+- Preferred Style: {user_context.get('preferred_answer_style', 'standard')}
+- Session Queries So Far: {user_context.get('session_query_count', 0)}
+"""
+        messages[0]["content"] += context_str
+    
     # Add conversation history (last 5 exchanges for context)
     if message_history:
         for msg in message_history[-10:]:

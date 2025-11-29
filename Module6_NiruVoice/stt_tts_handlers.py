@@ -13,7 +13,7 @@ class STTHandler:
         Initialize STT handler
         
         Args:
-            provider: STT provider (openai, assemblyai)
+            provider: STT provider (openai, assemblyai, kimi)
             config: Provider-specific configuration
         """
         self.provider = provider
@@ -33,6 +33,13 @@ class STTHandler:
                 "provider": "assemblyai",
                 "language_code": self.config.get("language_code", "en"),
             }
+        elif self.provider == "kimi":
+            return {
+                "provider": "kimi",
+                "model_path": self.config.get("model_path", "moonshotai/Kimi-Audio-7B-Instruct"),
+                "device": self.config.get("device", "cuda"),
+                "language": self.config.get("language", "en"),
+            }
         else:
             raise ValueError(f"Unsupported STT provider: {self.provider}")
 
@@ -45,7 +52,7 @@ class TTSHandler:
         Initialize TTS handler
         
         Args:
-            provider: TTS provider (openai, silero)
+            provider: TTS provider (openai, silero, kimi)
             config: Provider-specific configuration
         """
         self.provider = provider
@@ -64,6 +71,13 @@ class TTSHandler:
             return {
                 "provider": "silero",
                 "speaker": self.config.get("speaker", "en_0"),
+            }
+        elif self.provider == "kimi":
+            return {
+                "provider": "kimi",
+                "model_path": self.config.get("model_path", "moonshotai/Kimi-Audio-7B-Instruct"),
+                "device": self.config.get("device", "cuda"),
+                "voice": self.config.get("voice", "default"),
             }
         else:
             raise ValueError(f"Unsupported TTS provider: {self.provider}")

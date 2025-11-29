@@ -20,7 +20,19 @@ def download_models():
     print(f"📥 Downloading NiruSense embedding model: {niru_embedding}...")
     SentenceTransformer(niru_embedding, trust_remote_code=True)
     
-    # 3. NiruSense NLP Models
+    # 3. Kimi Audio Model (for voice functionality)
+    kimi_model = "moonshotai/Kimi-Audio-7B-Instruct"
+    print(f"📥 Downloading Kimi Audio model: {kimi_model}...")
+    try:
+        from transformers import AutoProcessor, AutoModel
+        AutoProcessor.from_pretrained(kimi_model, trust_remote_code=True)
+        AutoModel.from_pretrained(kimi_model, trust_remote_code=True)
+        print(f"✅ Successfully downloaded {kimi_model}")
+    except Exception as e:
+        print(f"⚠️  Kimi Audio model download skipped (optional): {e}")
+        # Non-critical - continue with other models
+    
+    # 4. NiruSense NLP Models
     models = [
         # Language ID
         ("papluca/xlm-roberta-base-language-detection", AutoModelForSequenceClassification),

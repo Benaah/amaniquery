@@ -66,6 +66,7 @@ from Module4_NiruAPI.routers.hybrid_rag_router import router as hybrid_rag_route
 from Module4_NiruAPI.routers.nirusense_router import router as nirusense_router
 from Module4_NiruAPI.routers.clustering_router import router as clustering_router
 from Module4_NiruAPI.routers.finetuning_router import router as finetuning_router
+from Module4_NiruAPI.routers.feedback_analytics_router import router as feedback_analytics_router
 
 
 
@@ -754,6 +755,7 @@ app.include_router(hybrid_rag_router)
 app.include_router(nirusense_router)
 app.include_router(clustering_router)
 app.include_router(finetuning_router)
+app.include_router(feedback_analytics_router)
 
 
 

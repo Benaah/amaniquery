@@ -7,7 +7,7 @@ import asyncio
 from datetime import datetime
 from typing import Optional, Dict, List, Any
 from pathlib import Path
-from fastapi import APIRouter, HTTPException, Request, Depends, File, UploadFile
+from fastapi import APIRouter, HTTPException, Request, Depends, File, UploadFile, BackgroundTasks
 from fastapi.responses import FileResponse, StreamingResponse
 from loguru import logger
 from pydantic import BaseModel
@@ -729,33 +729,119 @@ async def get_vision_content(session_id: str, request: Request):
     }
 
 
-@router.post("/feedback", response_model=FeedbackResponse)
-async def add_feedback(feedback: FeedbackCreate, request: Request):
-    """Add feedback for a chat message"""
+
+
+@router.post("/messages/{message_id}/feedback", response_model=FeedbackResponse)
+async def submit_feedback(
+    message_id: str,
+    feedback: FeedbackCreate,
+    request: Request,
+    background_tasks: BackgroundTasks
+):
+    """
+    Submit feedback for a chat message.
+    Auto-scores positive feedback for training dataset.
+    """
     chat_manager = get_chat_manager()
     
     try:
         user_id = get_current_user_id(request)
         
+        # Validate message exists first
+        try:
+            from Module3_NiruDB.chat_models import ChatMessage
+            with chat_manager._get_db_session() as db:
+                message = db.query(ChatMessage).filter(ChatMessage.id == message_id).first()
+                
+                if not message:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Message '{message_id}' not found. Please check the message ID."
+                    )
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error checking message: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail="Error validating message. Please try again."
+            )
+        
+        # Add feedback
         feedback_id = chat_manager.add_feedback(
-            message_id=feedback.message_id,
+            message_id=message_id,
             feedback_type=feedback.feedback_type,
             comment=feedback.comment,
             user_id=user_id
         )
         
+        # Auto-score on positive feedback (background task)
+        if feedback.feedback_type in ["like", "positive"]:
+            logger.info(f"[Feedback] Positive feedback for {message_id} - triggering quality scoring")
+            background_tasks.add_task(
+                auto_score_from_feedback,
+                message_id=message_id,
+                chat_manager=chat_manager
+            )
+        
         return FeedbackResponse(
             id=feedback_id,
-            message_id=feedback.message_id,
+            message_id=message_id,
             feedback_type=feedback.feedback_type,
             comment=feedback.comment,
             created_at=datetime.utcnow()
         )
+    except HTTPException:
+        raise
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        # Message not found in add_feedback
+        raise HTTPException(
+            status_code=404,
+            detail=f"Invalid message ID: {str(e)}"
+        )
     except Exception as e:
         logger.error(f"Error adding feedback: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        import traceback
+        logger.error(traceback.format_exc())
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to submit feedback: {str(e)}"
+        )
+
+
+async def auto_score_from_feedback(message_id: str, chat_manager):
+    """Background task to score interaction when user gives positive feedback"""
+    try:
+        from Module4_NiruAPI.agents.quality_scorer import score_and_save_interaction
+        
+        result = await score_and_save_interaction(message_id, chat_manager)
+        
+        if result:
+            logger.info(f"[Feedback] Auto-scored {message_id} → training dataset ID: {result}")
+        else:
+            logger.info(f"[Feedback] Scored {message_id} but didn't meet training threshold")
+            
+    except Exception as e:
+        logger.error(f"[Feedback] Failed to auto-score {message_id}: {e}")
+
+
+# Backward compatibility - old endpoint
+@router.post("/feedback", response_model=FeedbackResponse)
+async def add_feedback_legacy(
+    feedback: FeedbackCreate,
+    request: Request,
+    background_tasks: BackgroundTasks
+):
+    """
+    Legacy feedback endpoint (deprecated).
+    Use /messages/{message_id}/feedback instead.
+    """
+    return await submit_feedback(
+        message_id=feedback.message_id,
+        feedback=feedback,
+        request=request,
+        background_tasks=background_tasks
+    )
 
 
 @router.get("/feedback/stats")

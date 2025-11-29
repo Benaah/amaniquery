@@ -540,7 +540,8 @@ async def _handle_regular_message(
             
             # Format for chat response
             result = {
-                "answer": amaniq_result.get("answer", ""),
+                "answer": amaniq_result.get("content", amaniq_result.get("answer", "")),
+                "reasoning_content": amaniq_result.get("reasoning_content", ""),
                 "sources": amaniq_result.get("sources", []),
                 "retrieved_chunks": len(amaniq_result.get("sources", [])),
                 "model_used": f"AmaniQ-v2-{amaniq_result.get('persona', 'wanjiku')}",
@@ -576,9 +577,14 @@ async def _handle_regular_message(
     )
     
     # Add assistant response
+    # Embed reasoning in content if present
+    final_content = result["answer"]
+    if result.get("reasoning_content"):
+        final_content = f"<reasoning>{result['reasoning_content']}</reasoning>\n\n{final_content}"
+
     chat_manager.add_message(
         session_id=session_id,
-        content=result["answer"],
+        content=final_content,
         role="assistant",
         token_count=result.get("retrieved_chunks", 0),
         model_used=result.get("model_used", "unknown"),

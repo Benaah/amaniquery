@@ -7,8 +7,6 @@ import re
 from typing import Dict, Any
 from loguru import logger
 
-from Module4_NiruAPI.agents.amaniq_v2 import MoonshotClient, AmaniQConfig
-
 
 # =============================================================================
 # REACT PROMPT TEMPLATE
@@ -74,6 +72,7 @@ def react_agent_node(state: Dict[str, Any]) -> Dict[str, Any]:
         }
     
     # Initialize LLM client
+    from Module4_NiruAPI.agents.amaniq_v2 import MoonshotClient, AmaniQConfig
     config = AmaniQConfig()
     client = MoonshotClient.get_client(config)
     

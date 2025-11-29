@@ -44,7 +44,7 @@ interface ReasoningPath {
 }
 
 interface ThinkingProcessProps {
-  reasoning: ReasoningPath
+  reasoning: ReasoningPath | string
   className?: string
   defaultExpanded?: boolean
 }
@@ -57,6 +57,46 @@ export function ThinkingProcess({
   const [isExpanded, setIsExpanded] = useState(defaultExpanded)
   const [expandedSteps, setExpandedSteps] = useState<Set<number>>(new Set())
 
+  // Handle string reasoning (new format)
+  if (typeof reasoning === 'string') {
+    return (
+      <Card className={cn("border-2 border-primary/20", className)}>
+        <CardHeader 
+          className="cursor-pointer hover:bg-accent/50 transition-colors py-3"
+          onClick={() => setIsExpanded(!isExpanded)}
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Brain className="h-5 w-5 text-primary" />
+              <CardTitle className="text-base">Thinking Process</CardTitle>
+            </div>
+            <div className="flex items-center gap-3">
+              <Badge variant="secondary" className="font-mono text-xs">
+                Analysis
+              </Badge>
+              {isExpanded ? (
+                <ChevronDown className="h-5 w-5 text-muted-foreground" />
+              ) : (
+                <ChevronRight className="h-5 w-5 text-muted-foreground" />
+              )}
+            </div>
+          </div>
+        </CardHeader>
+
+        {isExpanded && (
+          <CardContent className="pt-0 pb-4">
+            <ScrollArea className="max-h-[400px]">
+              <div className="bg-muted/30 p-4 rounded-lg text-sm text-muted-foreground whitespace-pre-wrap font-mono leading-relaxed">
+                {reasoning}
+              </div>
+            </ScrollArea>
+          </CardContent>
+        )}
+      </Card>
+    )
+  }
+
+  // Handle structured reasoning (legacy/future format)
   const toggleStep = (step: number) => {
     const newExpanded = new Set(expandedSteps)
     if (newExpanded.has(step)) {

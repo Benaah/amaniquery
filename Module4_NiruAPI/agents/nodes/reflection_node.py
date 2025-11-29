@@ -6,7 +6,7 @@ import json
 from typing import Dict, Any, List
 from loguru import logger
 
-from Module4_NiruAPI.agents.amaniq_v2 import MoonshotClient, AmaniQConfig
+
 
 
 # =============================================================================
@@ -80,6 +80,7 @@ def reflection_node(state: Dict[str, Any]) -> Dict[str, Any]:
     
     try:
         # Get LLM critique
+        from Module4_NiruAPI.agents.amaniq_v2 import MoonshotClient, AmaniQConfig
         config = AmaniQConfig()
         client = MoonshotClient.get_client(config)
         

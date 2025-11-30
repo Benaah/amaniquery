@@ -23,7 +23,9 @@ RUN apt-get update && \
 WORKDIR /app
 
 COPY requirements.txt ./
+RUN pip install --no-cache-dir torch
 RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir flash-attn || true
 
 # Pre-download embedding model to bake into image
 COPY download_model.py .

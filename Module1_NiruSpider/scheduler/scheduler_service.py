@@ -342,12 +342,21 @@ class CrawlerRunner:
                 exit_code = process.returncode
                 
                 if exit_code == 0:
+                    # Log success with last few lines of output
                     logger.info(f"Crawler {crawler_type.value} completed successfully")
+                    if stdout:
+                        last_lines = '\n'.join(stdout.strip().split('\n')[-10:])
+                        logger.debug(f"Crawler {crawler_type.value} output (last 10 lines):\n{last_lines}")
                     if callback:
                         callback(crawler_type.value, True, "Completed successfully")
                     return True
                 else:
+                    # Log failure with full output for debugging
                     logger.error(f"Crawler {crawler_type.value} failed with exit code {exit_code}")
+                    if stdout:
+                        logger.error(f"Crawler {crawler_type.value} output:\n{stdout}")
+                    else:
+                        logger.error(f"Crawler {crawler_type.value} produced no output")
                     if callback:
                         callback(crawler_type.value, False, f"Exit code: {exit_code}")
                     return False

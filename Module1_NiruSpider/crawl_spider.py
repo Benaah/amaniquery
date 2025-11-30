@@ -39,7 +39,7 @@ class SpiderRunner:
     def _timeout_handler(self):
         """Handle timeout - stop the crawler gracefully"""
         if not self._shutdown_event.is_set():
-            print(f"\n⏰ Timeout reached ({self.timeout}s). Stopping spider gracefully...")
+            print(f"\n[TIMEOUT] Timeout reached ({self.timeout}s). Stopping spider gracefully...")
             self.timed_out = True
             if self.process:
                 try:
@@ -53,7 +53,7 @@ class SpiderRunner:
     def _signal_handler(self, signum, frame):
         """Handle termination signals"""
         signal_name = signal.Signals(signum).name if hasattr(signal, 'Signals') else str(signum)
-        print(f"\n🛑 Received {signal_name}. Stopping spider gracefully...")
+        print(f"\n[STOP] Received {signal_name}. Stopping spider gracefully...")
         self._shutdown_event.set()
         if self.process:
             try:
@@ -79,7 +79,7 @@ class SpiderRunner:
         }
         
         if self.spider_name not in spider_mapping:
-            print(f"❌ Unknown spider: {self.spider_name}")
+            print(f"[ERROR] Unknown spider: {self.spider_name}")
             return False
         
         display_name, spider_class_path = spider_mapping[self.spider_name]
@@ -104,9 +104,9 @@ class SpiderRunner:
             timer.daemon = True
             timer.start()
             
-            print(f"🕷️  Starting spider: {self.spider_name}")
-            print(f"⏱️  Timeout set to: {self.timeout}s ({self.timeout // 60} minutes)")
-            print(f"🚀 Starting crawl for {display_name}...\n")
+            print(f"[START] Starting spider: {self.spider_name}")
+            print(f"[INFO] Timeout set to: {self.timeout}s ({self.timeout // 60} minutes)")
+            print(f"[CRAWL] Starting crawl for {display_name}...\n")
             
             # Add spider to process
             self.process.crawl(spider_class)
@@ -119,17 +119,17 @@ class SpiderRunner:
             self._shutdown_event.set()
             
             if self.timed_out:
-                print(f"\n⚠️  {display_name} crawl stopped due to timeout!")
+                print(f"\n[WARNING] {display_name} crawl stopped due to timeout!")
                 return False
             else:
-                print(f"\n✅ {display_name} crawl complete!")
+                print(f"\n[SUCCESS] {display_name} crawl complete!")
                 return True
             
         except KeyboardInterrupt:
-            print(f"\n🛑 {display_name} crawl interrupted by user")
+            print(f"\n[STOP] {display_name} crawl interrupted by user")
             return False
         except Exception as e:
-            print(f"❌ Error running spider {self.spider_name}: {e}")
+            print(f"[ERROR] Error running spider {self.spider_name}: {e}")
             import traceback
             traceback.print_exc()
             return False

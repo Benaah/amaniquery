@@ -90,7 +90,7 @@ export function AdminSidebar() {
       {/* Sidebar */}
       <aside
         className={cn(
-          "fixed left-0 top-0 h-full bg-background border-r z-40 transition-all duration-300 ease-in-out",
+          "fixed left-0 top-0 h-full bg-background border-r z-40 transition-all duration-300 ease-in-out overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none']",
           isMobile
             ? cn(
                 "w-64",

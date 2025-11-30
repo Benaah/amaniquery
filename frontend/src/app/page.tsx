@@ -88,7 +88,7 @@ export default function LandingPage() {
 
       <div className="relative z-10">
         {/* Header */}
-        <header className="border-b bg-background/80 backdrop-blur-sm">
+        <header className="fixed top-0 left-0 right-0 z-50 border-b bg-background/80 backdrop-blur-sm">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex justify-between items-center py-3 md:py-4">
               <div className="flex items-center space-x-2">
@@ -140,7 +140,7 @@ export default function LandingPage() {
         </header>
 
         {/* Hero Section */}
-        <section className="py-12 md:py-20 px-4 sm:px-6 lg:px-8">
+        <section className="pt-24 pb-12 md:pt-32 md:pb-20 px-4 sm:px-6 lg:px-8">
           <div className="max-w-7xl mx-auto text-center">
             <div className="mb-6 md:mb-8">
               <Badge variant="secondary" className="mb-3 md:mb-4 text-xs md:text-sm">

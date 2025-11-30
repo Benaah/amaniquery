@@ -64,3 +64,9 @@ tqdm
 colorama  # Colored terminal output
 loguru  # Advanced logging
 psutil  # System monitoring
+
+# API Gateway features
+slowapi  # Rate limiting
+PyJWT  # JWT handling
+passlib[bcrypt]  # Password hashing for API keys
+python-jose[cryptography]  # JWT with cryptography

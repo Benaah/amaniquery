@@ -831,8 +831,11 @@ async def submit_general_feedback(
         chat_manager = get_chat_manager()
         
         # Validate message exists
-        message = chat_manager.get_message(feedback.message_id)
-        if not message:
+        logger.info(f"Checking message_id: {feedback.message_id}")
+        messages = chat_manager.get_messages_by_message_id(feedback.message_id)
+        logger.info(f"Found {len(messages)} messages for message_id: {feedback.message_id}")
+        if not messages:
+            logger.warning(f"Message not found: {feedback.message_id}")
             raise HTTPException(status_code=404, detail="Message not found")
         
         # Add feedback

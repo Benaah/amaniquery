@@ -27,7 +27,7 @@ class KenyaLawNewSpider(scrapy.Spider):
     Designed to crawl all legal resources with pagination support
     """
     
-    name = "kenya_law_new"
+    name = "kenya_law"
     allowed_domains = ["new.kenyalaw.org", "kenyalaw.org"]
     
     def __init__(self, *args, **kwargs):

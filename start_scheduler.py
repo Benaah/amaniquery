@@ -108,7 +108,7 @@ def main():
     parser.add_argument(
         "--trigger",
         type=str,
-        choices=["news_rss", "global_trends", "parliament", "parliament_videos", "kenya_law"],
+        choices=["kenya_law", "global_trends", "parliament", "parliament_videos", "news_rss"],
         help="Manually trigger a specific crawler"
     )
     

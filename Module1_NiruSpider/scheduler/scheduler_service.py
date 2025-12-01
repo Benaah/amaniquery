@@ -278,10 +278,10 @@ class CrawlerRunner:
     # Map crawler types to spider script arguments
     SPIDER_MAPPING = {
         CrawlerType.KENYA_LAW: "kenya_law",
-        CrawlerType.PARLIAMENT: "parliament_spider",
-        CrawlerType.PARLIAMENT_VIDEOS: "parliament_video_spider",
-        CrawlerType.NEWS_RSS: "news_rss_spider",
-        CrawlerType.GLOBAL_TRENDS: "global_trends_spider",
+        CrawlerType.PARLIAMENT: "parliament",
+        CrawlerType.PARLIAMENT_VIDEOS: "parliament_videos",
+        CrawlerType.NEWS_RSS: "news_rss",
+        CrawlerType.GLOBAL_TRENDS: "global_trends",
     }
     
     def __init__(self, spider_dir: Path = None):

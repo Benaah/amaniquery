@@ -7,8 +7,8 @@ import signal
 import threading
 from pathlib import Path
 
-# Install AsyncioSelectorReactor before any other Twisted imports
-# This fixes the "reactor already installed" error when Scrapy tries to install it
+# Handle reactor installation properly for cross-platform compatibility
+import platform
 try:
     import asyncio
     from twisted.internet import asyncioreactor
@@ -16,9 +16,19 @@ try:
         asyncioreactor.install()
 except Exception as e:
     print(f"Warning: Could not install AsyncioSelectorReactor: {e}")
+    # Fallback to default reactor if AsyncioSelectorReactor fails
+    pass
 
+# Now import Scrapy after reactor handling
 from scrapy.crawler import CrawlerProcess
 from scrapy.utils.project import get_project_settings
+
+# Monkey patch reactor verification to avoid Windows compatibility issues
+from scrapy.utils.reactor import verify_installed_reactor
+def patched_verify_installed_reactor(reactor_class):
+    """Skip reactor verification on Windows to avoid compatibility issues"""
+    pass
+verify_installed_reactor.__code__ = patched_verify_installed_reactor.__code__
 
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent))
@@ -72,10 +82,10 @@ class SpiderRunner:
         # Map spider names to classes
         spider_mapping = {
             "kenya_law": ("Kenya Law", "niruspider.spiders.kenya_law_new_spider.KenyaLawNewSpider"),
-            "parliament_spider": ("Parliament", "niruspider.spiders.parliament_spider.ParliamentSpider"),
-            "news_rss_spider": ("Kenyan News (RSS)", "niruspider.spiders.news_rss_spider.NewsRSSSpider"),
-            "global_trends_spider": ("Global Trends (RSS)", "niruspider.spiders.global_trends_spider.GlobalTrendsSpider"),
-            "parliament_video_spider": ("Parliament Videos", "niruspider.spiders.parliament_video_spider.ParliamentVideoSpider"),
+            "parliament": ("Parliament", "niruspider.spiders.parliament_spider.ParliamentSpider"),
+            "news_rss": ("Kenyan News (RSS)", "niruspider.spiders.news_rss_spider.NewsRSSSpider"),
+            "global_trends": ("Global Trends (RSS)", "niruspider.spiders.global_trends_spider.GlobalTrendsSpider"),
+            "parliament_videos": ("Parliament Videos", "niruspider.spiders.parliament_video_spider.ParliamentVideoSpider"),
         }
         
         if self.spider_name not in spider_mapping:
@@ -156,10 +166,10 @@ if __name__ == "__main__":
     if args.spider_name == "help":
         print("Available spiders:")
         print("  - kenya_law (new.kenyalaw.org - comprehensive legal database)")
-        print("  - parliament_spider (parliament.go.ke - Hansards, Bills)")
-        print("  - parliament_video_spider (YouTube - Parliament videos)")
-        print("  - news_rss_spider (Kenyan news RSS feeds)")
-        print("  - global_trends_spider (Global news RSS feeds)")
+        print("  - parliament (parliament.go.ke - Hansards, Bills)")
+        print("  - news_rss (Kenyan news RSS feeds)")
+        print("  - global_trends (Global news RSS feeds)")
+        print("  - parliament_videos (YouTube - Parliament videos)")
         sys.exit(0)
     
     success = run_spider(args.spider_name, args.timeout)

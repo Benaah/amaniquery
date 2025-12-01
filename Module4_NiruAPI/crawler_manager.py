@@ -724,11 +724,11 @@ class CrawlerManager:
             
             # Map crawler names to spider names
             spider_mapping = {
-                "kenya_law": "kenya_law_new_spider",
-                "parliament": "parliament_spider", 
-                "news_rss": "news_rss_spider",
-                "global_trends": "global_trends_spider",
-                "parliament_videos": "parliament_video_spider"
+                "kenya_law": "kenya_law",
+                "parliament": "parliament", 
+                "news_rss": "news_rss",
+                "global_trends": "global_trends",
+                "parliament_videos": "parliament_videos"
             }
             
             if crawler_name not in spider_mapping:

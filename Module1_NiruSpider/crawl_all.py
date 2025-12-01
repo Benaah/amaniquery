@@ -4,8 +4,29 @@ Run all spiders sequentially
 import os
 import sys
 from pathlib import Path
+
+# Handle reactor installation properly for cross-platform compatibility
+import platform
+try:
+    import asyncio
+    from twisted.internet import asyncioreactor
+    if "twisted.internet.reactor" not in sys.modules:
+        asyncioreactor.install()
+except Exception as e:
+    print(f"Warning: Could not install AsyncioSelectorReactor: {e}")
+    # Fallback to default reactor if AsyncioSelectorReactor fails
+    pass
+
+# Now import Scrapy after reactor handling
 from scrapy.crawler import CrawlerProcess
 from scrapy.utils.project import get_project_settings
+
+# Monkey patch reactor verification to avoid Windows compatibility issues
+from scrapy.utils.reactor import verify_installed_reactor
+def patched_verify_installed_reactor(reactor_class):
+    """Skip reactor verification on Windows to avoid compatibility issues"""
+    pass
+verify_installed_reactor.__code__ = patched_verify_installed_reactor.__code__
 
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent))

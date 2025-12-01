@@ -47,8 +47,8 @@ class ParliamentVideoSpider(scrapy.Spider):
             self.channel_urls = channel_urls.split(',')
         else:
             self.channel_urls = [
-                "https://www.youtube.com/@NationalAssemblyofKenya/videos",
-                "https://www.youtube.com/@KenyaSenate/videos",
+                "https://www.youtube.com/@ParliamentofKenyaChannel/videos",
+                "https://www.youtube.com/@ParliamentofKenyaChannel/videos",
             ]
         
         self.max_videos = int(max_videos)

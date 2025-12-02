@@ -83,10 +83,10 @@ class CrawlTask(Task):
 # Spider name mapping
 SPIDER_MAPPING = {
     "kenya_law": "kenya_law",
-    "parliament": "parliament_spider",
-    "parliament_videos": "parliament_video_spider",
-    "news_rss": "news_rss_spider",
-    "global_trends": "global_trends_spider",
+    "parliament": "parliament",
+    "parliament_videos": "parliament_videos",
+    "news_rss": "news_rss",
+    "global_trends": "global_trends",
 }
 
 # Timeout settings per crawler (in seconds)

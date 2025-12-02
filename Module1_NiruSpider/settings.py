@@ -56,6 +56,9 @@ ITEM_PIPELINES = {
     'niruspider.pipelines.VectorDBPipeline': 400,
 }
 
+# Disable reactor verification for Windows compatibility
+TWISTED_REACTOR = 'twisted.internet.selectreactor.SelectReactor'
+
 # Enable HTTP caching
 HTTPCACHE_ENABLED = True
 HTTPCACHE_EXPIRATION_SECS = 86400  # 24 hours

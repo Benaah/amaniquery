@@ -1,0 +1,285 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: amaniquery-config
+  namespace: amaniquery
+data:
+  # API Configuration
+  API_HOST: "0.0.0.0"
+  API_PORT: "8000"
+  API_RELOAD: "false"
+  
+  # LLM Configuration
+  LLM_PROVIDER: "moonshot"
+  DEFAULT_MODEL: "moonshot-v1-8k"
+  EMBEDDING_MODEL: "all-MiniLM-L6-v2"
+  
+  # Database Endpoints (internal cluster DNS)
+  CHROMA_HOST: "chromadb-service"
+  CHROMA_PORT: "8000"
+  REDIS_URL: "redis://redis-service:6379/0"
+  DATABASE_URL: "postgresql://amaniquery:$(POSTGRES_PASSWORD)@postgres-service:5432/amaniquery"
+  
+  # MinIO Configuration
+  MINIO_ENDPOINT: "minio-service:9000"
+  MINIO_SECURE: "false"
+  MINIO_BUCKET: "bronze-raw"
+  
+  # Scheduler Configuration
+  ENABLE_SCHEDULER: "true"
+  SCHEDULER_BACKEND: "apscheduler"
+  
+  # Feature Flags
+  ENABLE_VOICE_AGENT: "false"
+  ENABLE_NIRUSENSE: "false"
+  ENABLE_NIRUSENSE_SCHEDULER: "false"
+  
+  # Environment
+  NODE_ENV: "production"
+  PYTHONUNBUFFERED: "1"
+  HF_HOME: "/app/models"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-config
+  namespace: amaniquery
+data:
+  nginx.conf: |
+    events {
+        worker_connections 1024;
+    }
+    
+    http {
+        include       /etc/nginx/mime.types;
+        default_type  application/octet-stream;
+    
+        # Logging
+        log_format main '$remote_addr - $remote_user [$time_local] "$request" '
+                        '$status $body_bytes_sent "$http_referer" '
+                        '"$http_user_agent" "$http_x_forwarded_for"';
+    
+        access_log /var/log/nginx/access.log main;
+        error_log /var/log/nginx/error.log;
+    
+        # Performance
+        sendfile        on;
+        tcp_nopush      on;
+        tcp_nodelay     on;
+        keepalive_timeout 65;
+        keepalive_requests 1000;
+        types_hash_max_size 2048;
+        client_max_body_size 100M;
+        client_body_buffer_size 128k;
+        client_header_buffer_size 4k;
+        large_client_header_buffers 4 32k;
+    
+        # Gzip compression
+        gzip on;
+        gzip_vary on;
+        gzip_min_length 1024;
+        gzip_proxied any;
+        gzip_comp_level 6;
+        gzip_disable "msie6";
+        gzip_types
+            text/plain
+            text/css
+            text/xml
+            text/javascript
+            application/json
+            application/javascript
+            application/xml+rss
+            application/atom+xml
+            image/svg+xml
+            application/xml
+            application/x-javascript;
+    
+        # Rate limiting zones
+        limit_req_zone $binary_remote_addr zone=api:10m rate=10r/s;
+        limit_req_zone $binary_remote_addr zone=general:10m rate=100r/s;
+        limit_req_zone $binary_remote_addr zone=research:10m rate=2r/s;
+        limit_req_zone $binary_remote_addr zone=stream:10m rate=5r/s;
+    
+        # Upstream servers (Kubernetes services)
+        upstream frontend {
+            server frontend-service:3000;
+            keepalive 32;
+        }
+    
+        upstream api {
+            server api-service:8000;
+            keepalive 32;
+        }
+    
+        server {
+            listen 80;
+            server_name _;
+    
+            # Security headers
+            add_header X-Frame-Options "SAMEORIGIN" always;
+            add_header X-XSS-Protection "1; mode=block" always;
+            add_header X-Content-Type-Options "nosniff" always;
+            add_header Referrer-Policy "no-referrer-when-downgrade" always;
+            add_header Content-Security-Policy "default-src 'self' http: https: data: blob: 'unsafe-inline'" always;
+    
+            # Frontend (catch-all for non-API routes)
+            location / {
+                limit_req zone=general burst=20 nodelay;
+    
+                proxy_pass http://frontend;
+                proxy_http_version 1.1;
+                proxy_set_header Upgrade $http_upgrade;
+                proxy_set_header Connection 'upgrade';
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+                proxy_cache_bypass $http_upgrade;
+    
+                # Timeout settings
+                proxy_connect_timeout 60s;
+                proxy_send_timeout 60s;
+                proxy_read_timeout 60s;
+            }
+    
+            # API routes - standard endpoints
+            location /api/ {
+                limit_req zone=api burst=10 nodelay;
+    
+                proxy_pass http://api/;
+                proxy_http_version 1.1;
+                proxy_set_header Upgrade $http_upgrade;
+                proxy_set_header Connection 'upgrade';
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+                proxy_cache_bypass $http_upgrade;
+    
+                # CORS headers
+                add_header 'Access-Control-Allow-Origin' '*' always;
+                add_header 'Access-Control-Allow-Methods' 'GET, POST, PUT, DELETE, OPTIONS' always;
+                add_header 'Access-Control-Allow-Headers' 'DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization' always;
+    
+                # Handle preflight
+                if ($request_method = 'OPTIONS') {
+                    return 204;
+                }
+    
+                # Timeouts
+                proxy_connect_timeout 60s;
+                proxy_send_timeout 60s;
+                proxy_read_timeout 60s;
+            }
+    
+            # Research endpoints - longer timeouts for agentic operations
+            location ~ ^/api/(research|stream)/ {
+                limit_req zone=research burst=3 nodelay;
+    
+                proxy_pass http://api;
+                proxy_http_version 1.1;
+                proxy_set_header Upgrade $http_upgrade;
+                proxy_set_header Connection 'upgrade';
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+                proxy_cache_bypass $http_upgrade;
+    
+                # Extended timeouts for agentic research
+                proxy_connect_timeout 300s;
+                proxy_send_timeout 300s;
+                proxy_read_timeout 300s;
+    
+                # Buffering settings for streaming
+                proxy_buffering off;
+                proxy_request_buffering off;
+    
+                # CORS
+                add_header 'Access-Control-Allow-Origin' '*' always;
+                add_header 'Access-Control-Allow-Methods' 'GET, POST, OPTIONS' always;
+                add_header 'Access-Control-Allow-Headers' 'Content-Type,Authorization' always;
+    
+                if ($request_method = 'OPTIONS') {
+                    return 204;
+                }
+            }
+    
+            # WebSocket endpoints
+            location /ws/ {
+                limit_req zone=stream burst=5 nodelay;
+    
+                proxy_pass http://api;
+                proxy_http_version 1.1;
+                proxy_set_header Upgrade $http_upgrade;
+                proxy_set_header Connection "upgrade";
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+    
+                # WebSocket timeouts
+                proxy_connect_timeout 7d;
+                proxy_send_timeout 7d;
+                proxy_read_timeout 7d;
+    
+                # Disable buffering for WebSocket
+                proxy_buffering off;
+            }
+    
+            # Chat streaming endpoints
+            location ~ ^/api/chat/.*/messages$ {
+                limit_req zone=stream burst=5 nodelay;
+    
+                proxy_pass http://api;
+                proxy_http_version 1.1;
+                proxy_set_header Upgrade $http_upgrade;
+                proxy_set_header Connection 'upgrade';
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+                proxy_cache_bypass $http_upgrade;
+    
+                # Streaming settings
+                proxy_buffering off;
+                proxy_request_buffering off;
+                proxy_connect_timeout 300s;
+                proxy_send_timeout 300s;
+                proxy_read_timeout 300s;
+    
+                # Chunked transfer
+                chunked_transfer_encoding on;
+    
+                # CORS
+                add_header 'Access-Control-Allow-Origin' '*' always;
+                add_header 'Access-Control-Allow-Methods' 'POST, OPTIONS' always;
+                add_header 'Access-Control-Allow-Headers' 'Content-Type,Authorization' always;
+    
+                if ($request_method = 'OPTIONS') {
+                    return 204;
+                }
+            }
+    
+            # Health check endpoints
+            location /health {
+                access_log off;
+                proxy_pass http://api/health;
+                proxy_connect_timeout 5s;
+                proxy_read_timeout 5s;
+            }
+    
+            location /api/health {
+                access_log off;
+                proxy_pass http://api/health;
+                proxy_connect_timeout 5s;
+                proxy_read_timeout 5s;
+            }
+    
+            # Static files caching
+            location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg)$ {
+                expires 1y;
+                add_header Cache-Control "public, immutable";
+            }
+        }
+    }

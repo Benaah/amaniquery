@@ -4,6 +4,17 @@
 
 A Retrieval-Augmented Generation (RAG) system for Kenyan legal, parliamentary, and news intelligence with **three unique "wow" features**: Constitutional Alignment Analysis, Public Sentiment Gauge, InfoSMS Gateway, and Parliament Video Indexer.
 
+## 🚀 Deployment Options
+
+AmaniQuery supports multiple deployment methods:
+
+- **🐳 [Docker Compose](docs/DOCKER_README.md)** - Local development and testing
+- **☸️ [Kubernetes](docs/KUBERNETES_DEPLOYMENT.md)** - Production-grade deployment with auto-scaling
+- **🤗 [HuggingFace Spaces](docs/HUGGINGFACE_DEPLOYMENT.md)** - Free demo hosting
+- **🔧 [Render](docs/RENDER_DEPLOYMENT.md)** - Managed cloud hosting
+
+See **[Deployment Guide](docs/DEPLOYMENT_GUIDE.md)** for comparison and recommendations.
+
 ## 🌟 Unique Features
 
 ### 1. 📊 Public Sentiment Gauge

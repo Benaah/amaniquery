@@ -1,0 +1,60 @@
+# Optimized Dockerfile for HuggingFace Spaces
+# This version reduces image size and improves build times for HF deployment
+
+FROM python:3.11-slim AS base
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app \
+    NODE_ENV=production \
+    ENABLE_SCHEDULER=false \
+    HF_HOME=/app/models \
+    PORT=7860
+
+# Install only essential system dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        curl \
+        build-essential \
+        && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy and install Python dependencies
+COPY requirements.txt ./
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu && \
+    pip install --no-cache-dir -r requirements.txt
+
+# Pre-download embedding model to reduce startup time
+COPY download_model.py .
+RUN python download_model.py
+
+# Copy application code
+COPY Module1_NiruSpider/ ./Module1_NiruSpider/
+COPY Module2_NiruParser/ ./Module2_NiruParser/
+COPY Module3_NiruDB/ ./Module3_NiruDB/
+COPY Module4_NiruAPI/ ./Module4_NiruAPI/
+COPY Module5_NiruShare/ ./Module5_NiruShare/
+COPY Module7_NiruHybrid/ ./Module7_NiruHybrid/
+COPY Module8_NiruAuth/ ./Module8_NiruAuth/
+COPY Module9_NiruSense/ ./Module9_NiruSense/
+COPY config/ ./config/
+COPY start_api.py .
+COPY setup.py .
+
+# Create necessary directories
+RUN mkdir -p data/chroma_db data/embeddings logs && \
+    useradd --create-home --shell /bin/bash app && \
+    chown -R app:app /app
+
+USER app
+
+# HuggingFace Spaces uses PORT env variable (default 7860)
+EXPOSE ${PORT}
+
+HEALTHCHECK --interval=30s --timeout=30s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:${PORT}/health || exit 1
+
+# Use uvicorn directly for HF Spaces (lighter than start_api.py)
+CMD uvicorn Module4_NiruAPI.main:app --host 0.0.0.0 --port ${PORT} --workers 1

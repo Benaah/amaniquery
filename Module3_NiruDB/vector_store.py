@@ -51,15 +51,21 @@ class VectorStore:
         if backend == "auto":
             self.backend = self._init_with_fallback()
         else:
-            self.backend = backend
-            if backend == "upstash":
-                self._init_upstash()
-            elif backend == "qdrant":
-                self._init_qdrant()
-            elif backend == "chromadb":
-                self._init_chromadb(persist_directory)
-            else:
-                raise ValueError(f"Unsupported backend: {backend}")
+            # Try the requested backend, fallback to auto if it fails
+            try:
+                self.backend = backend
+                if backend == "upstash":
+                    self._init_upstash()
+                elif backend == "qdrant":
+                    self._init_qdrant()
+                elif backend == "chromadb":
+                    self._init_chromadb(persist_directory)
+                else:
+                    raise ValueError(f"Unsupported backend: {backend}")
+            except Exception as e:
+                logger.warning(f"Failed to initialize requested backend '{backend}': {e}")
+                logger.info("Falling back to automatic backend selection...")
+                self.backend = self._init_with_fallback()
         
         # Initialize Elasticsearch for document storage
         self._init_elasticsearch()
@@ -250,11 +256,21 @@ class VectorStore:
             es_api_key = self._get_config_value("ELASTICSEARCH_API_KEY")
         
         if es_url:
-            self.es_client = Elasticsearch(es_url, api_key=es_api_key)
-            # Create index if not exists
-            if not self.es_client.indices.exists(index=self.collection_name):
-                self.es_client.indices.create(index=self.collection_name)
-            logger.info("Elasticsearch initialized")
+            try:
+                self.es_client = Elasticsearch(es_url, api_key=es_api_key)
+                # Create index if not exists - with error handling for unavailable service
+                try:
+                    if not self.es_client.indices.exists(index=self.collection_name):
+                        self.es_client.indices.create(index=self.collection_name)
+                    logger.info("Elasticsearch initialized")
+                except Exception as index_error:
+                    # Elasticsearch is configured but service is unavailable (503) or index operation failed
+                    logger.warning(f"Elasticsearch connected but index operation failed: {index_error}")
+                    logger.warning("Elasticsearch document storage will be unavailable but vector store can still function")
+            except Exception as e:
+                logger.warning(f"Failed to connect to Elasticsearch: {e}")
+                logger.warning("Elasticsearch document storage will be unavailable")
+                self.es_client = None
         else:
             self.es_client = None
             logger.info("Elasticsearch not configured")

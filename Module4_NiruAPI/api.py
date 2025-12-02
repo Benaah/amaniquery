@@ -220,12 +220,22 @@ async def lifespan(app: FastAPI):
     
     # Initialize vector store
     try:
-        backend = os.getenv("VECTOR_STORE_BACKEND", "qdrant")
+        backend = os.getenv("VECTOR_STORE_BACKEND", "auto")  # Use "auto" for automatic fallback
         vector_store = VectorStore(backend=backend, config_manager=config_manager)
         logger.info(f"Vector store initialized with backend: {backend}")
     except Exception as e:
-        logger.error(f"Failed to initialize vector store: {e}")
-        vector_store = None
+        logger.error(f"Failed to initialize vector store with backend '{os.getenv('VECTOR_STORE_BACKEND', 'auto')}': {e}")
+        # Try fallback to auto mode if specific backend was requested
+        if os.getenv("VECTOR_STORE_BACKEND") and os.getenv("VECTOR_STORE_BACKEND") != "auto":
+            logger.info("Attempting fallback to auto backend selection...")
+            try:
+                vector_store = VectorStore(backend="auto", config_manager=config_manager)
+                logger.info(f"Vector store initialized with fallback (auto mode)")
+            except Exception as e2:
+                logger.error(f"Fallback vector store initialization also failed: {e2}")
+                vector_store = None
+        else:
+            vector_store = None
     
     # Initialize metadata manager
     try:
@@ -532,7 +542,21 @@ async def lifespan(app: FastAPI):
         
         logger.info("Step 2: Validating dependencies...")
         if not vector_store:
-            raise RuntimeError("Vector store is required for AmaniQ v2 agent but was not initialized")
+            missing_deps = []
+            missing_deps.append("Vector store (check QDRANT_URL, QDRANT_API_KEY or UPSTASH_VECTOR_URL, UPSTASH_VECTOR_TOKEN)")
+            logger.error("=" * 80)
+            logger.error("❌ VECTOR STORE NOT AVAILABLE")
+            logger.error("=" * 80)
+            logger.error("The vector store failed to initialize. This could be because:")
+            logger.error("  1. Cloud vector store (Qdrant/Upstash) is unavailable or misconfigured")
+            logger.error("  2. ChromaDB local fallback also failed")
+            logger.error("")
+            logger.error("Required environment variables (at least one set):")
+            logger.error("  - QDRANT_URL and QDRANT_API_KEY (for Qdrant Cloud)")
+            logger.error("  - UPSTASH_VECTOR_URL and UPSTASH_VECTOR_TOKEN (for Upstash)")
+            logger.error("  - Or ensure ChromaDB can be initialized locally")
+            logger.error("=" * 80)
+            raise RuntimeError(f"Vector store is required for AmaniQ v2 agent. Missing: {', '.join(missing_deps)}")
         logger.info("  ✓ Vector store available")
         
         if not rag_pipeline:
@@ -540,7 +564,7 @@ async def lifespan(app: FastAPI):
         logger.info("  ✓ RAG pipeline available")
         
         if not rag_pipeline.llm_service:
-            raise RuntimeError("LLM service is required for AmaniQ v2 agent but was not initialized")
+            raise RuntimeError("LLM service is required for AmaniQ v2 agent but was not initialized (check MOONSHOT_API_KEY)")
         logger.info("  ✓ LLM service available")
         
         logger.info("Step 3: Creating agent configuration...")

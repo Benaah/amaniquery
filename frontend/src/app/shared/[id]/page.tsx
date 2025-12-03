@@ -124,6 +124,7 @@ export default function SharedChatPage() {
               onCopyShareContent={noOp}
               onOpenShareIntent={noOp}
               onPostDirectly={noOp}
+              onGenerateShareImage={noOp}
               onCopyFailedQuery={noOp}
               onEditFailedQuery={noOp}
               onResendFailedQuery={noOp}

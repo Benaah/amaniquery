@@ -41,6 +41,14 @@ export function Chat() {
   const [editingContent, setEditingContent] = useState("")
   const [regeneratingMessageId, setRegeneratingMessageId] = useState<string | null>(null)
   const [isCreatingSession, setIsCreatingSession] = useState(false)
+  const [platformTokens, setPlatformTokens] = useState<Record<SharePlatform, string | null>>({
+    twitter: null,
+    linkedin: null,
+    facebook: null,
+    whatsapp: null,
+    telegram: null,
+    email: null,
+  })
   const autocompleteTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const messagesContainerRef = useRef<HTMLDivElement | null>(null)
   const messagesEndRef = useRef<HTMLDivElement | null>(null)
@@ -53,6 +61,162 @@ export function Chat() {
     const token = localStorage.getItem("session_token")
     return token ? { "X-Session-Token": token } : {}
   }, [])
+
+  // Token management functions
+  const getStoredToken = useCallback((platform: SharePlatform): string | null => {
+    try {
+      const tokens = JSON.parse(localStorage.getItem("platform_tokens") || "{}")
+      return tokens[platform] || null
+    } catch {
+      return null
+    }
+  }, [])
+
+  const storeToken = useCallback((platform: SharePlatform, token: string) => {
+    try {
+      const tokens = JSON.parse(localStorage.getItem("platform_tokens") || "{}")
+      tokens[platform] = token
+      localStorage.setItem("platform_tokens", JSON.stringify(tokens))
+      setPlatformTokens(prev => ({ ...prev, [platform]: token }))
+    } catch (error) {
+      console.error("Failed to store token:", error)
+    }
+  }, [])
+
+  const clearToken = useCallback((platform: SharePlatform) => {
+    try {
+      const tokens = JSON.parse(localStorage.getItem("platform_tokens") || "{}")
+      delete tokens[platform]
+      localStorage.setItem("platform_tokens", JSON.stringify(tokens))
+      setPlatformTokens(prev => ({ ...prev, [platform]: null }))
+    } catch (error) {
+      console.error("Failed to clear token:", error)
+    }
+  }, [])
+
+  const loadStoredTokens = useCallback(() => {
+    try {
+      const tokens = JSON.parse(localStorage.getItem("platform_tokens") || "{}")
+      setPlatformTokens({
+        twitter: tokens.twitter || null,
+        linkedin: tokens.linkedin || null,
+        facebook: tokens.facebook || null,
+        whatsapp: null, // WhatsApp doesn't use OAuth tokens
+        telegram: null, // Telegram doesn't use OAuth tokens
+        email: null, // Email doesn't use OAuth tokens
+      })
+    } catch (error) {
+      console.error("Failed to load stored tokens:", error)
+    }
+  }, [])
+
+  // Load stored tokens on component mount
+  useEffect(() => {
+    loadStoredTokens()
+  }, [loadStoredTokens])
+
+  // OAuth flow functions
+  const initiateAuth = async (platform: SharePlatform) => {
+    try {
+      setShareSheet(prev => prev ? { ...prev, shareLinkLoading: true, shareError: null } : prev)
+
+      const response = await fetch(`${API_BASE_URL}/share/auth`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ platform })
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.detail || "Failed to initiate authentication")
+      }
+
+      const data = await response.json()
+
+      if (data.status === "needs_auth" && data.auth_url) {
+        // Open OAuth URL in popup or new window
+        const authWindow = window.open(
+          data.auth_url,
+          `auth-${platform}`,
+          "width=600,height=700,scrollbars=yes,resizable=yes"
+        )
+
+        if (authWindow) {
+          // Listen for auth completion
+          const checkClosed = setInterval(() => {
+            if (authWindow.closed) {
+              clearInterval(checkClosed)
+              // Check if auth was successful by trying to get user info
+              checkAuthStatus(platform)
+            }
+          }, 1000)
+        }
+      } else if (data.status === "authenticated") {
+        // Already authenticated
+        if (data.user_info?.access_token) {
+          storeToken(platform, data.user_info.access_token)
+        }
+        toast.success(`Already authenticated with ${platform}`)
+      }
+
+      setShareSheet(prev => prev ? { ...prev, shareLinkLoading: false } : prev)
+    } catch (error) {
+      console.error("Failed to initiate auth:", error)
+      setShareSheet(prev => prev ? {
+        ...prev,
+        shareLinkLoading: false,
+        shareError: error instanceof Error ? error.message : "Authentication failed"
+      } : prev)
+    }
+  }
+
+  const checkAuthStatus = async (platform: SharePlatform) => {
+    try {
+      // Try to get user info to check if authenticated
+      const response = await fetch(`${API_BASE_URL}/share/auth/status`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ platform })
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        if (data.status === "authenticated" && data.user_info?.access_token) {
+          storeToken(platform, data.user_info.access_token)
+          toast.success(`Successfully authenticated with ${platform}`)
+          return true
+        }
+      }
+    } catch (error) {
+      console.error("Failed to check auth status:", error)
+    }
+    return false
+  }
+
+  const handleAuthCallback = async (platform: SharePlatform, code: string, state: string) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/share/auth/callback`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ platform, code, state })
+      })
+
+      if (!response.ok) {
+        throw new Error("Authentication callback failed")
+      }
+
+      const data = await response.json()
+      if (data.access_token) {
+        storeToken(platform, data.access_token)
+        toast.success(`Successfully authenticated with ${platform}`)
+        return true
+      }
+    } catch (error) {
+      console.error("Auth callback failed:", error)
+      toast.error(`Authentication failed for ${platform}`)
+    }
+    return false
+  }
 
   const scrollMessagesToBottom = useCallback(
     (behavior: ScrollBehavior = "smooth") => {
@@ -1165,10 +1329,90 @@ ${researchProcess.tools_used && researchProcess.tools_used.length > 0
     }
   }
 
+  const generateShareImage = async (message: Message) => {
+    if (!shareSheet) return
+    const preview = shareSheet.preview ?? (await ensureSharePreview(message, shareSheet.platform))
+    if (!preview) return
+
+    try {
+      setShareSheet((prev) =>
+        prev ? { ...prev, generatingImage: true, shareError: null, success: null } : prev
+      )
+
+      const text = Array.isArray(preview.content) ? preview.content.join("\n\n") : preview.content
+      const title = `AmaniQuery Insight`
+
+      const response = await fetch(`${API_BASE_URL}/share/generate-image-from-post`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          content: text,
+          title: title,
+          color_scheme: "professional"
+        })
+      })
+
+      if (!response.ok) {
+        const detail = await response.text()
+        throw new Error(detail || "Unable to generate image")
+      }
+
+      const data = await response.json()
+      
+      // Download the image
+      const imageResponse = await fetch(`data:image/png;base64,${data.image_base64}`)
+      const blob = await imageResponse.blob()
+      const url = URL.createObjectURL(blob)
+      
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `amaniquery-${message.id}.png`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+
+      setShareSheet((prev) =>
+        prev
+          ? {
+              ...prev,
+              generatingImage: false,
+              success: "Image downloaded successfully!",
+              shareError: null
+            }
+          : prev
+      )
+    } catch (error) {
+      console.error("Failed to generate image:", error)
+      setShareSheet((prev) =>
+        prev
+          ? {
+              ...prev,
+              generatingImage: false,
+              shareError:
+                error instanceof Error
+                  ? error.message
+                  : "Unable to generate image."
+            }
+          : prev
+      )
+    }
+  }
+
   const postDirectly = async (message: Message) => {
     if (!shareSheet) return
     const preview = shareSheet.preview ?? (await ensureSharePreview(message, shareSheet.platform))
     if (!preview) return
+
+    // Check if user is authenticated
+    const accessToken = getStoredToken(shareSheet.platform)
+    if (!accessToken) {
+      setShareSheet(prev => prev ? {
+        ...prev,
+        shareError: `Please authenticate with ${shareSheet.platform} first. Click the authenticate button below.`
+      } : prev)
+      return
+    }
 
     try {
       setShareSheet((prev) =>
@@ -1181,21 +1425,23 @@ ${researchProcess.tools_used && researchProcess.tools_used.length > 0
         body: JSON.stringify({
           platform: shareSheet.platform,
           content: preview.content,
-          message_id: message.id
+          message_id: message.id,
+          access_token: accessToken
         })
       })
 
-      const data = await response.json()
       if (!response.ok) {
-        throw new Error(data.detail || data.message || "Unable to post to platform")
+        const detail = await response.text()
+        throw new Error(detail || "Unable to post")
       }
 
+      const data = await response.json()
       setShareSheet((prev) =>
         prev
           ? {
               ...prev,
               posting: false,
-              success: data.message || "Post created successfully!",
+              success: `Posted to ${shareSheet.platform} successfully`,
               shareError: null
             }
           : prev
@@ -1271,6 +1517,9 @@ ${researchProcess.tools_used && researchProcess.tools_used.length > 0
           onCopyShareContent={copyShareContent}
           onOpenShareIntent={openShareIntent}
           onPostDirectly={postDirectly}
+          onGenerateShareImage={generateShareImage}
+          onAuthenticatePlatform={initiateAuth}
+          platformTokens={platformTokens}
           onCopyFailedQuery={copyFailedQuery}
           onEditFailedQuery={editFailedQuery}
           onResendFailedQuery={resendFailedQuery}

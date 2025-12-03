@@ -106,6 +106,7 @@ export interface ShareSheetState {
     shareLink?: string | null
     shareLinkLoading?: boolean
     posting?: boolean
+    generatingImage?: boolean
     shareError?: string | null
     success?: string | null
 }

@@ -125,6 +125,15 @@ export default function SharedChatPage() {
               onOpenShareIntent={noOp}
               onPostDirectly={noOp}
               onGenerateShareImage={noOp}
+              onAuthenticatePlatform={noOp}
+              platformTokens={{
+                twitter: null,
+                linkedin: null,
+                facebook: null,
+                whatsapp: null,
+                telegram: null,
+                email: null,
+              }}
               onCopyFailedQuery={noOp}
               onEditFailedQuery={noOp}
               onResendFailedQuery={noOp}

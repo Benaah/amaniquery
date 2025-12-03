@@ -1,7 +1,11 @@
 # Optimized Dockerfile for HuggingFace Spaces
 # This version reduces image size and improves build times for HF deployment
+# Last updated: 2025-12-03 14:45 UTC - Fixed module path
 
 FROM python:3.11-slim AS base
+
+# Force cache bust for rebuild
+ARG CACHEBUST=2025-12-03-14-45
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -57,4 +61,4 @@ HEALTHCHECK --interval=30s --timeout=30s --start-period=60s --retries=3 \
     CMD curl -f http://localhost:${PORT}/health || exit 1
 
 # Use uvicorn directly for HF Spaces (lighter than start_api.py)
-CMD uvicorn Module4_NiruAPI.main:app --host 0.0.0.0 --port ${PORT} --workers 1
+CMD uvicorn Module4_NiruAPI.api:app --host 0.0.0.0 --port ${PORT} --workers 1

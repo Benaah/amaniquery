@@ -102,14 +102,16 @@ class CacheManager:
 class ToolExecutor:
     """Executes tools from ToolRegistry with fault tolerance"""
     
-    def __init__(self, config: Optional[ToolExecutorConfig] = None):
+    def __init__(self, config: Optional[ToolExecutorConfig] = None, registry: Optional[ToolRegistry] = None):
         self.config = config or ToolExecutorConfig()
         self.cache = CacheManager(self.config.cache_max_size, self.config.cache_ttl)
-        self._registry: Optional[ToolRegistry] = None
+        self._registry = registry  # Use provided registry (from global startup)
     
     @property
     def registry(self) -> ToolRegistry:
         if self._registry is None:
+            # Fallback: create new registry if none provided (shouldn't happen in production)
+            logger.warning("Creating new ToolRegistry - this should be passed from global startup!")
             self._registry = ToolRegistry()
             logger.info(f"ToolRegistry initialized: {self._registry.list_tools()}")
         return self._registry
@@ -246,9 +248,21 @@ _executor: Optional[ToolExecutor] = None
 
 
 def get_executor() -> ToolExecutor:
+    """Get or create tool executor with global registry"""
     global _executor
     if _executor is None:
-        _executor = ToolExecutor()
+        # Get global tool registry from API startup
+        try:
+            from Module4_NiruAPI.api import tool_registry as global_registry
+            if global_registry:
+                _executor = ToolExecutor(registry=global_registry)
+                logger.info("ToolExecutor using global registry (fast path)")
+            else:
+                _executor = ToolExecutor()
+                logger.warning("Global registry not available, creating new one")
+        except ImportError:
+            _executor = ToolExecutor()
+            logger.warning("Could not import global registry, creating new one")
     return _executor
 
 

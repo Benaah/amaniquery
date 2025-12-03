@@ -240,11 +240,27 @@ Instructions:
         char_limit: Optional[int],
     ) -> Dict:
         """Fallback formatting when LLM is not available"""
-        # Simple natural formatting without LLM
-        post = answer
+        # Create more natural, conversational post
+        post_parts = []
         
         if query:
-            post = f"Someone asked: {query}\n\n{post}"
+            # Make it conversational
+            post_parts.append(f"Question: {query}")
+            post_parts.append("")  # Empty line
+        
+        # Add the answer
+        post_parts.append(answer)
+        
+        # Add source if available
+        if sources and len(sources) > 0:
+            source = sources[0]
+            url = source.get('url', '')
+            title = source.get('title', '')
+            if url:
+                post_parts.append("")
+                post_parts.append(f"Source: {url}")
+        
+        post = "\n".join(post_parts)
         
         # Truncate if needed
         if char_limit and len(post) > char_limit:
@@ -253,12 +269,14 @@ Instructions:
         hashtags = []
         if include_hashtags:
             hashtags = self._generate_hashtags(answer, sources)
-            if hashtags and char_limit:
-                hashtag_text = " " + " ".join(hashtags[:3])
-                if len(post) + len(hashtag_text) <= char_limit:
+            if hashtags:
+                # Add hashtags at the end
+                hashtag_text = " " + " ".join(f"#{tag}" for tag in hashtags[:3])
+                if char_limit:
+                    if len(post) + len(hashtag_text) <= char_limit:
+                        post += hashtag_text
+                else:
                     post += hashtag_text
-            elif hashtags:
-                post += " " + " ".join(hashtags[:5])
         
         return {
             "platform": "natural",

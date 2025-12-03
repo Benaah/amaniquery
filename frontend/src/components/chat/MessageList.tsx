@@ -23,7 +23,8 @@ import {
   Download,
   X,
   Link2,
-  Check
+  Check,
+  LogIn
 } from "lucide-react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
@@ -66,6 +67,9 @@ interface MessageListProps {
   onCopyShareContent: () => void
   onOpenShareIntent: (message: Message) => void
   onPostDirectly: (message: Message) => void
+  onGenerateShareImage: (message: Message) => void
+  onAuthenticatePlatform: (platform: SharePlatform) => void
+  platformTokens: Record<SharePlatform, string | null>
   onCopyFailedQuery: (message: Message) => void
   onEditFailedQuery: (message: Message) => void
   onResendFailedQuery: (message: Message) => void
@@ -100,6 +104,9 @@ export function MessageList({
   onCopyShareContent,
   onOpenShareIntent,
   onPostDirectly,
+  onGenerateShareImage,
+  onAuthenticatePlatform,
+  platformTokens,
   onCopyFailedQuery,
   onEditFailedQuery,
   onResendFailedQuery
@@ -663,6 +670,16 @@ export function MessageList({
                             <span className="hidden sm:inline">Copy text</span>
                           </Button>
                           <Button
+                            variant="outline"
+                            size="sm"
+                            className="rounded-full border-white/20 text-xs min-h-[44px] px-2.5 md:px-3"
+                            onClick={() => onGenerateShareImage(message)}
+                            disabled={!shareSheet.preview || shareSheet.generatingImage}
+                          >
+                            {shareSheet.generatingImage ? <Loader2 className="w-4 h-4 md:mr-1 animate-spin" /> : <ImageIcon className="w-4 h-4 md:mr-1" />}
+                            <span className="hidden sm:inline">Download image</span>
+                          </Button>
+                          <Button
                             variant="default"
                             size="sm"
                             className="rounded-full text-xs min-h-[44px] px-2.5 md:px-3"
@@ -672,12 +689,24 @@ export function MessageList({
                             {shareSheet.shareLinkLoading ? <Loader2 className="w-4 h-4 md:mr-1 animate-spin" /> : <ExternalLink className="w-4 h-4 md:mr-1" />}
                             <span className="hidden sm:inline">Open share dialog</span>
                           </Button>
+                          {!platformTokens[shareSheet.platform] && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="rounded-full border-orange-500/50 text-orange-400 hover:bg-orange-500/10 text-xs min-h-[44px] px-2.5 md:px-3"
+                              onClick={() => onAuthenticatePlatform(shareSheet.platform)}
+                              disabled={shareSheet.shareLinkLoading}
+                            >
+                              {shareSheet.shareLinkLoading ? <Loader2 className="w-4 h-4 md:mr-1 animate-spin" /> : <LogIn className="w-4 h-4 md:mr-1" />}
+                              <span className="hidden sm:inline">Authenticate</span>
+                            </Button>
+                          )}
                           <Button
                             variant="ghost"
                             size="sm"
                             className="rounded-full text-xs min-h-[44px] px-2.5 md:px-3"
                             onClick={() => onPostDirectly(message)}
-                            disabled={!shareSheet.preview || shareSheet.posting}
+                            disabled={!shareSheet.preview || shareSheet.posting || !platformTokens[shareSheet.platform]}
                           >
                             {shareSheet.posting ? <Loader2 className="w-4 h-4 md:mr-1 animate-spin" /> : <Link2 className="w-4 h-4 md:mr-1" />}
                             <span className="hidden sm:inline">Direct post (beta)</span>

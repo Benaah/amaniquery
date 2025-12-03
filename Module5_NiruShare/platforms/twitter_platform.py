@@ -120,7 +120,7 @@ class TwitterPlatform(BasePlatform):
             }
     
     def _get_auth_url_impl(self, redirect_uri: Optional[str] = None) -> Dict:
-        """Get Twitter OAuth URL"""
+        """Get Twitter OAuth 2.0 authorization URL with PKCE"""
         client_id = os.getenv("TWITTER_CLIENT_ID")
         if not client_id:
             return {
@@ -128,12 +128,42 @@ class TwitterPlatform(BasePlatform):
                 "status": "error",
                 "message": "Twitter API credentials not configured"
             }
-        
-        # Twitter OAuth 2.0 PKCE flow would be implemented here
+
+        if not redirect_uri:
+            redirect_uri = os.getenv("TWITTER_REDIRECT_URI", "http://localhost:8000/share/auth/callback")
+
+        # Generate PKCE code verifier and challenge
+        import secrets
+        import hashlib
+        import base64
+
+        code_verifier = secrets.token_urlsafe(32)[:128]  # Max 128 chars
+        code_challenge = base64.urlsafe_b64encode(
+            hashlib.sha256(code_verifier.encode()).digest()
+        ).decode().rstrip('=')
+
+        # Store code_verifier securely (in production, store in user session)
+        # For now, we'll use an environment variable - in production use Redis/session
+        os.environ["TWITTER_CODE_VERIFIER"] = code_verifier
+
+        scope = "tweet.read tweet.write users.read offline.access"
+
+        auth_url = (
+            f"https://twitter.com/i/oauth2/authorize?"
+            f"response_type=code&"
+            f"client_id={client_id}&"
+            f"redirect_uri={redirect_uri}&"
+            f"scope={scope}&"
+            f"state=twitter&"
+            f"code_challenge={code_challenge}&"
+            f"code_challenge_method=S256"
+        )
+
         return {
             "platform": "twitter",
-            "status": "needs_auth",
-            "message": "Twitter authentication not yet implemented",
-            "auth_url": None
+            "status": "auth_required",
+            "message": "Redirect user to Twitter for authentication",
+            "auth_url": auth_url,
+            "code_verifier": code_verifier  # In production, don't expose this
         }
 

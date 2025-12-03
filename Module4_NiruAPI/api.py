@@ -93,6 +93,7 @@ vision_rag_service = None
 database_storage = None
 cache_manager: Optional[CacheManager] = None
 amaniq_v2_agent = None  # AmaniQ v2 agent instance
+tool_registry = None  # Global tool registry initialized once at startup
 
 
 # ============================================================
@@ -165,6 +166,11 @@ def get_cache_manager_dep():
     return cache_manager
 
 
+def get_tool_registry():
+    """Dependency for tool registry"""
+    return tool_registry
+
+
 def get_hybrid_rag_pipeline():
     """Dependency for hybrid RAG pipeline"""
     return hybrid_rag_pipeline
@@ -206,9 +212,19 @@ async def lifespan(app: FastAPI):
     global agentic_research_module, report_generator, config_manager
     global notification_service, hybrid_rag_pipeline, autocomplete_tool
     global vision_storage, vision_rag_service, database_storage, cache_manager
-    global amaniq_v2_agent
+    global amaniq_v2_agent, tool_registry
     
     logger.info("Starting AmaniQuery API")
+    
+    # Initialize tool registry
+    try:
+        from Module4_NiruAPI.agents.tools.tool_registry import ToolRegistry
+        logger.info("Initializing global tool registry...")
+        tool_registry = ToolRegistry()
+        logger.info(f"✔ Tool registry initialized with {len(tool_registry.tools)} tools: {tool_registry.list_tools()}")
+    except Exception as e:
+        logger.error(f"Failed to initialize tool registry: {e}")
+        tool_registry = None
     
     # Initialize config manager
     try:
@@ -395,7 +411,11 @@ async def lifespan(app: FastAPI):
     agentic_research_module = None
     research_module = None
     try:
-        agentic_research_module = AgenticResearchModule(config_manager=config_manager)
+        # Pass shared tool_registry for faster initialization
+        agentic_research_module = AgenticResearchModule(
+            config_manager=config_manager,
+            tool_registry=tool_registry
+        )
         logger.info("Agentic research module initialized")
     except Exception as e:
         logger.warning(f"Agentic research module not available: {e}, falling back to legacy module")

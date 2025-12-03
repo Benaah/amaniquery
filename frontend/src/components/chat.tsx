@@ -1383,8 +1383,8 @@ ${researchProcess.tools_used && researchProcess.tools_used.length > 0
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          content: text,
-          title: title,
+          post_content: text,
+          query: title,
           color_scheme: "professional"
         })
       })

@@ -102,7 +102,7 @@ class Settings(BaseSettings):
     )
 
     # Processing Configuration
-    BATCH_SIZE: int = Field(default=1, description="Number of documents to process concurrently")
+    BATCH_SIZE: int = Field(default=5, description="Number of documents to process concurrently")
     MAX_TEXT_LENGTH: int = Field(default=10000, description="Maximum text length to process")
     ENABLE_PARALLEL_AGENTS: bool = Field(default=True, description="Enable parallel agent execution")
 

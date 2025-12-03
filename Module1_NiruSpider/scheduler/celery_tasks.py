@@ -82,7 +82,7 @@ class CrawlTask(Task):
 
 # Spider name mapping
 SPIDER_MAPPING = {
-    "kenya_law": "kenya_law",
+    "kenya_law": "kenya_law_new",  # Maps to kenya_law_new_spider.py
     "parliament": "parliament",
     "parliament_videos": "parliament_videos",
     "news_rss": "news_rss",
@@ -91,7 +91,7 @@ SPIDER_MAPPING = {
 
 # Timeout settings per crawler (in seconds)
 CRAWLER_TIMEOUTS = {
-    "kenya_law": 5400,      # 90 minutes
+    "kenya_law": 14400,      # 240 minutes (4 hours) - comprehensive legal database
     "parliament": 3600,      # 60 minutes
     "parliament_videos": 2700,  # 45 minutes
     "news_rss": 1800,        # 30 minutes
@@ -103,8 +103,8 @@ CRAWLER_TIMEOUTS = {
     base=CrawlTask,
     bind=True,
     name="run_crawler",
-    soft_time_limit=3600,
-    time_limit=3900
+    soft_time_limit=8700,  # 145 minutes - allow for kenya_law's 120-minute timeout + buffer
+    time_limit=9000        # 150 minutes (2.5 hours) - hard limit with buffer
 )
 def run_crawler_task(self, crawler_name: str, timeout: int = None):
     """

@@ -179,6 +179,32 @@ async def process_document(data: Dict[str, Any]) -> Dict[str, Any]:
             "error": str(e)
         }
 
+async def _process_single_message(redis_client, message_id: str, message_data: dict, s3_key: str):
+    """Process a single message from the Redis stream"""
+    try:
+        # Fetch from MinIO
+        response = minio_client.get_object(settings.MINIO_BUCKET, s3_key)
+        file_data = response.read()
+        response.close()
+        response.release_conn()
+        
+        # Parse JSON payload
+        full_payload = json.loads(file_data)
+        full_payload.update(message_data)
+        
+        # Process document
+        result = await process_document(full_payload)
+        
+        # Acknowledge message
+        await redis_client.xack(settings.REDIS_STREAM_KEY, settings.REDIS_CONSUMER_GROUP, message_id)
+        
+        logger.info(f"Message {message_id} acknowledged")
+        return result
+        
+    except Exception as e:
+        logger.error(f"Error processing message {message_id}: {e}")
+        raise
+
 async def main():
     """Main orchestrator loop - consumes from Redis stream and processes documents"""
     # Setup signal handlers
@@ -221,55 +247,41 @@ async def main():
     
     while not shutdown_event.is_set():
         try:
-            # Read from stream
+            # Read from stream with BATCH_SIZE for concurrent processing
             streams = await r.xreadgroup(
                 settings.REDIS_CONSUMER_GROUP,
                 "orchestrator-1",
                 {settings.REDIS_STREAM_KEY: ">"},
-                count=1,
+                count=settings.BATCH_SIZE,  # Read multiple messages for concurrent processing
                 block=5000  # 5 second timeout
             )
             
             if not streams:
                 continue
             
+            # Collect tasks for concurrent execution
+            tasks = []
+            message_ids = []
+            
             for stream, messages in streams:
                 for message_id, message_data in messages:
                     s3_key = message_data.get('s3_key')
                     
                     if s3_key:
-                        try:
-                            # Fetch from MinIO
-                            response = minio_client.get_object(settings.MINIO_BUCKET, s3_key)
-                            file_data = response.read()
-                            response.close()
-                            response.release_conn()
-                            
-                            # Parse JSON payload
-                            full_payload = json.loads(file_data)
-                            full_payload.update(message_data)
-                            
-                            # Process document
-                            result = await process_document(full_payload)
-                            
-                            # Acknowledge message
-                            await r.xack(settings.REDIS_STREAM_KEY, settings.REDIS_CONSUMER_GROUP, message_id)
-                            
-                            logger.info(f"Message {message_id} acknowledged")
-                            
-                        except Exception as e:
-                            logger.error(f"Error processing message {message_id}: {e}")
-                            
-                            # Move to DLQ after max retries
-                            retry_count += 1
-                            if retry_count >= max_retries:
-                                logger.error(f"Moving message {message_id} to DLQ after {max_retries} retries")
-                                await r.xadd(settings.REDIS_DLQ_KEY, message_data)
-                                await r.xack(settings.REDIS_STREAM_KEY, settings.REDIS_CONSUMER_GROUP, message_id)
-                                retry_count = 0
+                        message_ids.append(message_id)
+                        tasks.append(_process_single_message(r, message_id, message_data, s3_key))
                     else:
                         logger.warning(f"Missing s3_key in message: {message_id}")
                         await r.xack(settings.REDIS_STREAM_KEY, settings.REDIS_CONSUMER_GROUP, message_id)
+            
+            # Process all messages concurrently
+            if tasks:
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+                
+                # Check for errors
+                for i, result in enumerate(results):
+                    if isinstance(result, Exception):
+                        logger.error(f"Error processing message {message_ids[i]}: {result}")
         
         except asyncio.CancelledError:
             logger.info("Orchestrator task cancelled")

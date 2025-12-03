@@ -49,13 +49,23 @@ class TokenManager:
     def _decrypt_token(self, encrypted_token: str) -> Optional[str]:
         """Decrypt and validate token"""
         try:
+            # Handle case where encrypted_token might be a dict
+            if isinstance(encrypted_token, dict):
+                logger.warning(f"encrypted_token is a dict, expected string: {encrypted_token}")
+                return None
+            
+            if not isinstance(encrypted_token, str):
+                logger.warning(f"encrypted_token is not a string: {type(encrypted_token)}")
+                return None
+                
             encrypted, token = encrypted_token.split(":", 1)
             key = self.encryption_key.encode()
             expected = hmac.new(key, token.encode(), hashlib.sha256).hexdigest()
             if hmac.compare_digest(encrypted, expected):
                 return token
             return None
-        except:
+        except Exception as e:
+            logger.error(f"Failed to decrypt token: {e}")
             return None
 
     def _get_storage_key(self, user_id: str, platform: str) -> str:

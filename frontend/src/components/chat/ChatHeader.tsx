@@ -2,6 +2,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { History, Search, Sparkles, Share2, Home } from "lucide-react"
 import Link from "next/link"
+import type { LucideIcon } from "lucide-react"
 
 interface ChatHeaderProps {
   isResearchMode: boolean
@@ -11,6 +12,7 @@ interface ChatHeaderProps {
   isLoading: boolean
   onToggleHistory: () => void
   onShare: () => void
+  HistoryIcon?: LucideIcon
 }
 
 export function ChatHeader({
@@ -19,7 +21,8 @@ export function ChatHeader({
   currentSessionId,
   showHistory,
   onToggleHistory,
-  onShare
+  onShare,
+  HistoryIcon
 }: ChatHeaderProps) {
   return (
     <div className="border-b border-white/5 bg-background/60 backdrop-blur-xl flex-shrink-0 relative z-30">
@@ -50,7 +53,7 @@ export function ChatHeader({
               className="h-8 md:h-7 rounded-full px-2 md:px-2 text-[11px] flex-shrink-0"
               onClick={onToggleHistory}
             >
-              <History className="w-3 h-3 md:mr-1" />
+              {HistoryIcon ? <HistoryIcon className="w-3 h-3 md:mr-1" /> : <History className="w-3 h-3 md:mr-1" />}
               <span className="hidden md:inline">History</span>
             </Button>
             {currentSessionId && (

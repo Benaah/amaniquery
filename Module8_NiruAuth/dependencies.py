@@ -24,11 +24,9 @@ def get_db():
         )
     
     engine = create_database_engine(config.DATABASE_URL)
-    db = get_db_session(engine)
-    try:
+    # get_db_session returns a context manager, use it properly
+    with get_db_session(engine) as db:
         yield db
-    finally:
-        db.close()
 
 
 def get_auth_context(request: Request) -> Optional[AuthContext]:
@@ -42,43 +40,92 @@ def get_current_user(
 ) -> User:
     """Get current authenticated user"""
     auth_context = get_auth_context(request)
-    
-    if not auth_context or not auth_context.user_id:
-        # Log for debugging
-        import logging
-        logger = logging.getLogger(__name__)
+
+    import logging
+    logger = logging.getLogger(__name__)
+
+    # Validate auth_context type and presence of user attribute
+    if (
+        not auth_context or
+        not hasattr(auth_context, "user") or
+        not hasattr(auth_context, "user_id") or
+        auth_context.user_id is None
+    ):
         session_token = request.headers.get("X-Session-Token") or request.cookies.get("session_token")
-        logger.warning(f"Authentication failed for {request.url.path}: no auth_context. Has session token: {bool(session_token)}, token length: {len(session_token) if session_token else 0}")
-        
+        logger.warning(f"Authentication failed for {request.url.path}: no valid auth_context or missing user attributes. Has session token: {bool(session_token)}, token length: {len(session_token) if session_token else 0}")
+
         # Check if session token exists in database
         if session_token:
             token_hash = SessionProvider.hash_token(session_token)
             session = db.query(UserSession).filter(
                 UserSession.session_token == token_hash
             ).first()
+            
             if session:
-                logger.warning(f"Session found in DB but not validated: is_active={session.is_active}, expires_at={session.expires_at}, user_id={session.user_id}")
+                # Validate session
+                from datetime import datetime, timezone as tz
+                now = datetime.now(tz.utc).replace(tzinfo=None)
+                
+                # Handle timezone-aware datetimes from DB
+                expires_at = session.expires_at
+                if hasattr(expires_at, 'tzinfo') and expires_at.tzinfo is not None:
+                    expires_at = expires_at.astimezone(tz.utc).replace(tzinfo=None)
+                
+                is_active = session.is_active
+                is_expired = expires_at <= now
+                
+                if is_active and not is_expired:
+                    logger.info(f"Recovered session from DB: user_id={session.user_id}")
+                    
+                    # Get user
+                    user = db.query(User).filter(User.id == session.user_id).first()
+                    if user and user.status == "active":
+                        # Update session activity
+                        try:
+                            session.last_activity = now
+                            db.commit()
+                        except Exception as e:
+                            logger.warning(f"Failed to update session activity: {e}")
+                            
+                        return user
+                
+                logger.warning(f"Session found in DB but invalid: is_active={is_active}, expired={is_expired}, expires_at={expires_at}, now={now}")
             else:
                 logger.warning(f"No session found in DB for token hash")
-        
+
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication required. Please log in again."
         )
-    
+
+    # If user is already cached in auth_context, return it directly
+    user_cached = getattr(auth_context, "user", None)
+    if user_cached is not None:
+        logger.info(f"Using cached user {getattr(user_cached, 'id', 'unknown')} from auth context")
+        # Ensure user is attached to current session to avoid DetachedInstanceError
+        if db:
+            try:
+                user_cached = db.merge(user_cached)
+            except Exception as e:
+                logger.warning(f"Failed to merge cached user into current session: {e}")
+        return user_cached
+
+    # Fallback: Query DB if not cached (for backward compatibility)
+    logger.warning(f"Auth context missing cached user - querying DB for user {auth_context.user_id}")
+
     user = db.query(User).filter(User.id == auth_context.user_id).first()
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found"
         )
-    
+
     if user.status != "active":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="User account is not active"
         )
-    
+
     return user
 
 
@@ -94,6 +141,18 @@ def get_current_integration(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Integration authentication required"
         )
+    
+    # If integration is already cached in auth_context, return it directly
+    if auth_context.integration is not None:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"Using cached integration {auth_context.integration.id} from auth context")
+        return auth_context.integration
+    
+    # Fallback: Query DB if not cached
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.warning(f"Auth context missing cached integration - querying DB for integration {auth_context.integration_id}")
     
     integration = db.query(Integration).filter(Integration.id == auth_context.integration_id).first()
     if not integration:

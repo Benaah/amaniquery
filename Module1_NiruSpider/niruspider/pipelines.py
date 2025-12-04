@@ -24,6 +24,55 @@ class VectorStorePipeline:
         self.vector_store = None
         self.text_embedder = None
     
+    def _determine_namespace(self, category: str, publication_date: str) -> str:
+        """Determine the appropriate namespace based on category and publication date"""
+        # Check for historical data (pre-2010)
+        if publication_date:
+            try:
+                # Extract year from publication date
+                if isinstance(publication_date, str):
+                    # Handle various date formats
+                    import re
+                    year_match = re.search(r'(\d{4})', publication_date)
+                    if year_match:
+                        year = int(year_match.group(1))
+                        if year < 2010:
+                            return "historical"
+            except (ValueError, AttributeError):
+                pass
+        
+        # Map categories to namespaces
+        category_lower = category.lower()
+        
+        # Kenya Law namespace
+        if any(keyword in category_lower for keyword in [
+            'kenyan law', 'case law', 'kenya gazette', 'kenya law blog', 
+            'cause lists', 'constitution', 'act', 'legislation', 'judgment'
+        ]):
+            return "kenya_law"
+        
+        # Kenya News namespace
+        elif any(keyword in category_lower for keyword in [
+            'kenyan news', 'news'
+        ]):
+            return "kenya_news"
+        
+        # Kenya Parliament namespace
+        elif any(keyword in category_lower for keyword in [
+            'parliament', 'parliamentary record', 'bill', 'hansard', 'budget'
+        ]):
+            return "kenya_parliament"
+        
+        # Global Trends namespace (default for global content)
+        elif any(keyword in category_lower for keyword in [
+            'global trend'
+        ]):
+            return "global_trends"
+        
+        # Default fallback
+        else:
+            return "kenya_law"  # Default to kenya_law for legal content
+    
     def open_spider(self, spider):
         """Initialize vector store connection"""
         try:
@@ -61,6 +110,9 @@ class VectorStorePipeline:
                 "content_type": adapter.get("content_type", "html"),
                 "crawl_date": adapter.get("crawl_date", datetime.utcnow().isoformat()),
             }
+            
+            # Determine namespace based on category and publication date
+            namespace = self._determine_namespace(metadata["category"], metadata["publication_date"])
             
             # Prepare content for embedding
             content = adapter.get("content", "")
@@ -117,10 +169,10 @@ class VectorStorePipeline:
                 # Generate embeddings
                 embedded_chunks = self.text_embedder.embed_chunks(chunk_dicts)
                 
-                # Add to vector store
-                self.vector_store.add_documents(embedded_chunks)
+                # Add to vector store with namespace
+                self.vector_store.add_documents(embedded_chunks, namespace=namespace)
                 
-                spider.logger.info(f"Added {len(embedded_chunks)} chunks for: {adapter['title'][:50]}...")
+                spider.logger.info(f"Added {len(embedded_chunks)} chunks for: {adapter['title'][:50]}... (namespace: {namespace})")
             
             return item
             
@@ -138,7 +190,7 @@ class DeduplicationPipeline:
     def open_spider(self, spider):
         """Initialize deduplication engine"""
         try:
-            from ..deduplication import DeduplicationEngine
+            from .deduplication import DeduplicationEngine
             self.dedup_engine = DeduplicationEngine()
             spider.logger.info("Deduplication pipeline initialized")
         except Exception as e:
@@ -169,7 +221,7 @@ class DeduplicationPipeline:
         # Check if duplicate
         is_dup, reason = self.dedup_engine.is_duplicate(url, content, title)
         if is_dup:
-            spider.logger.debug(f"Dropping duplicate article: {url} (reason: {reason})")
+            spider.logger.info(f"✗ Dropping duplicate article: {title[:50]}... (reason: {reason})")
             raise scrapy.exceptions.DropItem(f"Duplicate article: {reason}")
         
         # Register article
@@ -182,8 +234,11 @@ class DeduplicationPipeline:
         )
         
         if not registered:
-            spider.logger.debug(f"Failed to register article (likely duplicate): {url}")
+            spider.logger.info(f"✗ Failed to register article (likely duplicate): {title[:50]}...")
             raise scrapy.exceptions.DropItem("Failed to register article")
+        
+        # Successfully passed deduplication
+        spider.logger.info(f"✓ New article registered: {title[:50]}...")
         
         return item
 
@@ -198,7 +253,7 @@ class QualityScoringPipeline:
     def open_spider(self, spider):
         """Initialize quality scorer"""
         try:
-            from ..quality_scorer import QualityScorer
+            from .quality_scorer import QualityScorer
             self.quality_scorer = QualityScorer()
             # Get min score from settings
             self.min_quality_score = spider.settings.getfloat("MIN_QUALITY_SCORE", 0.6)
@@ -213,6 +268,12 @@ class QualityScoringPipeline:
             return item
         
         adapter = ItemAdapter(item)
+        
+        # Skip quality scoring for news_rss spider (make quality_score optional)
+        if spider.name == "news_rss":
+            adapter["quality_score"] = None
+            adapter["quality_breakdown"] = None
+            return item
         
         # Prepare article dict for scoring
         article = {
@@ -283,10 +344,14 @@ class PDFDownloadPipeline(FilesPipeline):
         
         # If content_type is PDF, download it
         if adapter.get("content_type") == "pdf" and adapter.get("url"):
+            info.spider.logger.info(f"📄 Queueing PDF download: {adapter.get('title', '')[:50]}...")
             yield scrapy.Request(
                 adapter["url"],
                 meta={"item": item}
             )
+        else:
+            # Not a PDF, just pass through
+            info.spider.logger.debug(f"Skipping PDF download for non-PDF item: {adapter.get('content_type', 'unknown')}")
     
     def file_path(self, request, response=None, info=None, *, item=None):
         """Generate file path for PDFs"""
@@ -350,6 +415,8 @@ class FileStoragePipeline:
     
     def process_item(self, item, spider):
         """Write item to JSONL file"""
+        adapter = ItemAdapter(item)
         line = json.dumps(dict(item), ensure_ascii=False, default=str) + "\n"
         self.files[spider].write(line)
+        spider.logger.info(f"💾 Saved to file: {adapter['title'][:50]}...")
         return item

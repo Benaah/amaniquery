@@ -1,8 +1,9 @@
 "use client"
 
-import { useEffect } from "react"
+import { useState, useRef, useEffect } from "react"
 import { Button } from "@/components/ui/button"
-import { Plus, MessageSquare, Trash2, X } from "lucide-react"
+import { Input } from "@/components/ui/input"
+import { Plus, MessageSquare, Trash2, X, Pencil, Check, X as XIcon } from "lucide-react"
 import type { ChatSession } from "./types"
 
 interface ChatSidebarProps {
@@ -11,6 +12,7 @@ interface ChatSidebarProps {
   showHistory: boolean
   onLoadSession: (sessionId: string) => void
   onDeleteSession: (sessionId: string) => void
+  onRenameSession: (sessionId: string, newTitle: string) => void
   onCreateSession: () => void
   onCloseHistory: () => void
 }
@@ -21,9 +23,48 @@ export function ChatSidebar({
   showHistory,
   onLoadSession,
   onDeleteSession,
+  onRenameSession,
   onCreateSession,
   onCloseHistory
 }: ChatSidebarProps) {
+  const [editingSessionId, setEditingSessionId] = useState<string | null>(null)
+  const [editTitle, setEditTitle] = useState("")
+  const editInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (editingSessionId && editInputRef.current) {
+      editInputRef.current.focus()
+    }
+  }, [editingSessionId])
+
+  const startEditing = (session: ChatSession, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setEditingSessionId(session.id)
+    setEditTitle(session.title || "")
+  }
+
+  const cancelEditing = (e?: React.MouseEvent) => {
+    e?.stopPropagation()
+    setEditingSessionId(null)
+    setEditTitle("")
+  }
+
+  const saveTitle = (sessionId: string, e?: React.MouseEvent) => {
+    e?.stopPropagation()
+    if (editTitle.trim()) {
+      onRenameSession(sessionId, editTitle.trim())
+    }
+    setEditingSessionId(null)
+    setEditTitle("")
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent, sessionId: string) => {
+    if (e.key === "Enter") {
+      saveTitle(sessionId)
+    } else if (e.key === "Escape") {
+      cancelEditing()
+    }
+  }
   // Prevent body scroll when mobile sidebar is open
   useEffect(() => {
     if (showHistory) {
@@ -39,8 +80,8 @@ export function ChatSidebar({
   return (
     <>
       {/* Desktop Sidebar */}
-      <div className="hidden md:flex w-72 border-r border-white/5 bg-black/20 backdrop-blur-xl overflow-y-auto flex-col transition-all duration-300 ease-in-out h-full [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-        <div className="p-4 border-b border-white/5">
+      <div className="hidden md:flex w-72 border-r border-white/5 bg-black/20 backdrop-blur-xl flex-col transition-all duration-300 ease-in-out h-full">
+        <div className="p-4 border-b border-white/5 flex-shrink-0">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-xs uppercase tracking-widest text-muted-foreground">Sessions</p>
@@ -50,16 +91,12 @@ export function ChatSidebar({
               <Plus className="w-3 h-3" />
             </Button>
           </div>
-          <div className="mt-3 rounded-xl border border-white/5 bg-white/5 px-3 py-2 text-xs text-muted-foreground">
-            Quickly relive previous analyses or spin up a fresh thread.
-          </div>
         </div>
-        <div className="p-3 space-y-2 flex-1">
+        <div className="p-3 space-y-2 flex-1 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
           {chatHistory.map((session) => (
             <div key={session.id} className="flex items-center space-x-2 p-1 group min-w-0">
-              <Button
-                variant={currentSessionId === session.id ? "secondary" : "ghost"}
-                className="flex-1 justify-between text-left h-auto px-3 py-2 text-xs transition-all duration-200 rounded-2xl border border-transparent group-hover:border-white/10 min-w-0"
+              <div
+                className={`flex-1 flex items-center justify-between text-left h-auto px-3 py-2 text-xs transition-all duration-200 rounded-2xl border border-transparent group-hover:border-white/10 min-w-0 cursor-pointer ${currentSessionId === session.id ? "bg-secondary text-secondary-foreground" : "hover:bg-accent hover:text-accent-foreground"}`}
                 onClick={() => onLoadSession(session.id)}
               >
                 <div className="flex items-center w-full min-w-0">
@@ -67,27 +104,67 @@ export function ChatSidebar({
                     <MessageSquare className="w-3.5 h-3.5" />
                   </div>
                   <div className="flex-1 min-w-0 overflow-hidden">
-                    <div 
-                      className="font-medium truncate text-xs block"
-                      title={session.title || `Chat ${session.id.slice(-6)}`}
-                    >
-                      {session.title || `Chat ${session.id.slice(-6)}`}
-                    </div>
-                    <div className="text-[11px] text-muted-foreground truncate">{session.message_count} messages</div>
+                    {editingSessionId === session.id ? (
+                      <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                        <Input
+                          ref={editInputRef}
+                          value={editTitle}
+                          onChange={(e) => setEditTitle(e.target.value)}
+                          onKeyDown={(e) => handleKeyDown(e, session.id)}
+                          className="h-6 text-xs py-0 px-1 bg-background/50"
+                        />
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 w-6 p-0 hover:bg-green-500/20 hover:text-green-500"
+                          onClick={(e) => saveTitle(session.id, e)}
+                        >
+                          <Check className="w-3 h-3" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 w-6 p-0 hover:bg-red-500/20 hover:text-red-500"
+                          onClick={cancelEditing}
+                        >
+                          <XIcon className="w-3 h-3" />
+                        </Button>
+                      </div>
+                    ) : (
+                      <>
+                        <div 
+                          className="font-medium truncate text-xs block"
+                          title={session.title || `Chat ${session.id.slice(-6)}`}
+                        >
+                          {session.title || `Chat ${session.id.slice(-6)}`}
+                        </div>
+                        <div className="text-[11px] text-muted-foreground truncate">{session.message_count} messages</div>
+                      </>
+                    )}
                   </div>
                 </div>
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive h-7 w-7 rounded-full p-0 transition-opacity duration-200"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onDeleteSession(session.id)
-                }}
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-              </Button>
+              </div>
+              <div className="flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-muted-foreground hover:text-primary h-6 w-6 rounded-full p-0"
+                  onClick={(e) => startEditing(session, e)}
+                >
+                  <Pencil className="w-3 h-3" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-muted-foreground hover:text-destructive h-6 w-6 rounded-full p-0"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onDeleteSession(session.id)
+                  }}
+                >
+                  <Trash2 className="w-3 h-3" />
+                </Button>
+              </div>
             </div>
           ))}
         </div>
@@ -97,7 +174,7 @@ export function ChatSidebar({
       {showHistory && (
         <div className="md:hidden fixed inset-0 z-[60] bg-black/70 backdrop-blur-sm" onClick={onCloseHistory}>
           <div className="absolute left-0 top-0 h-full w-[85%] max-w-sm bg-background border-r border-white/10 shadow-2xl z-[61] flex flex-col" onClick={(e) => e.stopPropagation()}>
-            <div className="p-3 md:p-4 border-b border-white/10">
+            <div className="p-3 md:p-4 border-b border-white/10 flex-shrink-0">
               <div className="flex items-center justify-between mb-2">
                 <h3 className="font-semibold text-sm md:text-base">Chat History</h3>
                 <Button variant="ghost" size="sm" className="h-9 w-9 rounded-full" onClick={onCloseHistory}>

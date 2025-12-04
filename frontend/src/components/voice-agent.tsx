@@ -78,6 +78,21 @@ export function VoiceAgent({ livekitUrl, token, roomName, selectedVoice = "alloy
   const userTranscriptIdRef = useRef<string | null>(null)
   const agentTranscriptIdRef = useRef<string | null>(null)
 
+  // Fallback TTS using Web Speech API (for offline/TTS failures)
+  const speakWithBrowserTTS = (text: string) => {
+    if ('speechSynthesis' in window) {
+      const utterance = new SpeechSynthesisUtterance(text)
+      utterance.lang = "sw-KE" // Swahili (Kenya)
+      // Fallback to English if Swahili not available
+      const voices = speechSynthesis.getVoices()
+      const swahiliVoice = voices.find(v => v.lang.startsWith('sw'))
+      if (swahiliVoice) {
+        utterance.voice = swahiliVoice
+      }
+      speechSynthesis.speak(utterance)
+    }
+  }
+
   // Initialize Web Speech API for user transcription
   useEffect(() => {
     if (typeof window === "undefined") return
@@ -290,6 +305,11 @@ export function VoiceAgent({ livekitUrl, token, roomName, selectedVoice = "alloy
               if (data.type === "transcription" && data.role === "agent") {
                 const transcript = data.text || ""
                 
+                // Handle TTS failure - use browser fallback
+                if (data.tts_failed && transcript) {
+                  speakWithBrowserTTS(transcript)
+                }
+                
                 if (data.isFinal) {
                   // Final transcript
                   if (agentTranscriptIdRef.current) {
@@ -460,92 +480,168 @@ export function VoiceAgent({ livekitUrl, token, roomName, selectedVoice = "alloy
   }
 
   return (
-    <div className="flex flex-col h-full gap-4">
-      {/* Transcript Display */}
-      <Card className="flex-1 flex flex-col min-h-0">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Volume2 className="w-5 h-5" />
-            Conversation
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="flex-1 min-h-0 p-0">
-          <TranscriptDisplay messages={displayMessages} className="h-full" />
-        </CardContent>
-      </Card>
-
-      {/* Waveform Visualization */}
-      <AudioWaveform
-        audioStream={audioStream}
-        isActive={isConnected && !isMuted && (isUserTranscribing || isSpeaking)}
-      />
-
-      {/* Controls */}
-      <Card>
-        <CardContent className="pt-6">
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <div
-                  className={`w-3 h-3 rounded-full ${
-                    isConnected ? "bg-green-500 animate-pulse" : "bg-gray-400"
-                  }`}
+    <div className="flex flex-col h-full gap-4 md:gap-6 max-w-7xl mx-auto">
+      {/* Main Visualizer Area */}
+      <div className="flex-1 flex flex-col md:grid md:grid-cols-2 gap-4 md:gap-6 min-h-0 overflow-y-auto md:overflow-hidden">
+        
+        {/* Left Panel: User / Input */}
+        <div className="relative group flex-1 min-h-[300px] md:min-h-0">
+          <div className="absolute -inset-0.5 bg-gradient-to-r from-cyan-500 to-blue-600 rounded-2xl blur opacity-20 group-hover:opacity-40 transition duration-500"></div>
+          <Card className="relative h-full bg-background/80 border-border/40 backdrop-blur-xl flex flex-col overflow-hidden">
+            <CardHeader className="border-b border-border/40 pb-3 md:pb-4 p-4">
+              <CardTitle className="flex items-center gap-3 text-cyan-500 dark:text-cyan-400">
+                <div className="p-1.5 md:p-2 rounded-lg bg-cyan-500/10 border border-cyan-500/20">
+                  <Mic className="w-4 h-4 md:w-5 md:h-5" />
+                </div>
+                <span className="tracking-wider font-mono text-xs md:text-sm">AUDIO_INPUT_STREAM</span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="flex-1 flex flex-col p-4 md:p-6 gap-4 md:gap-6">
+              {/* Waveform Visualization */}
+              <div className="h-24 md:h-32 rounded-xl bg-muted/30 border border-border/40 flex items-center justify-center overflow-hidden relative flex-shrink-0">
+                <div className="absolute inset-0 bg-[linear-gradient(45deg,transparent_25%,rgba(6,182,212,0.05)_50%,transparent_75%,transparent_100%)] bg-[length:250%_250%,100%_100%] animate-[shimmer_3s_infinite]" />
+                <AudioWaveform
+                  audioStream={audioStream}
+                  isActive={isConnected && !isMuted && (isUserTranscribing || isSpeaking)}
+                  barColor="rgb(6, 182, 212)" // Cyan
                 />
-                <span className="text-sm">
-                  {isConnected ? "Connected" : "Connecting..."}
+              </div>
+
+              {/* Transcript Area */}
+              <div className="flex-1 rounded-xl bg-muted/30 border border-border/40 p-3 md:p-4 overflow-hidden flex flex-col min-h-0">
+                <div className="text-[10px] md:text-xs text-muted-foreground mb-2 font-mono uppercase tracking-widest">Live Transcription</div>
+                <div className="flex-1 overflow-y-auto space-y-3 md:space-y-4 pr-2 scrollbar-thin scrollbar-thumb-cyan-900/50 scrollbar-track-transparent">
+                  {messages.filter(m => m.role === 'user').map((msg) => (
+                    <div key={msg.id} className="text-right">
+                      <div className="inline-block p-2 md:p-3 rounded-2xl rounded-tr-none bg-cyan-950/10 dark:bg-cyan-950/30 border border-cyan-500/20 text-cyan-700 dark:text-cyan-100 text-xs md:text-sm">
+                        {msg.content}
+                      </div>
+                      <div className="text-[10px] text-muted-foreground mt-1 font-mono">{msg.timestamp.toLocaleTimeString()}</div>
+                    </div>
+                  ))}
+                  {currentUserTranscript && (
+                    <div className="text-right animate-pulse">
+                      <div className="inline-block p-2 md:p-3 rounded-2xl rounded-tr-none bg-cyan-950/5 dark:bg-cyan-950/20 border border-cyan-500/10 text-cyan-600/70 dark:text-cyan-200/70 text-xs md:text-sm italic">
+                        {currentUserTranscript}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Right Panel: Agent / Output */}
+        <div className="relative group flex-1 min-h-[300px] md:min-h-0">
+          <div className="absolute -inset-0.5 bg-gradient-to-r from-purple-500 to-pink-600 rounded-2xl blur opacity-20 group-hover:opacity-40 transition duration-500"></div>
+          <Card className="relative h-full bg-background/80 border-border/40 backdrop-blur-xl flex flex-col overflow-hidden">
+            <CardHeader className="border-b border-border/40 pb-3 md:pb-4 p-4">
+              <CardTitle className="flex items-center gap-3 text-purple-500 dark:text-purple-400">
+                <div className="p-1.5 md:p-2 rounded-lg bg-purple-500/10 border border-purple-500/20">
+                  <Volume2 className="w-4 h-4 md:w-5 md:h-5" />
+                </div>
+                <span className="tracking-wider font-mono text-xs md:text-sm">NEURAL_RESPONSE_ENGINE</span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="flex-1 flex flex-col p-4 md:p-6 gap-4 md:gap-6">
+              {/* Agent Visualizer */}
+              <div className="h-24 md:h-32 rounded-xl bg-muted/30 border border-border/40 flex items-center justify-center relative overflow-hidden flex-shrink-0">
+                 <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-purple-900/10 via-transparent to-transparent" />
+                 {isSpeaking ? (
+                   <div className="flex items-center gap-1">
+                     {[...Array(5)].map((_, i) => (
+                       <div key={i} className="w-2 bg-purple-500 rounded-full animate-music-bar" style={{ animationDelay: `${i * 0.1}s`, height: '20px' }} />
+                     ))}
+                   </div>
+                 ) : (
+                   <div className="w-12 h-12 md:w-16 md:h-16 rounded-full border-2 border-purple-500/30 flex items-center justify-center">
+                     <div className="w-1.5 h-1.5 md:w-2 md:h-2 rounded-full bg-purple-500 animate-ping" />
+                   </div>
+                 )}
+              </div>
+
+              {/* Transcript Area */}
+              <div className="flex-1 rounded-xl bg-muted/30 border border-border/40 p-3 md:p-4 overflow-hidden flex flex-col min-h-0">
+                <div className="text-[10px] md:text-xs text-muted-foreground mb-2 font-mono uppercase tracking-widest">Agent Response</div>
+                <div className="flex-1 overflow-y-auto space-y-3 md:space-y-4 pr-2 scrollbar-thin scrollbar-thumb-purple-900/50 scrollbar-track-transparent">
+                  {messages.filter(m => m.role === 'agent').map((msg) => (
+                    <div key={msg.id} className="text-left">
+                      <div className="inline-block p-2 md:p-3 rounded-2xl rounded-tl-none bg-purple-950/10 dark:bg-purple-950/30 border border-purple-500/20 text-purple-700 dark:text-purple-100 text-xs md:text-sm">
+                        {msg.content}
+                      </div>
+                      <div className="text-[10px] text-muted-foreground mt-1 font-mono">{msg.timestamp.toLocaleTimeString()}</div>
+                    </div>
+                  ))}
+                  {currentAgentTranscript && (
+                    <div className="text-left animate-pulse">
+                      <div className="inline-block p-2 md:p-3 rounded-2xl rounded-tl-none bg-purple-950/5 dark:bg-purple-950/20 border border-purple-500/10 text-purple-600/70 dark:text-purple-200/70 text-xs md:text-sm italic">
+                        {currentAgentTranscript}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+
+      {/* Controls Bar */}
+      <div className="relative group flex-shrink-0">
+        <div className="absolute -inset-0.5 bg-gradient-to-r from-cyan-500 via-purple-500 to-blue-600 rounded-xl blur opacity-20 group-hover:opacity-40 transition duration-500"></div>
+        <Card className="relative bg-background/80 border-border/40 backdrop-blur-xl">
+          <CardContent className="p-3 md:p-4 flex flex-col md:flex-row items-center justify-between gap-4">
+            
+            {/* Status Indicator */}
+            <div className="flex items-center gap-4 w-full md:w-auto justify-between md:justify-start">
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-muted/50 border border-border/40">
+                <div className={`w-2 h-2 rounded-full ${isConnected ? "bg-green-500 shadow-[0_0_10px_#22c55e]" : "bg-yellow-500"}`} />
+                <span className="text-xs font-mono text-muted-foreground uppercase">
+                  {isConnected ? "Linked" : "Connecting"}
                 </span>
               </div>
-              {isSpeaking && (
-                <div className="flex items-center gap-1 text-sm text-primary">
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Agent speaking...</span>
-                </div>
-              )}
-              {isUserTranscribing && (
-                <div className="flex items-center gap-1 text-sm text-primary">
-                  <Mic className={`w-4 h-4 ${isUserTranscribing ? "animate-pulse" : ""}`} />
-                  <span>Listening...</span>
-                </div>
-              )}
+              <div className="h-8 w-px bg-border/40 hidden md:block" />
+              <div className="text-xs text-muted-foreground font-mono truncate max-w-[150px] md:max-w-none">
+                ROOM: <span className="text-cyan-500 dark:text-cyan-400">{roomName}</span>
+              </div>
             </div>
 
             <audio ref={audioRef} autoPlay />
 
-            <div className="flex gap-2">
+            {/* Action Buttons */}
+            <div className="flex items-center gap-2 md:gap-3 w-full md:w-auto">
               <Button
                 onClick={toggleMute}
-                variant={isMuted ? "destructive" : "default"}
-                className="flex-1"
+                variant="outline"
+                className={`flex-1 md:flex-none h-10 px-4 md:px-6 border-border/40 hover:bg-muted/50 hover:text-cyan-500 transition-all ${isMuted ? "text-red-500 border-red-500/30 bg-red-500/10" : ""}`}
                 disabled={!isConnected}
               >
                 {isMuted ? (
                   <>
                     <MicOff className="w-4 h-4 mr-2" />
-                    Unmute
+                    <span className="md:inline">MUTED</span>
                   </>
                 ) : (
                   <>
                     <Mic className="w-4 h-4 mr-2" />
-                    Mute
+                    <span className="md:inline">ACTIVE</span>
                   </>
                 )}
               </Button>
 
               <Button
                 onClick={disconnect}
-                variant="outline"
+                variant="destructive"
+                className="flex-1 md:flex-none h-10 px-4 md:px-6"
                 disabled={!isConnected}
               >
-                Disconnect
+                DISCONNECT
               </Button>
             </div>
-
-            <p className="text-xs text-muted-foreground text-center">
-              Room: {roomName} | Voice: {selectedVoice}
-            </p>
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   )
 }

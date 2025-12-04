@@ -259,7 +259,8 @@ class ConstitutionalAlignmentPipeline:
             bill_results = self.vector_store.query(
                 query_text=bill_search_query,
                 n_results=bill_top_k,
-                filter={"category": "Bill"}  # Filter for Bills only
+                filter={"category": "Bill"},  # Filter for Bills only
+                namespace=["kenya_law"]
             )
             
             # If no Bills found, try Acts
@@ -268,7 +269,8 @@ class ConstitutionalAlignmentPipeline:
                 bill_results = self.vector_store.query(
                     query_text=bill_search_query,
                     n_results=bill_top_k,
-                    filter={"category": "Act"}
+                    filter={"category": "Act"},
+                    namespace=["kenya_law"]
                 )
             
             return bill_results
@@ -277,7 +279,8 @@ class ConstitutionalAlignmentPipeline:
             constitution_results = self.vector_store.query(
                 query_text=constitution_search_query,
                 n_results=constitution_top_k,
-                filter={"category": "Constitution"}
+                filter={"category": "Constitution"},
+                namespace=["kenya_law"]
             )
             return constitution_results
         

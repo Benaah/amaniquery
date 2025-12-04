@@ -3,169 +3,72 @@
 import { useState } from "react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   Code,
   Book,
-  Key,
   Globe,
   Zap,
   Shield,
   Database,
-  Webhook,
   FileText,
   ExternalLink,
   Copy,
   Check,
   ArrowLeft,
+  Terminal,
+  Cpu,
+  Scale,
+  Newspaper,
+  CheckCircle2
 } from "lucide-react"
 import { AnimatedIDE } from "@/components/animated-ide"
 import { ChatStreamDemo } from "@/components/chat-stream-demo"
+import {
+  DEVELOPER_KIT_VERSION,
+  LAST_UPDATED,
+  MASTER_SYSTEM_PROMPT,
+  HYBRID_RAG_PROMPT,
+  LEGAL_SPECIALIST_PROMPT,
+  NEWS_SPECIALIST_PROMPT,
+  PYDANTIC_VALIDATOR,
+  GOLDEN_TEST_CASE
+} from "./constants"
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
-interface ApiEndpoint {
-  method: string
-  path: string
-  description: string
-  auth: boolean
-  category: string
-}
-
-const apiEndpoints: ApiEndpoint[] = [
-  {
-    method: "POST",
-    path: "/query",
-    description: "General RAG query with filters",
-    auth: false,
-    category: "Core",
-  },
-  {
-    method: "POST",
-    path: "/query/stream",
-    description: "Streaming RAG query (token-by-token)",
-    auth: false,
-    category: "Core",
-  },
-  {
-    method: "POST",
-    path: "/alignment-check",
-    description: "Full constitutional alignment analysis",
-    auth: false,
-    category: "Legal",
-  },
-  {
-    method: "GET",
-    path: "/api/v1/blog/posts",
-    description: "List published blog posts",
-    auth: false,
-    category: "Blog",
-  },
-  {
-    method: "GET",
-    path: "/api/v1/blog/posts/{slug}",
-    description: "Get blog post by slug",
-    auth: false,
-    category: "Blog",
-  },
-  {
-    method: "POST",
-    path: "/api/v1/blog/posts",
-    description: "Create blog post (admin)",
-    auth: true,
-    category: "Blog",
-  },
-  {
-    method: "GET",
-    path: "/api/v1/auth/me",
-    description: "Get current user profile",
-    auth: true,
-    category: "Auth",
-  },
-  {
-    method: "POST",
-    path: "/api/v1/auth/integrations",
-    description: "Create third-party integration",
-    auth: true,
-    category: "Auth",
-  },
-  {
-    method: "POST",
-    path: "/api/v1/auth/integrations/{id}/keys",
-    description: "Create API key",
-    auth: true,
-    category: "Auth",
-  },
-]
-
-const codeExamples = {
-  python: `import requests
-
-# Query the API
-response = requests.post(
-    "${API_BASE_URL}/query",
-    json={
-        "query": "What are the recent parliamentary debates on finance?",
-        "top_k": 5,
-        "category": "Parliament"
-    }
-)
-
-data = response.json()
-print(data["answer"])`,
-
-  javascript: `// Using fetch API
-const response = await fetch('${API_BASE_URL}/query', {
-  method: 'POST',
-  headers: {
-    'Content-Type': 'application/json',
-  },
-  body: JSON.stringify({
-    query: 'What are the recent parliamentary debates on finance?',
-    top_k: 5,
-    category: 'Parliament'
-  })
-});
-
-const data = await response.json();
-console.log(data.answer);`,
-
-  curl: `curl -X POST ${API_BASE_URL}/query \\
-  -H "Content-Type: application/json" \\
-  -d '{
-    "query": "What are the recent parliamentary debates on finance?",
-    "top_k": 5,
-    "category": "Parliament"
-  }'`,
-}
-
 export default function DevelopersPage() {
-  const [copiedCode, setCopiedCode] = useState<string | null>(null)
-  const [selectedLanguage, setSelectedLanguage] = useState<"python" | "javascript" | "curl">("python")
+  const [copiedSection, setCopiedSection] = useState<string | null>(null)
 
   const copyToClipboard = (text: string, id: string) => {
     navigator.clipboard.writeText(text)
-    setCopiedCode(id)
-    setTimeout(() => setCopiedCode(null), 2000)
+    setCopiedSection(id)
+    setTimeout(() => setCopiedSection(null), 2000)
   }
 
-  const getMethodColor = (method: string) => {
-    switch (method) {
-      case "GET":
-        return "bg-blue-500/10 text-blue-500"
-      case "POST":
-        return "bg-green-500/10 text-green-500"
-      case "PUT":
-        return "bg-yellow-500/10 text-yellow-500"
-      case "DELETE":
-        return "bg-red-500/10 text-red-500"
-      default:
-        return "bg-gray-500/10 text-gray-500"
-    }
-  }
-
-  const categories = Array.from(new Set(apiEndpoints.map((e) => e.category)))
+  const CodeBlock = ({ code, id, language = "text" }: { code: string, id: string, language?: string }) => (
+    <div className="relative mt-4 group">
+      <div className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-opacity">
+        <Button
+          variant="secondary"
+          size="sm"
+          className="h-8 w-8 p-0"
+          onClick={() => copyToClipboard(code, id)}
+        >
+          {copiedSection === id ? (
+            <Check className="h-4 w-4 text-green-500" />
+          ) : (
+            <Copy className="h-4 w-4" />
+          )}
+        </Button>
+      </div>
+      <pre className="bg-muted/50 p-4 rounded-lg overflow-x-auto border border-border/50 text-sm font-mono leading-relaxed">
+        <code className={`language-${language}`}>{code}</code>
+      </pre>
+    </div>
+  )
 
   return (
     <div className="min-h-screen bg-background">
@@ -173,29 +76,27 @@ export default function DevelopersPage() {
         {/* Header */}
         <div className="mb-8">
           <Link href="/">
-            <Button variant="ghost" className="mb-4">
+            <Button variant="ghost" className="mb-4 pl-0 hover:bg-transparent hover:text-primary">
               <ArrowLeft className="w-4 h-4 mr-2" />
               Back to Home
             </Button>
           </Link>
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
-              <h1 className="text-4xl font-bold mb-2">Developer Documentation</h1>
-              <p className="text-muted-foreground text-lg">
-                Integrate AmaniQuery into your applications with our comprehensive API
+              <div className="flex items-center gap-3 mb-2">
+                <h1 className="text-4xl font-bold tracking-tight">Developer Hub</h1>
+                <Badge variant="secondary" className="text-sm">v{DEVELOPER_KIT_VERSION}</Badge>
+              </div>
+              <p className="text-muted-foreground text-lg max-w-2xl">
+                Build compliant legal AI applications with the AmaniQuery Developer Kit.
+                Access system prompts, validators, and testing resources.
               </p>
             </div>
             <div className="flex gap-2">
               <a href={`${API_BASE_URL}/docs`} target="_blank" rel="noopener noreferrer">
                 <Button variant="outline">
                   <ExternalLink className="w-4 h-4 mr-2" />
-                  Swagger UI
-                </Button>
-              </a>
-              <a href={`${API_BASE_URL}/redoc`} target="_blank" rel="noopener noreferrer">
-                <Button variant="outline">
-                  <ExternalLink className="w-4 h-4 mr-2" />
-                  ReDoc
+                  API Reference
                 </Button>
               </a>
             </div>
@@ -203,193 +104,160 @@ export default function DevelopersPage() {
         </div>
 
         {/* Interactive Demos */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-12">
           <AnimatedIDE />
           <ChatStreamDemo />
         </div>
 
-        {/* Quick Start */}
-        <Card className="mb-8">
-          <CardHeader>
-            <CardTitle className="flex items-center">
-              <Zap className="w-5 h-5 mr-2" />
-              Quick Start
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div>
-              <h3 className="font-semibold mb-2">1. Get API Access</h3>
-              <p className="text-muted-foreground mb-4">
-                Sign up for an account and create an API key from your dashboard.
-              </p>
-            </div>
-            <div>
-              <h3 className="font-semibold mb-2">2. Make Your First Request</h3>
-              <div className="flex gap-2 mb-4">
-                {(["python", "javascript", "curl"] as const).map((lang) => (
-                  <Button
-                    key={lang}
-                    variant={selectedLanguage === lang ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => setSelectedLanguage(lang)}
-                  >
-                    {lang === "python" ? "Python" : lang === "javascript" ? "JavaScript" : "cURL"}
-                  </Button>
-                ))}
-              </div>
-              <div className="relative">
-                <pre className="bg-muted p-4 rounded-lg overflow-x-auto">
-                  <code>{codeExamples[selectedLanguage]}</code>
-                </pre>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="absolute top-2 right-2"
-                  onClick={() => copyToClipboard(codeExamples[selectedLanguage], "quickstart")}
-                >
-                  {copiedCode === "quickstart" ? (
-                    <Check className="w-4 h-4" />
-                  ) : (
-                    <Copy className="w-4 h-4" />
-                  )}
-                </Button>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
           {/* Main Content */}
-          <div className="lg:col-span-2 space-y-8">
-            {/* API Endpoints */}
-            <div>
-              <h2 className="text-2xl font-bold mb-4 flex items-center">
-                <Code className="w-6 h-6 mr-2" />
-                API Endpoints
-              </h2>
-              <div className="space-y-6">
-                {categories.map((category) => {
-                  const endpoints = apiEndpoints.filter((e) => e.category === category)
-                  return (
-                    <Card key={category}>
-                      <CardHeader>
-                        <CardTitle>{category}</CardTitle>
-                      </CardHeader>
-                      <CardContent className="space-y-4">
-                        {endpoints.map((endpoint, idx) => (
-                          <div
-                            key={idx}
-                            className="border rounded-lg p-4 hover:bg-accent/50 transition-colors"
-                          >
-                            <div className="flex items-start justify-between mb-2">
-                              <div className="flex items-center gap-2">
-                                <Badge className={getMethodColor(endpoint.method)}>
-                                  {endpoint.method}
-                                </Badge>
-                                <code className="text-sm font-mono">{endpoint.path}</code>
-                              </div>
-                              {endpoint.auth && (
-                                <Badge variant="outline" className="text-xs">
-                                  <Key className="w-3 h-3 mr-1" />
-                                  Auth Required
-                                </Badge>
-                              )}
-                            </div>
-                            <p className="text-sm text-muted-foreground">{endpoint.description}</p>
-                          </div>
-                        ))}
-                      </CardContent>
-                    </Card>
-                  )
-                })}
-              </div>
-            </div>
+          <div className="lg:col-span-9 space-y-8">
+            
+            <Tabs defaultValue="prompts" className="w-full">
+              <TabsList className="w-full justify-start h-auto p-1 bg-muted/50 mb-6 overflow-x-auto flex-nowrap">
+                <TabsTrigger value="prompts" className="flex items-center gap-2 px-4 py-2">
+                  <Terminal className="w-4 h-4" />
+                  System Prompts
+                </TabsTrigger>
+                <TabsTrigger value="specialists" className="flex items-center gap-2 px-4 py-2">
+                  <Cpu className="w-4 h-4" />
+                  Specialist Agents
+                </TabsTrigger>
+                <TabsTrigger value="validators" className="flex items-center gap-2 px-4 py-2">
+                  <Shield className="w-4 h-4" />
+                  Validators
+                </TabsTrigger>
+                <TabsTrigger value="testing" className="flex items-center gap-2 px-4 py-2">
+                  <CheckCircle2 className="w-4 h-4" />
+                  Testing
+                </TabsTrigger>
+              </TabsList>
 
-            {/* Authentication */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  <Shield className="w-5 h-5 mr-2" />
-                  Authentication
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div>
-                  <h3 className="font-semibold mb-2">API Keys</h3>
-                  <p className="text-muted-foreground mb-4">
-                    Create API keys from your dashboard for programmatic access. Include the key in
-                    the <code className="bg-muted px-1 rounded">X-API-Key</code> header.
-                  </p>
-                  <div className="bg-muted p-4 rounded-lg">
-                    <code className="text-sm">
-                      X-API-Key: your-api-key-here
-                    </code>
-                  </div>
-                </div>
-                <div>
-                  <h3 className="font-semibold mb-2">OAuth 2.0</h3>
-                  <p className="text-muted-foreground mb-4">
-                    For third-party integrations, use OAuth 2.0 for secure authentication. Create an
-                    OAuth client from your dashboard.
-                  </p>
-                </div>
-                <div>
-                  <h3 className="font-semibold mb-2">Session Tokens</h3>
-                  <p className="text-muted-foreground">
-                    For web applications, use session tokens obtained after login. Include in the{" "}
-                    <code className="bg-muted px-1 rounded">X-Session-Token</code> header or as a
-                    cookie.
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
+              {/* System Prompts Tab */}
+              <TabsContent value="prompts" className="space-y-6">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Zap className="w-5 h-5 text-yellow-500" />
+                      Master System Prompt
+                    </CardTitle>
+                    <CardDescription>
+                      The core instruction set for the AmaniQuery engine. Handles intent detection, 
+                      language switching (English/Swahili), and response formatting.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <CodeBlock code={MASTER_SYSTEM_PROMPT} id="master-prompt" />
+                  </CardContent>
+                </Card>
 
-            {/* Rate Limiting */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  <Zap className="w-5 h-5 mr-2" />
-                  Rate Limiting
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-muted-foreground mb-4">
-                  API requests are rate-limited to ensure fair usage:
-                </p>
-                <ul className="list-disc list-inside space-y-2 text-muted-foreground">
-                  <li>Free tier: 60 requests per minute, 1000 per hour</li>
-                  <li>Pro tier: 300 requests per minute, 10,000 per hour</li>
-                  <li>Enterprise: Custom limits</li>
-                </ul>
-                <p className="text-sm text-muted-foreground mt-4">
-                  Rate limit headers are included in all responses:
-                </p>
-                <div className="bg-muted p-4 rounded-lg mt-2">
-                  <code className="text-sm">
-                    X-RateLimit-Remaining: 59<br />
-                    X-RateLimit-Reset: 1640995200
-                  </code>
-                </div>
-              </CardContent>
-            </Card>
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Database className="w-5 h-5 text-blue-500" />
+                      Hybrid RAG Mode
+                    </CardTitle>
+                    <CardDescription>
+                      Specialized prompt for retrieving and synthesizing legal sources. 
+                      Enforces citation rules and structured analysis.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <CodeBlock code={HYBRID_RAG_PROMPT} id="rag-prompt" />
+                  </CardContent>
+                </Card>
+              </TabsContent>
+
+              {/* Specialist Agents Tab */}
+              <TabsContent value="specialists" className="space-y-6">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Scale className="w-5 h-5 text-indigo-500" />
+                      Legal Content Specialist
+                    </CardTitle>
+                    <CardDescription>
+                      Generates court-ready legal analysis with Bluebook citations, 
+                      IRAC structure, and statutory comparisons.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <CodeBlock code={LEGAL_SPECIALIST_PROMPT} id="legal-prompt" />
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Newspaper className="w-5 h-5 text-rose-500" />
+                      News & Parliamentary Specialist
+                    </CardTitle>
+                    <CardDescription>
+                      Formats Hansard records, voting outcomes, and news summaries 
+                      with journalistic precision and attribution.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <CodeBlock code={NEWS_SPECIALIST_PROMPT} id="news-prompt" />
+                  </CardContent>
+                </Card>
+              </TabsContent>
+
+              {/* Validators Tab */}
+              <TabsContent value="validators" className="space-y-6">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Shield className="w-5 h-5 text-green-500" />
+                      Pydantic Response Validator
+                    </CardTitle>
+                    <CardDescription>
+                      Python code to validate the structural integrity of agent responses, 
+                      ensuring no reasoning leakage and proper citation format.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <CodeBlock code={PYDANTIC_VALIDATOR} id="pydantic-validator" language="python" />
+                  </CardContent>
+                </Card>
+              </TabsContent>
+
+              {/* Testing Tab */}
+              <TabsContent value="testing" className="space-y-6">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <CheckCircle2 className="w-5 h-5 text-teal-500" />
+                      Golden Test Cases
+                    </CardTitle>
+                    <CardDescription>
+                      Standardized Q&A pairs for regression testing the agent's performance.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <CodeBlock code={GOLDEN_TEST_CASE} id="test-case" />
+                  </CardContent>
+                </Card>
+              </TabsContent>
+            </Tabs>
           </div>
 
           {/* Sidebar */}
-          <div className="space-y-6">
+          <div className="lg:col-span-3 space-y-6">
             {/* Resources */}
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center">
+                <CardTitle className="flex items-center text-lg">
                   <Book className="w-5 h-5 mr-2" />
                   Resources
                 </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-2">
+              <CardContent className="space-y-3">
                 <a
                   href={`${API_BASE_URL}/docs`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center text-primary hover:underline"
+                  className="flex items-center text-sm text-muted-foreground hover:text-primary transition-colors"
                 >
                   <FileText className="w-4 h-4 mr-2" />
                   Interactive API Docs
@@ -398,50 +266,40 @@ export default function DevelopersPage() {
                   href="https://github.com/Benaah/amaniquery"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center text-primary hover:underline"
+                  className="flex items-center text-sm text-muted-foreground hover:text-primary transition-colors"
                 >
                   <Code className="w-4 h-4 mr-2" />
                   GitHub Repository
                 </a>
-                <Link href="/blog" className="flex items-center text-primary hover:underline">
-                  <FileText className="w-4 h-4 mr-2" />
-                  Blog & Updates
+                <Link href="/blog" className="flex items-center text-sm text-muted-foreground hover:text-primary transition-colors">
+                  <Globe className="w-4 h-4 mr-2" />
+                  Engineering Blog
                 </Link>
               </CardContent>
             </Card>
 
-            {/* Features */}
-            <Card>
+            {/* Kit Info */}
+            <Card className="bg-primary/5 border-primary/20">
               <CardHeader>
-                <CardTitle className="flex items-center">
+                <CardTitle className="flex items-center text-lg">
                   <Database className="w-5 h-5 mr-2" />
-                  Features
+                  Kit Details
                 </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-2 text-sm text-muted-foreground">
-                <div className="flex items-center">
-                  <Check className="w-4 h-4 mr-2 text-green-500" />
-                  RAG-powered queries
+              <CardContent className="space-y-3 text-sm">
+                <div className="flex justify-between py-1 border-b border-border/50">
+                  <span className="text-muted-foreground">Version</span>
+                  <span className="font-mono font-medium">{DEVELOPER_KIT_VERSION}</span>
                 </div>
-                <div className="flex items-center">
-                  <Check className="w-4 h-4 mr-2 text-green-500" />
-                  Constitutional alignment
+                <div className="flex justify-between py-1 border-b border-border/50">
+                  <span className="text-muted-foreground">Updated</span>
+                  <span className="font-mono font-medium">{LAST_UPDATED}</span>
                 </div>
-                <div className="flex items-center">
-                  <Check className="w-4 h-4 mr-2 text-green-500" />
-                  Streaming responses
-                </div>
-                <div className="flex items-center">
-                  <Check className="w-4 h-4 mr-2 text-green-500" />
-                  Blog API
-                </div>
-                <div className="flex items-center">
-                  <Check className="w-4 h-4 mr-2 text-green-500" />
-                  OAuth 2.0 support
-                </div>
-                <div className="flex items-center">
-                  <Check className="w-4 h-4 mr-2 text-green-500" />
-                  Webhook support
+                <div className="flex justify-between py-1">
+                  <span className="text-muted-foreground">Status</span>
+                  <Badge variant="outline" className="text-xs bg-green-500/10 text-green-600 border-green-500/20">
+                    Production
+                  </Badge>
                 </div>
               </CardContent>
             </Card>
@@ -449,17 +307,17 @@ export default function DevelopersPage() {
             {/* Support */}
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center">
+                <CardTitle className="flex items-center text-lg">
                   <Globe className="w-5 h-5 mr-2" />
                   Support
                 </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-2">
+              <CardContent className="space-y-3">
                 <a
                   href="https://github.com/Benaah/amaniquery/issues"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center text-primary hover:underline text-sm"
+                  className="flex items-center text-sm text-muted-foreground hover:text-primary transition-colors"
                 >
                   Report Issues
                 </a>
@@ -467,7 +325,7 @@ export default function DevelopersPage() {
                   href="https://github.com/Benaah/amaniquery/discussions"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center text-primary hover:underline text-sm"
+                  className="flex items-center text-sm text-muted-foreground hover:text-primary transition-colors"
                 >
                   Community Discussions
                 </a>
@@ -479,4 +337,3 @@ export default function DevelopersPage() {
     </div>
   )
 }
-

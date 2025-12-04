@@ -71,3 +71,8 @@ htmlcov/
 models/*.bin
 models/*.pt
 !models/.gitkeep
+
+# Kubernetes secrets with real values
+k8s/base/secrets-populated.yaml
+k8s/overlays/*/secrets-*.yaml
+*.secret.yaml

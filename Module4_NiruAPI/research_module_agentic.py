@@ -25,12 +25,13 @@ class AgenticResearchModule:
     Refactored research module using 7-layer agentic AI architecture
     """
     
-    def __init__(self, config_manager: Optional[ConfigManager] = None):
+    def __init__(self, config_manager: Optional[ConfigManager] = None, tool_registry: Optional[ToolRegistry] = None):
         """
         Initialize agentic research module
         
         Args:
             config_manager: Optional config manager
+            tool_registry: Optional shared tool registry (recommended for performance)
         """
         self.config_manager = config_manager or ConfigManager()
         
@@ -44,8 +45,13 @@ class AgenticResearchModule:
                 rag_pipeline=self.rag_pipeline
             )
             
-            # Initialize tool registry
-            self.tool_registry = ToolRegistry()
+            # Use shared tool registry if provided (avoids slow initialization)
+            if tool_registry:
+                self.tool_registry = tool_registry
+                logger.info("Using shared tool registry (fast path)")
+            else:
+                self.tool_registry = ToolRegistry()
+                logger.warning("Creating new tool registry (slow path)")
             
             # Initialize memory manager
             self.memory_manager = AgentMemoryManager()

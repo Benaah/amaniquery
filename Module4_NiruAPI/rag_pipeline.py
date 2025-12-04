@@ -134,28 +134,51 @@ class RAGPipeline:
                 else:
                     raise
         else:
-            # Local model support can be added here
-            logger.warning(f"Unknown provider {llm_provider}, defaulting to Moonshot")
-            api_key = self._get_secret("MOONSHOT_API_KEY")
-            base_url = (
-                os.getenv("MOONSHOT_BASE_URL")
-                or self._get_secret("MOONSHOT_BASE_URL")
-                or "https://api.moonshot.ai/v1"
-            )
-            if api_key:
+            # Check for OpenRouter first for any other provider/model
+            openrouter_key = self._get_secret("OPENROUTER_API_KEY")
+            if openrouter_key:
                 try:
                     self.client = OpenAI(
-                        api_key=api_key,
-                        base_url=base_url,
+                        api_key=openrouter_key,
+                        base_url="https://openrouter.ai/api/v1",
+                        default_headers={
+                            "HTTP-Referer": "https://amaniquery.vercel.app",
+                            "X-Title": "AmaniQuery",
+                        }
                     )
-                    logger.info(f"Using Moonshot AI at {base_url}")
+                    self.llm_provider = "openrouter"
+                    logger.info(f"Using OpenRouter for model: {self.model}")
+                    
+                    # Test connection
+                    # self.client.models.list() # Optional check
+                    
                 except Exception as e:
-                    logger.error(f"Failed to initialize Moonshot client: {e}")
-                    raise ValueError("MOONSHOT_API_KEY not set in environment or invalid")
+                    logger.error(f"Failed to initialize OpenRouter client: {e}")
+                    # Fallback to local/moonshot logic below if needed, or raise
+                    raise ValueError(f"Failed to initialize OpenRouter: {e}")
             else:
-                raise ValueError("MOONSHOT_API_KEY not set in environment")
+                # Local model support or fallback
+                logger.warning(f"Unknown provider {llm_provider} and no OPENROUTER_API_KEY found. Defaulting to Moonshot configuration check.")
+                api_key = self._get_secret("MOONSHOT_API_KEY")
+                base_url = (
+                    os.getenv("MOONSHOT_BASE_URL")
+                    or self._get_secret("MOONSHOT_BASE_URL")
+                    or "https://api.moonshot.ai/v1"
+                )
+                if api_key:
+                    try:
+                        self.client = OpenAI(
+                            api_key=api_key,
+                            base_url=base_url,
+                        )
+                        logger.info(f"Using Moonshot AI at {base_url} (Fallback)")
+                    except Exception as e:
+                        logger.error(f"Failed to initialize Moonshot client: {e}")
+                        raise ValueError("MOONSHOT_API_KEY not set in environment or invalid")
+                else:
+                    raise ValueError(f"Provider '{llm_provider}' not supported and OPENROUTER_API_KEY not set.")
         
-        logger.info(f"RAG Pipeline initialized with {llm_provider}/{model}")
+        logger.info(f"RAG Pipeline initialized with {self.llm_provider}/{self.model}")
         
         # Initialize ensemble clients (for multi-model responses when context is limited)
         self.ensemble_clients = self._initialize_ensemble_clients()
@@ -219,6 +242,25 @@ class RAGPipeline:
                 logger.info(f"Ensemble: Gemini client initialized with {gemini_model}")
         except Exception as e:
             logger.warning(f"Ensemble: Failed to initialize Gemini: {e}")
+
+        # OpenRouter
+        try:
+            api_key = self._get_secret("OPENROUTER_API_KEY")
+            if api_key:
+                clients["openrouter"] = {
+                    "client": OpenAI(
+                        api_key=api_key, 
+                        base_url="https://openrouter.ai/api/v1",
+                        default_headers={
+                            "HTTP-Referer": "https://amaniquery.vercel.app",
+                            "X-Title": "AmaniQuery",
+                        }
+                    ),
+                    "model": os.getenv("OPENROUTER_MODEL", "meta-llama/llama-3-8b-instruct:free")
+                }
+                logger.info("Ensemble: OpenRouter client initialized")
+        except Exception as e:
+            logger.warning(f"Ensemble: Failed to initialize OpenRouter: {e}")
         
         logger.info(f"Ensemble: {len(clients)} model(s) available for ensemble responses")
         return clients
@@ -288,6 +330,41 @@ class RAGPipeline:
         """Expose LLM client for other components"""
         return self.client
     
+    def generate_answer(
+        self,
+        query: str,
+        context: str,
+        system_prompt: Optional[str] = None,
+        temperature: float = 0.7,
+        max_tokens: int = 1500
+    ) -> str:
+        """
+        Generate answer from context (public wrapper for _generate_answer)
+        
+        Args:
+            query: User question
+            context: Retrieved context
+            system_prompt: Optional system prompt override
+            temperature: LLM temperature
+            max_tokens: Max tokens
+            
+        Returns:
+            Generated answer string
+        """
+        # Use the internal method which now supports system_prompt override
+        result = self._generate_answer(
+            query=query,
+            context=context,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            system_prompt=system_prompt
+        )
+        
+        # Return just the answer text as expected by callers
+        if isinstance(result, dict):
+            return result.get("answer", "")
+        return str(result)
+
     def query(
         self,
         query: str,
@@ -331,12 +408,33 @@ class RAGPipeline:
             logger.info("Cache hit for query!")
             return cached_result
         
-        # Retrieve from main vector store
-        retrieved_docs = self.vector_store.query(
-            query_text=query,
-            n_results=top_k,
-            filter=filter_dict if filter_dict else None,
-        )
+        # Retrieve from main vector store with namespace support
+        namespaces_to_search = self._determine_namespaces(query, category, source)
+        
+        retrieved_docs = []
+        for namespace in namespaces_to_search:
+            try:
+                namespace_docs = self.vector_store.query(
+                    query_text=query,
+                    n_results=top_k // len(namespaces_to_search),  # Distribute top_k across namespaces
+                    filter=filter_dict if filter_dict else None,
+                    namespace=namespace
+                )
+                retrieved_docs.extend(namespace_docs)
+                logger.info(f"Retrieved {len(namespace_docs)} documents from namespace: {namespace}")
+            except Exception as e:
+                logger.warning(f"Failed to query namespace {namespace}: {e}")
+                # Fallback to default namespace if namespace query fails
+                try:
+                    fallback_docs = self.vector_store.query(
+                        query_text=query,
+                        n_results=top_k // len(namespaces_to_search),
+                        filter=filter_dict if filter_dict else None,
+                    )
+                    retrieved_docs.extend(fallback_docs)
+                    logger.info(f"Fallback: Retrieved {len(fallback_docs)} documents from default namespace")
+                except Exception as fallback_e:
+                    logger.warning(f"Fallback query also failed: {fallback_e}")
         
         # If session_id provided, also retrieve from session-specific collection
         if session_id:
@@ -412,6 +510,64 @@ class RAGPipeline:
         self._set_cache(cache_key, result)
         
         return result
+    
+    def _determine_namespaces(self, query: str, category: Optional[str] = None, source: Optional[str] = None) -> List[str]:
+        """Determine which namespaces to search based on query content and filters"""
+        namespaces = []
+        
+        # If specific category is provided, map to namespace
+        if category:
+            category_lower = category.lower()
+            if any(keyword in category_lower for keyword in ['law', 'constitution', 'act', 'legislation', 'judgment', 'case law']):
+                namespaces.append("kenya_law")
+            elif any(keyword in category_lower for keyword in ['news', 'current affairs']):
+                namespaces.append("kenya_news")
+            elif any(keyword in category_lower for keyword in ['parliament', 'bill', 'hansard', 'budget']):
+                namespaces.append("kenya_parliament")
+            elif any(keyword in category_lower for keyword in ['global', 'trend']):
+                namespaces.append("global_trends")
+        
+        # Analyze query content for keywords
+        query_lower = query.lower()
+        
+        # Legal keywords
+        legal_keywords = ['law', 'constitution', 'act', 'bill', 'legislation', 'court', 'judge', 'judgment', 'case', 'statute', 'amendment', 'clause', 'section', 'article']
+        if any(keyword in query_lower for keyword in legal_keywords):
+            if "kenya_law" not in namespaces:
+                namespaces.append("kenya_law")
+        
+        # News keywords
+        news_keywords = ['news', 'current', 'recent', 'today', 'latest', 'breaking', 'update', 'report']
+        if any(keyword in query_lower for keyword in news_keywords):
+            if "kenya_news" not in namespaces:
+                namespaces.append("kenya_news")
+        
+        # Parliament keywords
+        parliament_keywords = ['parliament', 'mp', 'bill', 'debate', 'hansard', 'budget', 'vote', 'speaker', 'committee']
+        if any(keyword in query_lower for keyword in parliament_keywords):
+            if "kenya_parliament" not in namespaces:
+                namespaces.append("kenya_parliament")
+        
+        # Global/international keywords
+        global_keywords = ['global', 'international', 'world', 'foreign', 'diplomatic', 'treaty']
+        if any(keyword in query_lower for keyword in global_keywords):
+            if "global_trends" not in namespaces:
+                namespaces.append("global_trends")
+        
+        # Historical keywords (check for years before 2010)
+        import re
+        years = re.findall(r'\b(19\d{2}|20[01]\d)\b', query)
+        if years and any(int(year) < 2010 for year in years):
+            if "historical" not in namespaces:
+                namespaces.append("historical")
+        
+        # If no specific namespaces determined, search all relevant ones
+        if not namespaces:
+            # Default search across main namespaces
+            namespaces = ["kenya_law", "kenya_news", "kenya_parliament"]
+        
+        logger.info(f"Query '{query[:50]}...' will search namespaces: {namespaces}")
+        return namespaces
     
     def _query_with_ensemble(
         self,
@@ -506,6 +662,18 @@ Provide a concise answer based on your knowledge of Kenyan law and current affai
                         )
                     )
                     return response.text
+
+                elif provider == "openrouter":
+                    response = client.chat.completions.create(
+                        model=model,
+                        messages=[
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": user_prompt}
+                        ],
+                        temperature=temperature,
+                        max_tokens=max_tokens
+                    )
+                    return response.choices[0].message.content
                 
             except Exception as e:
                 logger.warning(f"Ensemble: {provider} failed: {e}")
@@ -706,11 +874,33 @@ Combined Response:"""
             if source:
                 filter_dict["source_name"] = source
             
-            retrieved_docs = self.vector_store.query(
-                query_text=query,
-                n_results=top_k,
-                filter=filter_dict if filter_dict else None,
-            )
+            # Retrieve from main vector store with namespace support
+            namespaces_to_search = self._determine_namespaces(query, category, source)
+            
+            retrieved_docs = []
+            for namespace in namespaces_to_search:
+                try:
+                    namespace_docs = self.vector_store.query(
+                        query_text=query,
+                        n_results=top_k // len(namespaces_to_search),  # Distribute top_k across namespaces
+                        filter=filter_dict if filter_dict else None,
+                        namespace=namespace
+                    )
+                    retrieved_docs.extend(namespace_docs)
+                    logger.info(f"Retrieved {len(namespace_docs)} documents from namespace: {namespace}")
+                except Exception as e:
+                    logger.warning(f"Failed to query namespace {namespace}: {e}")
+                    # Fallback to default namespace if namespace query fails
+                    try:
+                        fallback_docs = self.vector_store.query(
+                            query_text=query,
+                            n_results=top_k // len(namespaces_to_search),
+                            filter=filter_dict if filter_dict else None,
+                        )
+                        retrieved_docs.extend(fallback_docs)
+                        logger.info(f"Fallback: Retrieved {len(fallback_docs)} documents from default namespace")
+                    except Exception as fallback_e:
+                        logger.warning(f"Fallback query also failed: {fallback_e}")
             
             # If session_id provided, also retrieve from session-specific collection
             if session_id:
@@ -785,7 +975,7 @@ Combined Response:"""
             }
     
     def _prepare_context(self, docs: List[Dict], max_context_length: int = 3000) -> str:
-        """Prepare context from retrieved documents"""
+        """Prepare context from retrieved documents with Prompt Pruning"""
         context_parts = []
         total_length = 0
         
@@ -793,15 +983,19 @@ Combined Response:"""
             meta = doc["metadata"]
             text = doc["text"]
             
-            # Truncate individual document text if too long
-            if len(text) > 500:
-                text = text[:500] + "..."
+            # Optimization: Prune very short chunks
+            if len(text) < 50:
+                continue
+
+            # Optimization: Tighter truncation
+            chunk_limit = 400
+            if len(text) > chunk_limit:
+                text = text[:chunk_limit] + "..."
             
-            # Format: [Source #] Title - Category\nText
-            context_part = (
-                f"[Source {i}] {meta.get('title', 'Untitled')} "
-                f"({meta.get('category', 'Unknown')})\n{text}\n"
-            )
+            # Optimization: Minimal metadata format
+            # Format: [i] Title: Text
+            title = meta.get('title', 'Untitled')
+            context_part = f"[{i}] {title}: {text}\n"
             
             # Check if adding this would exceed max length
             if total_length + len(context_part) > max_context_length:
@@ -810,7 +1004,7 @@ Combined Response:"""
             context_parts.append(context_part)
             total_length += len(context_part)
         
-        return "\n---\n".join(context_parts)
+        return "\n".join(context_parts)
     
     def _generate_answer(
         self,
@@ -818,11 +1012,13 @@ Combined Response:"""
         context: str,
         temperature: float,
         max_tokens: int,
+        system_prompt: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Generate answer using LLM, potentially with interactive widgets"""
         
-        # System prompt with Impact Agent instructions
-        system_prompt = """You are AmaniQuery, an AI assistant specialized in Kenyan law, parliamentary proceedings, and current affairs.
+        # System prompt with Impact Agent instructions (default if not provided)
+        if system_prompt is None:
+            system_prompt = """You are AmaniQuery, an AI assistant specialized in Kenyan law, parliamentary proceedings, and current affairs.
 
 CRITICAL INSTRUCTION: DETECT QUANTITATIVE POLICY QUERIES
 If the user's query involves calculating costs, levies, taxes, fines, or statutory deductions (Housing Levy, NSSF, NHIF/SHIF, PAYE, Fuel Levy, Parking Fees, etc.), you MUST output a JSON response containing an interactive widget definition.

@@ -27,7 +27,7 @@ export async function createNewSession(
             "Content-Type": "application/json",
             ...getAuthHeaders()
         }
-        const response = await fetch(`${API_BASE_URL}/chat/sessions`, {
+        const response = await fetch(`${API_BASE_URL}/api/v1/chat/sessions`, {
             method: "POST",
             headers,
             body: JSON.stringify({ title })
@@ -58,7 +58,7 @@ export async function loadSession(
             "Content-Type": "application/json",
             ...getAuthHeaders()
         }
-        const response = await fetch(`${API_BASE_URL}/chat/sessions/${sessionId}/messages`, {
+        const response = await fetch(`${API_BASE_URL}/api/v1/chat/sessions/${sessionId}/messages`, {
             headers
         })
         if (response.ok) {
@@ -90,7 +90,7 @@ export async function uploadFiles(
             const headers: Record<string, string> = {
                 ...getAuthHeaders()
             }
-            const response = await fetch(`${API_BASE_URL}/chat/sessions/${sessionId}/attachments`, {
+            const response = await fetch(`${API_BASE_URL}/api/v1/chat/sessions/${sessionId}/attachments`, {
                 method: "POST",
                 headers,
                 body: formData,

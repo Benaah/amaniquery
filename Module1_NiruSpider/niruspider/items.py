@@ -14,6 +14,7 @@ class DocumentItem(scrapy.Item):
     url = scrapy.Field()
     title = scrapy.Field()
     content = scrapy.Field()             # Full text or chunk
+    summary = scrapy.Field()             # Brief summary/description
     content_type = scrapy.Field()        # html, pdf, text
     chunk_index = scrapy.Field()         # Position in document (0 for full doc)
     total_chunks = scrapy.Field()        # Total chunks in document
@@ -69,6 +70,8 @@ class DocumentItem(scrapy.Item):
     metadata_tags = scrapy.Field()          # List: ["explainer", "summary", "analysis"]
     keywords = scrapy.Field()               # Extracted keywords
     language = scrapy.Field()               # Detected language
+    quality_score = scrapy.Field()          # Quality score from QualityScoringPipeline (0-1)
+    quality_breakdown = scrapy.Field()       # Detailed quality scoring breakdown
     
     # ========================================================================
     # TECHNICAL FIELDS

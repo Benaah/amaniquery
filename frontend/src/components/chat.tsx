@@ -18,6 +18,13 @@ import type {
   ShareSheetState
 } from "./chat/types"
 
+// Extend Window interface for OAuth callback
+declare global {
+  interface Window {
+    handleOAuthCallback?: (platform: SharePlatform, code: string, state: string) => Promise<boolean>
+  }
+}
+
 export function Chat() {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState("")
@@ -41,6 +48,14 @@ export function Chat() {
   const [editingContent, setEditingContent] = useState("")
   const [regeneratingMessageId, setRegeneratingMessageId] = useState<string | null>(null)
   const [isCreatingSession, setIsCreatingSession] = useState(false)
+  const [platformTokens, setPlatformTokens] = useState<Record<SharePlatform, string | null>>({
+    twitter: null,
+    linkedin: null,
+    facebook: null,
+    whatsapp: null,
+    telegram: null,
+    email: null,
+  })
   const autocompleteTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const messagesContainerRef = useRef<HTMLDivElement | null>(null)
   const messagesEndRef = useRef<HTMLDivElement | null>(null)
@@ -53,6 +68,189 @@ export function Chat() {
     const token = localStorage.getItem("session_token")
     return token ? { "X-Session-Token": token } : {}
   }, [])
+
+  // Token management functions
+  const getStoredToken = useCallback((platform: SharePlatform): string | null => {
+    try {
+      const tokens = JSON.parse(localStorage.getItem("platform_tokens") || "{}")
+      return tokens[platform] || null
+    } catch {
+      return null
+    }
+  }, [])
+
+  const storeToken = useCallback((platform: SharePlatform, token: string) => {
+    try {
+      const tokens = JSON.parse(localStorage.getItem("platform_tokens") || "{}")
+      tokens[platform] = token
+      localStorage.setItem("platform_tokens", JSON.stringify(tokens))
+      setPlatformTokens(prev => ({ ...prev, [platform]: token }))
+    } catch (error) {
+      console.error("Failed to store token:", error)
+    }
+  }, [])
+
+  const clearToken = useCallback((platform: SharePlatform) => {
+    try {
+      const tokens = JSON.parse(localStorage.getItem("platform_tokens") || "{}")
+      delete tokens[platform]
+      localStorage.setItem("platform_tokens", JSON.stringify(tokens))
+      setPlatformTokens(prev => ({ ...prev, [platform]: null }))
+    } catch (error) {
+      console.error("Failed to clear token:", error)
+    }
+  }, [])
+
+  const loadStoredTokens = useCallback(() => {
+    try {
+      const tokens = JSON.parse(localStorage.getItem("platform_tokens") || "{}")
+      setPlatformTokens({
+        twitter: tokens.twitter || null,
+        linkedin: tokens.linkedin || null,
+        facebook: tokens.facebook || null,
+        whatsapp: null, // WhatsApp doesn't use OAuth tokens
+        telegram: null, // Telegram doesn't use OAuth tokens
+        email: null, // Email doesn't use OAuth tokens
+      })
+    } catch (error) {
+      console.error("Failed to load stored tokens:", error)
+    }
+  }, [])
+
+  const handleAuthCallback = useCallback(async (platform: SharePlatform, code: string, state: string) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/share/auth/callback`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ platform, code, state })
+      })
+
+      if (!response.ok) {
+        throw new Error("Authentication callback failed")
+      }
+
+      const data = await response.json()
+      if (data.access_token) {
+        storeToken(platform, data.access_token)
+        toast.success(`Successfully authenticated with ${platform}`)
+        return true
+      }
+    } catch (error) {
+      console.error("Auth callback failed:", error)
+      toast.error(`Authentication failed for ${platform}`)
+    }
+    return false
+  }, [API_BASE_URL, storeToken])
+
+  // Load stored tokens on component mount
+  useEffect(() => {
+    loadStoredTokens()
+    
+    // Make handleAuthCallback available globally for OAuth redirects
+    window.handleOAuthCallback = handleAuthCallback
+    
+    // Check for OAuth callback parameters in URL
+    const urlParams = new URLSearchParams(window.location.search)
+    const code = urlParams.get('code')
+    const state = urlParams.get('state')
+    const platform = urlParams.get('platform')
+    
+    if (code && state && platform) {
+      // Handle OAuth callback
+      handleAuthCallback(platform as SharePlatform, code, state).then(() => {
+        // Clean up URL params
+        window.history.replaceState({}, document.title, window.location.pathname)
+      })
+    }
+    
+    return () => {
+      delete window.handleOAuthCallback
+    }
+  }, [loadStoredTokens, handleAuthCallback])
+
+  // OAuth flow functions
+  const initiateAuth = async (platform: SharePlatform) => {
+    try {
+      setShareSheet(prev => prev ? { ...prev, shareLinkLoading: true, shareError: null } : prev)
+
+      const response = await fetch(`${API_BASE_URL}/share/auth`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ platform })
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.detail || "Failed to initiate authentication")
+      }
+
+      const data = await response.json()
+
+      if (data.status === "needs_auth" && data.auth_url) {
+        // Open OAuth URL in popup or new window
+        const authWindow = window.open(
+          data.auth_url,
+          `auth-${platform}`,
+          "width=600,height=700,scrollbars=yes,resizable=yes"
+        )
+
+        if (authWindow) {
+          // Listen for auth completion
+          const checkClosed = setInterval(() => {
+            if (authWindow.closed) {
+              clearInterval(checkClosed)
+              // Check if auth was successful by trying to get user info
+              checkAuthStatus(platform)
+            }
+          }, 1000)
+        }
+      } else if (data.status === "authenticated") {
+        // Already authenticated
+        if (data.user_info?.access_token) {
+          storeToken(platform, data.user_info.access_token)
+        }
+        toast.success(`Already authenticated with ${platform}`)
+      }
+
+      setShareSheet(prev => prev ? { ...prev, shareLinkLoading: false } : prev)
+    } catch (error) {
+      console.error("Failed to initiate auth:", error)
+      setShareSheet(prev => prev ? {
+        ...prev,
+        shareLinkLoading: false,
+        shareError: error instanceof Error ? error.message : "Authentication failed"
+      } : prev)
+    }
+  }
+
+  const checkAuthStatus = async (platform: SharePlatform) => {
+    try {
+      // Try to get user info to check if authenticated
+      const response = await fetch(`${API_BASE_URL}/share/auth/status`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ platform })
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        if (data.status === "authenticated" && data.user_info?.access_token) {
+          storeToken(platform, data.user_info.access_token)
+          toast.success(`Successfully authenticated with ${platform}`)
+          return true
+        } else {
+          // Clear token if not authenticated
+          clearToken(platform)
+        }
+      } else {
+        clearToken(platform)
+      }
+    } catch (error) {
+      console.error("Failed to check auth status:", error)
+      clearToken(platform)
+    }
+    return false
+  }
 
   const scrollMessagesToBottom = useCallback(
     (behavior: ScrollBehavior = "smooth") => {
@@ -110,6 +308,55 @@ export function Chat() {
       console.error("Failed to load chat history:", error)
     }
   }, [getAuthHeaders])
+
+  const createNewSession = useCallback(async (firstMessage?: string) => {
+    let title = "New Chat"
+    if (firstMessage) {
+      const content = firstMessage.trim()
+      if (content.length <= 50) {
+        title = content
+      } else {
+        title = content.substring(0, 50).split(' ').slice(0, -1).join(' ') + "..."
+      }
+    }
+
+    setIsCreatingSession(true)
+    try {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        ...getAuthHeaders()
+      }
+      const response = await fetch(`${API_BASE_URL}/api/v1/chat/sessions`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ title })
+      })
+      if (response.ok) {
+        const session = await response.json()
+        setCurrentSessionId(session.id)
+        setMessages([])
+        // Invalidate sessions cache since we created a new one
+        try {
+          const invalidateHeaders: Record<string, string> = {
+            ...getAuthHeaders()
+          }
+          await fetch(`/api/cache/sessions`, {
+            method: "DELETE",
+            headers: invalidateHeaders
+          })
+        } catch (err) {
+          console.error("Failed to invalidate sessions cache:", err)
+        }
+        loadChatHistory()
+        return session.id
+      }
+    } catch (error) {
+      console.error("Failed to create session:", error)
+    } finally {
+      setIsCreatingSession(false)
+    }
+    return null
+  }, [getAuthHeaders, API_BASE_URL, loadChatHistory])
 
   // Load chat history on component mount
   useEffect(() => {
@@ -169,52 +416,6 @@ export function Chat() {
     }
   }, [input, fetchAutocomplete, ENABLE_AUTOCOMPLETE])
 
-  const createNewSession = async (firstMessage?: string) => {
-    let title = "New Chat"
-    if (firstMessage) {
-      const content = firstMessage.trim()
-      if (content.length <= 50) {
-        title = content
-      } else {
-        title = content.substring(0, 50).split(' ').slice(0, -1).join(' ') + "..."
-      }
-    }
-
-    try {
-      const headers: Record<string, string> = {
-        "Content-Type": "application/json",
-        ...getAuthHeaders()
-      }
-      const response = await fetch(`${API_BASE_URL}/chat/sessions`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({ title })
-      })
-      if (response.ok) {
-        const session = await response.json()
-        setCurrentSessionId(session.id)
-        setMessages([])
-        // Invalidate sessions cache since we created a new one
-        try {
-          const invalidateHeaders: Record<string, string> = {
-            ...getAuthHeaders()
-          }
-          await fetch(`/api/cache/sessions`, {
-            method: "DELETE",
-            headers: invalidateHeaders
-          })
-        } catch (err) {
-          console.error("Failed to invalidate sessions cache:", err)
-        }
-        loadChatHistory()
-        return session.id
-      }
-    } catch (error) {
-      console.error("Failed to create session:", error)
-    }
-    return null
-  }
-
   const loadSession = async (sessionId: string) => {
     try {
       const headers: Record<string, string> = {
@@ -241,7 +442,7 @@ export function Chat() {
     }
   }
 
-  const uploadFiles = async (sessionId: string, files: File[]): Promise<string[]> => {
+  const uploadFiles = useCallback(async (sessionId: string, files: File[]): Promise<string[]> => {
     const attachmentIds: string[] = []
     setUploadingFiles(true)
 
@@ -253,7 +454,7 @@ export function Chat() {
         const headers: Record<string, string> = {
           ...getAuthHeaders()
         }
-        const response = await fetch(`${API_BASE_URL}/chat/sessions/${sessionId}/attachments`, {
+        const response = await fetch(`${API_BASE_URL}/api/v1/chat/sessions/${sessionId}/attachments`, {
           method: "POST",
           headers,
           body: formData,
@@ -272,11 +473,11 @@ export function Chat() {
     }
 
     return attachmentIds
-  }
+  }, [getAuthHeaders, API_BASE_URL])
 
   const sendMessage = useCallback(async (content: string) => {
     if (!content.trim() && selectedFiles.length === 0) return
-    if (isLoading || isCreatingSession) return
+    if (isLoading || isCreatingSession || uploadingFiles) return
 
     setIsLoading(true)
     try {
@@ -302,7 +503,7 @@ export function Chat() {
               ...getAuthHeaders()
             }
             const attachmentPromises = attachmentIds.map(id =>
-              fetch(`${API_BASE_URL}/chat/sessions/${sessionId}/attachments/${id}`, {
+              fetch(`${API_BASE_URL}/api/v1/chat/sessions/${sessionId}/attachments/${id}`, {
                 headers
               })
                 .then(res => res.ok ? res.json() : null)
@@ -379,7 +580,7 @@ export function Chat() {
             "Content-Type": "application/json",
             ...getAuthHeaders()
           }
-          response = await fetch(`${API_BASE_URL}/chat/sessions/${sessionId}/messages`, {
+          response = await fetch(`${API_BASE_URL}/api/v1/chat/sessions/${sessionId}/messages`, {
             method: "POST",
             headers,
             body: JSON.stringify({
@@ -618,12 +819,19 @@ ${researchProcess.tools_used && researchProcess.tools_used.length > 0
             const invalidateHeaders: Record<string, string> = {
               ...getAuthHeaders()
             }
-            await fetch(`/api/cache/sessions/${sessionId}/messages`, {
-              method: "DELETE",
-              headers: invalidateHeaders
-            })
+            await Promise.all([
+              fetch(`/api/cache/sessions/${sessionId}/messages`, {
+                method: "DELETE",
+                headers: invalidateHeaders
+              }),
+              // Also invalidate sessions list to capture any auto-generated titles
+              fetch(`/api/cache/sessions`, {
+                method: "DELETE",
+                headers: invalidateHeaders
+              })
+            ])
           } catch (err) {
-            console.error("Failed to invalidate messages cache:", err)
+            console.error("Failed to invalidate cache:", err)
           }
           loadChatHistory()
         } else {
@@ -674,7 +882,7 @@ ${researchProcess.tools_used && researchProcess.tools_used.length > 0
       console.error("Failed to process message:", error)
       setIsLoading(false)
     }
-  }, [currentSessionId, selectedFiles, isResearchMode, useHybrid, getAuthHeaders, API_BASE_URL, loadChatHistory, createNewSession, uploadFiles])
+  }, [currentSessionId, selectedFiles, isResearchMode, useHybrid, getAuthHeaders, API_BASE_URL, loadChatHistory, createNewSession, uploadFiles, isLoading, isCreatingSession, uploadingFiles])
 
   const submitFeedback = async (messageId: string, feedbackType: "like" | "dislike") => {
     try {
@@ -682,12 +890,12 @@ ${researchProcess.tools_used && researchProcess.tools_used.length > 0
         "Content-Type": "application/json",
         ...getAuthHeaders()
       }
-      const response = await fetch(`${API_BASE_URL}/chat/feedback`, {
+      const response = await fetch(`${API_BASE_URL}/api/v1/chat/feedback`, {
         method: "POST",
         headers,
         body: JSON.stringify({
           message_id: messageId,
-          feedback_type: feedbackType
+          feedback_type: feedbackType === "like" ? "positive" : "negative"
         })
       })
       
@@ -835,6 +1043,45 @@ ${researchProcess.tools_used && researchProcess.tools_used.length > 0
     }
   }
 
+  const renameSession = async (sessionId: string, newTitle: string) => {
+    try {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        ...getAuthHeaders()
+      }
+      const response = await fetch(`${API_BASE_URL}/chat/sessions/${sessionId}`, {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify({ title: newTitle })
+      })
+
+      if (response.ok) {
+        // Update local state
+        setChatHistory(prev => prev.map(s => 
+          s.id === sessionId ? { ...s, title: newTitle } : s
+        ))
+        
+        // Invalidate sessions cache
+        try {
+          const invalidateHeaders: Record<string, string> = {
+            ...getAuthHeaders()
+          }
+          await fetch(`/api/cache/sessions`, {
+            method: "DELETE",
+            headers: invalidateHeaders
+          })
+        } catch (err) {
+          console.error("Failed to invalidate sessions cache:", err)
+        }
+        
+        toast.success("Chat renamed")
+      }
+    } catch (error) {
+      console.error("Failed to rename session:", error)
+      toast.error("Failed to rename chat")
+    }
+  }
+
   const shareChat = async (options: { silent?: boolean } = {}) => {
     if (!currentSessionId) return null
 
@@ -844,7 +1091,7 @@ ${researchProcess.tools_used && researchProcess.tools_used.length > 0
         ...getAuthHeaders()
       }
       const response = await fetch(
-        `${API_BASE_URL}/chat/share?session_id=${encodeURIComponent(currentSessionId)}`,
+        `${API_BASE_URL}/api/v1/chat/share?session_id=${encodeURIComponent(currentSessionId)}`,
         {
           method: "POST",
           headers
@@ -1119,10 +1366,90 @@ ${researchProcess.tools_used && researchProcess.tools_used.length > 0
     }
   }
 
+  const generateShareImage = async (message: Message) => {
+    if (!shareSheet) return
+    const preview = shareSheet.preview ?? (await ensureSharePreview(message, shareSheet.platform))
+    if (!preview) return
+
+    try {
+      setShareSheet((prev) =>
+        prev ? { ...prev, generatingImage: true, shareError: null, success: null } : prev
+      )
+
+      const text = Array.isArray(preview.content) ? preview.content.join("\n\n") : preview.content
+      const title = `AmaniQuery Insight`
+
+      const response = await fetch(`${API_BASE_URL}/share/generate-image-from-post`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          post_content: text,
+          query: title,
+          color_scheme: "professional"
+        })
+      })
+
+      if (!response.ok) {
+        const detail = await response.text()
+        throw new Error(detail || "Unable to generate image")
+      }
+
+      const data = await response.json()
+      
+      // Download the image
+      const imageResponse = await fetch(`data:image/png;base64,${data.image_base64}`)
+      const blob = await imageResponse.blob()
+      const url = URL.createObjectURL(blob)
+      
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `amaniquery-${message.id}.png`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+
+      setShareSheet((prev) =>
+        prev
+          ? {
+              ...prev,
+              generatingImage: false,
+              success: "Image downloaded successfully!",
+              shareError: null
+            }
+          : prev
+      )
+    } catch (error) {
+      console.error("Failed to generate image:", error)
+      setShareSheet((prev) =>
+        prev
+          ? {
+              ...prev,
+              generatingImage: false,
+              shareError:
+                error instanceof Error
+                  ? error.message
+                  : "Unable to generate image."
+            }
+          : prev
+      )
+    }
+  }
+
   const postDirectly = async (message: Message) => {
     if (!shareSheet) return
     const preview = shareSheet.preview ?? (await ensureSharePreview(message, shareSheet.platform))
     if (!preview) return
+
+    // Check if user is authenticated
+    const accessToken = getStoredToken(shareSheet.platform)
+    if (!accessToken) {
+      setShareSheet(prev => prev ? {
+        ...prev,
+        shareError: `Please authenticate with ${shareSheet.platform} first. Click the authenticate button below.`
+      } : prev)
+      return
+    }
 
     try {
       setShareSheet((prev) =>
@@ -1135,26 +1462,29 @@ ${researchProcess.tools_used && researchProcess.tools_used.length > 0
         body: JSON.stringify({
           platform: shareSheet.platform,
           content: preview.content,
-          message_id: message.id
+          message_id: message.id,
+          access_token: accessToken
         })
       })
 
-      const data = await response.json()
       if (!response.ok) {
-        throw new Error(data.detail || data.message || "Unable to post to platform")
+        const detail = await response.text()
+        throw new Error(detail || "Unable to post")
       }
 
+      const data = await response.json()
+      console.log('Post response:', data)
       setShareSheet((prev) =>
         prev
           ? {
               ...prev,
               posting: false,
-              success: data.message || "Post created successfully!",
+              success: data.message || `Posted to ${shareSheet.platform} successfully`,
               shareError: null
             }
           : prev
       )
-      toast.success(`Posted to ${shareSheet.platform} successfully`)
+      toast.success(data.message || `Posted to ${shareSheet.platform} successfully`)
     } catch (error) {
       console.error("Failed to post to platform:", error)
       setShareSheet((prev) =>
@@ -1174,24 +1504,18 @@ ${researchProcess.tools_used && researchProcess.tools_used.length > 0
 
   return (
     <div className="relative flex h-screen max-h-screen bg-gradient-to-b from-background via-background/95 to-background text-foreground overflow-hidden">
-      <div className="pointer-events-none absolute inset-0 opacity-60">
-        <div className="absolute -top-32 left-1/2 h-96 w-96 -translate-x-1/2 rounded-full bg-primary/20 blur-[120px]" />
-        <div className="absolute bottom-0 right-0 h-80 w-80 rounded-full bg-blue-500/10 blur-[120px]" />
-      </div>
-
       <ChatSidebar
         chatHistory={chatHistory}
         currentSessionId={currentSessionId}
         showHistory={showHistory}
         onLoadSession={loadSession}
         onDeleteSession={deleteSession}
+        onRenameSession={renameSession}
         onCreateSession={() => createNewSession()}
         onCloseHistory={() => setShowHistory(false)}
       />
-
-
-
-      <div className="flex-1 flex flex-col relative z-10 h-full max-h-screen overflow-hidden min-w-0">
+      
+      <div className="flex-1 flex flex-col min-w-0 h-full relative">
         <ChatHeader
           isResearchMode={isResearchMode}
           useHybrid={useHybrid}
@@ -1200,6 +1524,7 @@ ${researchProcess.tools_used && researchProcess.tools_used.length > 0
           isLoading={isLoading}
           onToggleHistory={() => setShowHistory(!showHistory)}
           onShare={() => shareChat()}
+          HistoryIcon={HistoryIcon}
         />
 
         <MessageList
@@ -1231,6 +1556,9 @@ ${researchProcess.tools_used && researchProcess.tools_used.length > 0
           onCopyShareContent={copyShareContent}
           onOpenShareIntent={openShareIntent}
           onPostDirectly={postDirectly}
+          onGenerateShareImage={generateShareImage}
+          onAuthenticatePlatform={initiateAuth}
+          platformTokens={platformTokens}
           onCopyFailedQuery={copyFailedQuery}
           onEditFailedQuery={editFailedQuery}
           onResendFailedQuery={resendFailedQuery}
@@ -1247,6 +1575,7 @@ ${researchProcess.tools_used && researchProcess.tools_used.length > 0
           onSendMessage={sendMessage}
           enableAutocomplete={ENABLE_AUTOCOMPLETE}
           autocompleteSuggestions={autocompleteSuggestions}
+          showAutocomplete={showAutocomplete}
           setShowAutocomplete={setShowAutocomplete}
           onToggleResearch={() => {
             setIsResearchMode(!isResearchMode)

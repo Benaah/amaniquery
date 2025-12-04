@@ -16,7 +16,7 @@ from Module3_NiruDB.vector_store import VectorStore
 
 class RAGRetriever:
     """
-    Enhanced RAG retriever with hybrid search, reranking, and query expansion
+    RAG retriever with hybrid search, reranking, and query expansion
     """
     
     def __init__(self, vector_store: Optional[VectorStore] = None):

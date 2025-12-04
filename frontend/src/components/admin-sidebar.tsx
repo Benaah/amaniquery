@@ -8,18 +8,17 @@ import {
   Home,
   MessageSquare,
   Mic,
-  User,
   LogOut,
   Menu,
   X,
   Settings,
-  Database,
   BarChart3,
   Users,
   Shield,
   FileText,
-  Globe,
   Activity,
+  Brain,
+  ArrowBigUp,
 } from "lucide-react"
 import { Button } from "./ui/button"
 import { cn } from "@/lib/utils"
@@ -52,6 +51,8 @@ export function AdminSidebar() {
     { href: "/admin/users", icon: Users, label: "Users" },
     { href: "/admin/blog", icon: FileText, label: "Blog" },
     { href: "/admin/analytics", icon: Activity, label: "Analytics" },
+    { href: "/admin/training", icon: ArrowBigUp, label: "Training" },
+    { href: "/admin/agent-monitoring", icon: Brain, label: "Agent Monitoring" },
     { href: "/admin/settings", icon: Settings, label: "Settings" },
   ]
 
@@ -89,7 +90,7 @@ export function AdminSidebar() {
       {/* Sidebar */}
       <aside
         className={cn(
-          "fixed left-0 top-0 h-full bg-background border-r z-40 transition-all duration-300 ease-in-out",
+          "fixed left-0 top-0 h-full bg-background border-r z-40 transition-all duration-300 ease-in-out overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none']",
           isMobile
             ? cn(
                 "w-64",

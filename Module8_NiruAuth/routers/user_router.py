@@ -346,12 +346,12 @@ async def request_password_reset(
     # Send OTP to user's phone number if available
     if user.phone_number:
         from Module8_NiruAuth.services.otp_service import get_otp_service
-        from Module1_ConfigManager.config_manager import ConfigManager
+        from Module4_NiruAPI.config_manager import ConfigManager
         
         try:
             config_manager = ConfigManager()
             otp_service = get_otp_service(config_manager)
-            otp_service.send_otp(
+            otp_service.send_otp_sms(
                 phone_number=user.phone_number,
                 purpose="password_reset"
             )

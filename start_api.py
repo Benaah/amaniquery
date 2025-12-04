@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """
-AmaniQuery API and Voice Agent Startup Script
+AmaniQuery API, Voice Agent, and Scheduler Startup Script
 
-This script starts both the AmaniQuery API and Voice Agent concurrently
+This script starts the AmaniQuery API, Voice Agent, and Crawler Scheduler concurrently
 """
 
 import os
 import sys
 import platform
 import threading
+import atexit
 from pathlib import Path
 from loguru import logger
 from dotenv import load_dotenv
@@ -19,6 +20,9 @@ load_dotenv()
 # Add the project root to Python path
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
+
+# Global scheduler reference for cleanup
+_scheduler_instance = None
 
 
 def register_livekit_plugins():
@@ -89,6 +93,52 @@ def start_voice_agent():
             finally:
                 loop.close()
                 logger.debug("Voice agent event loop closed")
+
+
+def start_scheduler():
+    """Start the crawler scheduler service"""
+    global _scheduler_instance
+    
+    try:
+        logger.info("📅 Initializing Crawler Scheduler...")
+        from Module1_NiruSpider.scheduler.scheduler_service import SchedulerService
+        
+        # Create scheduler instance
+        _scheduler_instance = SchedulerService()
+        
+        # Register cleanup on exit
+        def cleanup_scheduler():
+            if _scheduler_instance:
+                logger.info("🛑 Stopping scheduler...")
+                _scheduler_instance.stop()
+        
+        atexit.register(cleanup_scheduler)
+        
+        # Start the scheduler (this runs in the background)
+        _scheduler_instance.start()
+        
+        logger.info("✔ Crawler scheduler started successfully")
+        logger.info("   Crawlers will run automatically on schedule")
+        
+        return True
+        
+    except ImportError as e:
+        logger.warning(f"⚠️  Scheduler dependencies not available: {e}")
+        logger.warning("   Install APScheduler: pip install apscheduler")
+        return False
+    except Exception as e:
+        logger.error(f"✗ Failed to start scheduler: {e}")
+        import traceback
+        logger.debug(traceback.format_exc())
+        return False
+
+
+def get_scheduler_status():
+    """Get the current scheduler status"""
+    global _scheduler_instance
+    if _scheduler_instance:
+        return _scheduler_instance.get_status()
+    return {"running": False, "message": "Scheduler not initialized"}
 
 
 def start_api():
@@ -172,10 +222,25 @@ def start_api():
 
 
 def main():
-    """Start both API and Voice Agent"""
+    """Start API, Voice Agent, and Scheduler"""
     print("=" * 60)
     print("🚀 Starting AmaniQuery Services")
     print("=" * 60)
+    
+    # Check if scheduler should be started
+    enable_scheduler = os.getenv("ENABLE_SCHEDULER", "true").lower() == "true"
+    scheduler_backend = os.getenv("SCHEDULER_BACKEND", "apscheduler")
+    
+    # Log scheduler configuration status
+    print("\n📅 Crawler Scheduler Configuration:")
+    print(f"   Enabled: {enable_scheduler}")
+    print(f"   Backend: {scheduler_backend}")
+    if enable_scheduler:
+        print("   Crawlers will run automatically on schedule")
+        print("   - News sources: Every 6 hours")
+        print("   - Legal sources: Daily at 2 AM UTC")
+        print("   - Parliament: Daily at 3 AM UTC")
+        print("   - Vector store update: Daily at 5 AM UTC")
     
     # Check if voice agent should be started
     # Auto-disable voice agent on Render (unless explicitly enabled) to avoid CLI issues
@@ -184,7 +249,7 @@ def main():
         # On Render, default to disabled unless explicitly set to true
         enable_voice = os.getenv("ENABLE_VOICE_AGENT", "false").lower() == "true"
         if not os.getenv("ENABLE_VOICE_AGENT"):
-            print("ℹ️  Running on Render - voice agent disabled by default")
+            print("\nℹ️  Running on Render - voice agent disabled by default")
             print("   Set ENABLE_VOICE_AGENT=true in environment to enable")
     else:
         # On other platforms, default to enabled
@@ -212,6 +277,18 @@ def main():
         print("   ⚠️  Warning: DATABASE_URL required for auth module")
     if auth_enabled:
         print("   💡 Tip: Run 'python migrate_auth_db.py' to create auth tables")
+    
+    # Start the scheduler if enabled
+    if enable_scheduler:
+        print("\n📅 Starting Crawler Scheduler...")
+        scheduler_started = start_scheduler()
+        if scheduler_started:
+            print("✔ Scheduler is running in background")
+        else:
+            print("⚠️  Scheduler failed to start - crawlers won't run automatically")
+            print("   You can still trigger crawlers manually via the admin API")
+    else:
+        print("\nℹ️  Scheduler disabled (set ENABLE_SCHEDULER=true to enable)")
     
     if enable_voice and livekit_url and livekit_api_key and livekit_api_secret:
         # Register plugins on main thread BEFORE starting agent thread
@@ -249,6 +326,38 @@ def main():
                 logger.warning("     Note: The secret is only shown once when creating a key in LiveKit Cloud")
         else:
             logger.info("ℹ️  Voice agent disabled (set ENABLE_VOICE_AGENT=true to enable)")
+
+    # Start NiruSense Orchestrator (Background Service)
+    enable_nirusense = os.getenv("ENABLE_NIRUSENSE", "false").lower() == "true"
+    if enable_nirusense:
+        print("\n🧠 Starting NiruSense Orchestrator...")
+        try:
+            from Module9_NiruSense.nirusense_service import start_nirusense_thread
+            
+            # Start NiruSense in a separate thread
+            nirusense_thread = threading.Thread(
+                target=start_nirusense_thread,
+                daemon=True,
+                name="NiruSenseOrchestrator"
+            )
+            nirusense_thread.start()
+            logger.info("✔ NiruSense orchestrator thread started")
+            
+            # Check if it's running
+            import time
+            time.sleep(1.0)
+            if nirusense_thread.is_alive():
+                logger.info("✔ NiruSense orchestrator is running")
+            else:
+                logger.error("✗ NiruSense thread died immediately - check logs")
+                
+        except ImportError as e:
+            logger.error(f"✗ Failed to import NiruSense: {e}")
+        except Exception as e:
+            logger.error(f"✗ Failed to start NiruSense: {e}")
+    else:
+        logger.info("ℹ️  NiruSense disabled (set ENABLE_NIRUSENSE=true to enable)")
+
     
     print("=" * 60)
     

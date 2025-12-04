@@ -265,9 +265,18 @@ print(share.json()["content"])
 ## 🎯 Data Sources
 
 ### Kenyan Laws & Constitution
-- **Source**: http://kenyalaw.org/
-- **Strategy**: One-time crawl + periodic updates
-- **Content**: Acts of Parliament, Constitution
+- **Source**: https://new.kenyalaw.org/
+- **Strategy**: Comprehensive crawl + periodic updates
+- **Content**: 
+  - Constitution of Kenya 2010 (article-level)
+  - Acts of Parliament (500+ acts, section-level)
+  - Bills (all types)
+  - Subsidiary & County Legislation
+  - Case Law & Judgments (300k+ decisions, all courts)
+  - Kenya Gazette (8,000+ gazettes, 1899-2025)
+  - Treaties & International Agreements
+  - Legal Publications & Journals
+  - Daily Cause Lists
 
 ### Parliament
 - **Source**: https://www.parliament.go.ke/

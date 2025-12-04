@@ -1,8 +1,10 @@
 """
 Database Models for Chat Sessions, Messages, and Feedback
 """
+from __future__ import annotations
+
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, Boolean, Float, ForeignKey, JSON
 from sqlalchemy.orm import relationship, sessionmaker, declarative_base
 from pydantic import BaseModel
@@ -59,6 +61,53 @@ class UserFeedback(Base):
     feedback_metadata = Column(JSON, nullable=True)  # Additional metadata
     created_at = Column(DateTime, default=datetime.utcnow)
 
+class TaskCluster(Base):
+    """Task cluster model for grouping similar user queries"""
+    __tablename__ = "task_clusters"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    cluster_name = Column(String, nullable=False, unique=True)
+    description = Column(Text, nullable=False)
+    representative_queries = Column(JSON, nullable=False)  # List of 3-5 example queries
+    metadata_tags = Column(JSON, nullable=True)  # Additional metadata
+    query_count = Column(Integer, default=0)  # Number of queries matching this cluster
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    last_updated = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class TrainingDataset(Base):
+    """Training dataset for fine-tuning from production interactions"""
+    __tablename__ = "training_dataset"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    message_id = Column(String, ForeignKey("chat_messages.id"), nullable=True)
+    
+    # Content
+    user_query = Column(Text, nullable=False)
+    assistant_response = Column(Text, nullable=False)
+    sources = Column(JSON, nullable=True)  # Citations and sources used
+    
+    # Quality metrics
+    quality_score = Column(Float, nullable=False)  # 1-5 scale
+    score_criteria = Column(JSON, nullable=True)  # Detailed scoring breakdown
+    keep_for_finetune = Column(Boolean, default=False)
+    scoring_reason = Column(Text, nullable=True)
+    
+    # Metadata
+    intent = Column(String, nullable=True)  # From supervisor
+    expertise_level = Column(String, nullable=True)  # From user profile
+    cluster_tags = Column(JSON, nullable=True)  # Related task clusters
+    
+    # Export tracking
+    exported_at = Column(DateTime, nullable=True)
+    export_format = Column(String, nullable=True)  # 'alpaca', 'sharegpt', etc.
+    
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+
 # Pydantic models for API
 class ChatSessionCreate(BaseModel):
     title: Optional[str] = None
@@ -114,14 +163,81 @@ class FeedbackResponse(BaseModel):
     comment: Optional[str]
     created_at: datetime
 
+class TaskClusterCreate(BaseModel):
+    cluster_name: str
+    description: str
+    representative_queries: List[str]  # 3-5 example queries
+    metadata_tags: Optional[List[str]] = None
+
+class TaskClusterResponse(BaseModel):
+    id: int
+    cluster_name: str
+    description: str
+    representative_queries: List[str]
+    metadata_tags: Optional[List[str]]
+    query_count: int
+    is_active: bool
+    created_at: datetime
+    last_updated: datetime
+
+class ClusterSuggestion(BaseModel):
+    """Model for suggested new clusters from analysis"""
+    group_name: str
+    description: str
+    representative_queries: List[str]
+    suggested_metadata_tags: List[str]
+    confidence: float  # 0.0 to 1.0
+
+class TrainingDataCreate(BaseModel):
+    user_query: str
+    assistant_response: str
+    sources: Optional[List[dict]] = None
+    quality_score: float
+    score_criteria: Optional[dict] = None
+    keep_for_finetune: bool
+    scoring_reason: Optional[str] = None
+    intent: Optional[str] = None
+    expertise_level: Optional[str] = None
+    cluster_tags: Optional[List[str]] = None
+
+class TrainingDataResponse(BaseModel):
+    id: int
+    user_query: str
+    assistant_response: str
+    sources: Optional[List[Dict[str, Any]]]
+    quality_score: float
+    score_criteria: Optional[Dict[str, Any]]
+    keep_for_finetune: bool
+    scoring_reason: Optional[str]
+    intent: Optional[str]
+    expertise_level: Optional[str]
+    cluster_tags: Optional[List[str]]
+    exported_at: Optional[datetime]
+    export_format: Optional[str]
+    created_at: datetime
+
+class QualityScoreResult(BaseModel):
+    """Result of quality scoring"""
+    score: float
+    keep_for_finetune: bool
+    criteria: dict
+    reason: str
+
+
+
 # Database connection and session management
 def create_database_engine(database_url: str):
     """Create SQLAlchemy engine with connection pooling"""
+    from sqlalchemy.pool import QueuePool
     return create_engine(
         database_url, 
         echo=False,
+        poolclass=QueuePool,
+        pool_size=10,
+        max_overflow=20,
         pool_pre_ping=True,  # Check connection before using
         pool_recycle=300,    # Recycle connections every 5 minutes
+        pool_timeout=30,
         connect_args={
             "connect_timeout": 10
         }
@@ -131,10 +247,28 @@ def create_tables(engine):
     """Create all tables"""
     Base.metadata.create_all(engine)
 
+
+from contextlib import contextmanager
+
+@contextmanager
 def get_db_session(engine):
-    """Get database session"""
-    Session = sessionmaker(bind=engine)
-    return Session()
+    """
+    Get database session as context manager.
+    
+    Usage:
+        with get_db_session(engine) as db:
+            db.query(...)
+    """
+    Session = sessionmaker(bind=engine, expire_on_commit=False)
+    session = Session()
+    try:
+        yield session
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
 
 # Utility functions
 def generate_session_id() -> str:

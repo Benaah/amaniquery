@@ -22,6 +22,8 @@ faiss-cpu  # Alternative: faiss-gpu for GPU support
 loguru
 elasticsearch  # For document storage and search
 upstash-redis  # For cache and vector storage
+redis>=5.0.0  # Standard Redis client for local caching
+
 upstash-vector  # For vector database
 qdrant-client  # Fallback vector store
 cryptography  # For encrypting API keys
@@ -62,3 +64,9 @@ tqdm
 colorama  # Colored terminal output
 loguru  # Advanced logging
 psutil  # System monitoring
+
+# API Gateway features
+slowapi  # Rate limiting
+PyJWT  # JWT handling
+passlib[bcrypt]  # Password hashing for API keys
+python-jose[cryptography]  # JWT with cryptography

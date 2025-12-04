@@ -59,7 +59,18 @@ export default function NotificationSubscriptionDialog({
         checkSubscription()
       }
     }
-  }, [isOpen, phoneNumber])
+  }, [isOpen])
+
+  // Debounced check for subscription when phone number changes
+  useEffect(() => {
+    if (!isOpen || !phoneNumber || phoneNumber.length < 10) return
+
+    const timeoutId = setTimeout(() => {
+      checkSubscription()
+    }, 500)
+
+    return () => clearTimeout(timeoutId)
+  }, [phoneNumber, isOpen])
 
   const fetchCategories = async () => {
     try {

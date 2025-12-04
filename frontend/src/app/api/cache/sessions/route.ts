@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
             headers["X-Session-Token"] = userToken
         }
 
-        const response = await fetch(`${apiBaseUrl}/chat/sessions`, {
+        const response = await fetch(`${apiBaseUrl}/api/v1/chat/sessions`, {
             headers,
         })
 

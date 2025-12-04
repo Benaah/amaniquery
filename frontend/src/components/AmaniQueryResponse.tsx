@@ -10,6 +10,8 @@
 import React, { useState } from 'react';
 import { ChevronDown, ChevronUp, ExternalLink, BookOpen, TrendingUp, Users } from 'lucide-react';
 import { cn } from "@/lib/utils";
+import { ThinkingProcess } from './ThinkingProcess';
+import { FactCheckAlert } from './FactCheckAlert';
 
 // ============================================================================
 // TYPES
@@ -39,11 +41,21 @@ export interface AmaniQueryResponse {
     }>;
   };
   follow_up_suggestions: string[];
+  metadata?: {
+    reasoning_path?: {
+      query: string;
+      thoughts: any[];
+      total_duration_ms: number;
+      final_conclusion: string;
+    };
+    [key: string]: any;
+  };
 }
 
 interface AmaniQueryResponseProps {
   data: AmaniQueryResponse;
   className?: string;
+  onFollowUpClick?: (suggestion: string) => void;
 }
 
 // ============================================================================
@@ -148,7 +160,7 @@ const getContextIcon = (impact: string): string => {
 // MAIN COMPONENT
 // ============================================================================
 
-export const AmaniQueryResponse: React.FC<AmaniQueryResponseProps> = ({ data, className = '' }) => {
+export const AmaniQueryResponse: React.FC<AmaniQueryResponseProps> = ({ data, className = '', onFollowUpClick }) => {
   const [citationsExpanded, setCitationsExpanded] = useState(false);
   const [detailsExpanded, setDetailsExpanded] = useState(true);
   
@@ -161,6 +173,21 @@ export const AmaniQueryResponse: React.FC<AmaniQueryResponseProps> = ({ data, cl
       theme.classes.container,
       className
     )}>
+      {/* THINKING PROCESS - Display if available */}
+      {data.metadata?.reasoning_path && (
+        <div className="mb-6">
+          <ThinkingProcess 
+            reasoning={data.metadata.reasoning_path} 
+            className="bg-white/50 dark:bg-black/20 backdrop-blur-sm"
+          />
+        </div>
+      )}
+
+      {/* FACT CHECK ALERT - Display if issues found */}
+      {data.metadata?.quality_issues && data.metadata.quality_issues.length > 0 && (
+        <FactCheckAlert issues={data.metadata.quality_issues} />
+      )}
+
       {/* SUMMARY CARD - HUGE AND PROMINENT */}
       <SummaryCard 
         title={data.response.summary_card.title}
@@ -196,6 +223,7 @@ export const AmaniQueryResponse: React.FC<AmaniQueryResponseProps> = ({ data, cl
       <FollowUpSuggestions
         suggestions={data.follow_up_suggestions}
         theme={theme}
+        onFollowUpClick={onFollowUpClick}
       />
     </div>
   );
@@ -430,7 +458,8 @@ const Citations: React.FC<{
 // FOLLOW-UP SUGGESTIONS
 const FollowUpSuggestions: React.FC<{
   suggestions: string[];
-} & ThemeProps> = ({ suggestions, theme }) => {
+  onFollowUpClick?: (suggestion: string) => void;
+} & ThemeProps> = ({ suggestions, theme, onFollowUpClick }) => {
   return (
     <div className={cn(
       "rounded-2xl p-5 border shadow-sm",
@@ -448,13 +477,14 @@ const FollowUpSuggestions: React.FC<{
         {suggestions.map((suggestion, idx) => (
           <button
             key={idx}
+            onClick={() => onFollowUpClick?.(suggestion)}
             className={cn(
               "p-3 md:px-4 rounded-xl text-sm text-left transition-all duration-200 font-medium border-2",
-              "bg-transparent",
+              "bg-transparent cursor-pointer",
               theme.classes.border,
               theme.classes.primaryText,
               theme.classes.buttonHover,
-              "hover:translate-x-1"
+              "hover:translate-x-1 hover:shadow-md active:scale-[0.98]"
             )}
           >
             {suggestion}

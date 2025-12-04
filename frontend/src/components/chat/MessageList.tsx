@@ -23,7 +23,8 @@ import {
   Download,
   X,
   Link2,
-  Check
+  Check,
+  LogIn
 } from "lucide-react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
@@ -34,6 +35,7 @@ import { ImagePreview } from "./ImagePreview"
 import { SHARE_PLATFORMS } from "./constants"
 import { AmaniQueryResponse } from "../AmaniQueryResponse"
 import { ImpactCalculator } from "./ImpactCalculator"
+import { ThinkingProcess } from "../ThinkingProcess"
 import type { Message, Source, SharePlatform, ShareSheetState, StructuredResponse, InteractiveWidget } from "./types"
 
 interface MessageListProps {
@@ -65,6 +67,9 @@ interface MessageListProps {
   onCopyShareContent: () => void
   onOpenShareIntent: (message: Message) => void
   onPostDirectly: (message: Message) => void
+  onGenerateShareImage: (message: Message) => void
+  onAuthenticatePlatform: (platform: SharePlatform) => void
+  platformTokens: Record<SharePlatform, string | null>
   onCopyFailedQuery: (message: Message) => void
   onEditFailedQuery: (message: Message) => void
   onResendFailedQuery: (message: Message) => void
@@ -99,6 +104,9 @@ export function MessageList({
   onCopyShareContent,
   onOpenShareIntent,
   onPostDirectly,
+  onGenerateShareImage,
+  onAuthenticatePlatform,
+  platformTokens,
   onCopyFailedQuery,
   onEditFailedQuery,
   onResendFailedQuery
@@ -326,19 +334,22 @@ export function MessageList({
                                   attachment.filename.toLowerCase().endsWith(".pdf")
                                 
                                 return (
-                                  <div
+                                  <a
                                     key={attachment.id}
-                                    className="flex items-start gap-2 p-2 rounded-lg border border-white/10 bg-white/5"
+                                    href={`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/v1/chat/sessions/${message.session_id}/attachments/${attachment.id}/content`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="flex items-start gap-2 p-2 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 transition-colors cursor-pointer group/att"
                                   >
                                     {isImage ? (
-                                      <ImageIcon className="w-4 h-4 text-muted-foreground mt-1" />
+                                      <ImageIcon className="w-4 h-4 text-muted-foreground mt-1 group-hover/att:text-primary transition-colors" />
                                     ) : isPDF ? (
-                                      <FileText className="w-4 h-4 text-muted-foreground mt-1" />
+                                      <FileText className="w-4 h-4 text-muted-foreground mt-1 group-hover/att:text-primary transition-colors" />
                                     ) : (
-                                      <FileText className="w-4 h-4 text-muted-foreground mt-1" />
+                                      <FileText className="w-4 h-4 text-muted-foreground mt-1 group-hover/att:text-primary transition-colors" />
                                     )}
                                     <div className="flex-1 min-w-0">
-                                      <p className="text-sm font-medium truncate">{attachment.filename}</p>
+                                      <p className="text-sm font-medium truncate group-hover/att:text-primary transition-colors">{attachment.filename}</p>
                                       <p className="text-xs text-muted-foreground">
                                         {(attachment.file_size / 1024).toFixed(1)} KB • {attachment.file_type}
                                       </p>
@@ -358,7 +369,8 @@ export function MessageList({
                                         Processed
                                       </Badge>
                                     )}
-                                  </div>
+                                    <Download className="w-4 h-4 text-muted-foreground opacity-0 group-hover/att:opacity-100 transition-opacity" />
+                                  </a>
                                 )
                               })}
                           </div>
@@ -405,9 +417,30 @@ export function MessageList({
                               ? "prose-headings:text-primary-foreground prose-p:text-primary-foreground prose-strong:text-primary-foreground prose-em:text-primary-foreground prose-code:text-primary-foreground prose-pre:text-primary-foreground prose-a:text-primary-foreground/90 hover:prose-a:text-primary-foreground prose-li:text-primary-foreground" 
                               : ""
                           }`}>
-                            <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw, rehypeHighlight]}>
-                              {formatMessageWithCitations(message.content, message.sources)}
-                            </ReactMarkdown>
+                            {/* Check for reasoning block */}
+                            {(() => {
+                              const reasoningMatch = message.content.match(/<reasoning>([\s\S]*?)<\/reasoning>/);
+                              const reasoning = reasoningMatch ? reasoningMatch[1] : null;
+                              const displayContent = message.content.replace(/<reasoning>[\s\S]*?<\/reasoning>/, '').trim();
+
+                              return (
+                                <>
+                                  {reasoning && (
+                                    <div className="mb-4 not-prose">
+                                      {/* Import ThinkingProcess dynamically or ensure it's imported at top */}
+                                      <ThinkingProcess 
+                                        reasoning={reasoning} 
+                                        defaultExpanded={false}
+                                        className="bg-background/50"
+                                      />
+                                    </div>
+                                  )}
+                                  <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw, rehypeHighlight]}>
+                                    {formatMessageWithCitations(displayContent, message.sources)}
+                                  </ReactMarkdown>
+                                </>
+                              );
+                            })()}
                             
                             {/* Impact Agent Widgets for non-AK-RAG responses too (if any) */}
                             {message.interactive_widgets && message.interactive_widgets.length > 0 && (
@@ -429,6 +462,15 @@ export function MessageList({
 
                     {message.role === "user" && !message.failed && editingMessageId !== message.id && (
                       <div className="flex flex-wrap items-center gap-1.5 md:gap-2 justify-end mt-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => onCopy(message.content)}
+                          className="h-9 md:h-9 rounded-full px-2.5 md:px-3 text-xs text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity min-w-[44px]"
+                        >
+                          <Copy className="w-4 h-4 md:mr-1" />
+                          <span className="hidden sm:inline">Copy</span>
+                        </Button>
                         <Button
                           variant="ghost"
                           size="sm"
@@ -628,6 +670,16 @@ export function MessageList({
                             <span className="hidden sm:inline">Copy text</span>
                           </Button>
                           <Button
+                            variant="outline"
+                            size="sm"
+                            className="rounded-full border-white/20 text-xs min-h-[44px] px-2.5 md:px-3"
+                            onClick={() => onGenerateShareImage(message)}
+                            disabled={!shareSheet.preview || shareSheet.generatingImage}
+                          >
+                            {shareSheet.generatingImage ? <Loader2 className="w-4 h-4 md:mr-1 animate-spin" /> : <ImageIcon className="w-4 h-4 md:mr-1" />}
+                            <span className="hidden sm:inline">Download image</span>
+                          </Button>
+                          <Button
                             variant="default"
                             size="sm"
                             className="rounded-full text-xs min-h-[44px] px-2.5 md:px-3"
@@ -637,12 +689,24 @@ export function MessageList({
                             {shareSheet.shareLinkLoading ? <Loader2 className="w-4 h-4 md:mr-1 animate-spin" /> : <ExternalLink className="w-4 h-4 md:mr-1" />}
                             <span className="hidden sm:inline">Open share dialog</span>
                           </Button>
+                          {!platformTokens[shareSheet.platform] && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="rounded-full border-orange-500/50 text-orange-400 hover:bg-orange-500/10 text-xs min-h-[44px] px-2.5 md:px-3"
+                              onClick={() => onAuthenticatePlatform(shareSheet.platform)}
+                              disabled={shareSheet.shareLinkLoading}
+                            >
+                              {shareSheet.shareLinkLoading ? <Loader2 className="w-4 h-4 md:mr-1 animate-spin" /> : <LogIn className="w-4 h-4 md:mr-1" />}
+                              <span className="hidden sm:inline">Authenticate</span>
+                            </Button>
+                          )}
                           <Button
                             variant="ghost"
                             size="sm"
                             className="rounded-full text-xs min-h-[44px] px-2.5 md:px-3"
                             onClick={() => onPostDirectly(message)}
-                            disabled={!shareSheet.preview || shareSheet.posting}
+                            disabled={!shareSheet.preview || shareSheet.posting || !platformTokens[shareSheet.platform]}
                           >
                             {shareSheet.posting ? <Loader2 className="w-4 h-4 md:mr-1 animate-spin" /> : <Link2 className="w-4 h-4 md:mr-1" />}
                             <span className="hidden sm:inline">Direct post (beta)</span>

@@ -123,7 +123,15 @@ class AmaniQueryVoiceAgent:
             from livekit.plugins import openai, silero
         
         # Create STT based on provider
-        if self.config.stt_provider == "openai":
+        if self.config.stt_provider == "kimi":
+            # Use Kimi provider directly (not through LiveKit plugin)
+            logger.info("Using Kimi ASR provider")
+            # Note: Kimi transcription happens outside LiveKit pipeline
+            # We still use OpenAI STT for LiveKit, but prefer Kimi in custom logic
+            if openai is None:
+                raise ImportError("OpenAI plugin needed as fallback")
+            stt = openai.STT()
+        elif self.config.stt_provider == "openai":
             if openai is None:
                 raise ImportError("OpenAI plugin not available. Ensure plugins are registered on main thread.")
             stt = openai.STT()
@@ -135,7 +143,13 @@ class AmaniQueryVoiceAgent:
             stt = openai.STT()
         
         # Create TTS based on provider
-        if self.config.tts_provider == "openai":
+        if self.config.tts_provider == "kimi":
+            # Use Kimi provider (fallback to OpenAI for LiveKit)
+            logger.info("Using Kimi TTS provider with OpenAI fallback")
+            if openai is None:
+                raise ImportError("OpenAI plugin needed as fallback")
+            tts = openai.TTS(voice=self.tts_handler.config.get("voice", "alloy"))
+        elif self.config.tts_provider == "openai":
             if openai is None:
                 raise ImportError("OpenAI plugin not available. Ensure plugins are registered on main thread.")
             tts = openai.TTS(voice=self.tts_handler.config.get("voice", "alloy"))

@@ -21,7 +21,7 @@ services:
       - amaniquery_network
     restart: unless-stopped
 
-  # API Backend
+  # API Backend (includes integrated scheduler)
   api:
     build:
       context: .
@@ -36,12 +36,22 @@ services:
       - CHROMA_HOST=chroma
       - CHROMA_PORT=8000
       - NODE_ENV=production
+      - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=postgresql://amaniquery:${POSTGRES_PASSWORD:-amaniquery_password}@postgres:5432/amaniquery
+      # Scheduler configuration (integrated into API)
+      - ENABLE_SCHEDULER=true
+      - SCHEDULER_BACKEND=apscheduler
     depends_on:
       chroma:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_started
     volumes:
-      - ./data:/app/data:ro
+      - ./data:/app/data
       - ./config:/app/config:ro
+      - ./logs:/app/logs
     networks:
       - amaniquery_network
     restart: unless-stopped
@@ -120,6 +130,30 @@ services:
     networks:
       - amaniquery_network
     restart: unless-stopped
+
+  # Redis Cache
+  redis:
+    image: redis:alpine
+    container_name: amaniquery_redis_prod
+    command: redis-server --maxmemory 2gb --maxmemory-policy allkeys-lru --save "" --appendonly no --tcp-keepalive 300 --timeout 0
+    ports:
+      - "127.0.0.1:6379:6379" # Only expose locally
+    networks:
+      - amaniquery_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 2.5G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.25'
 
 volumes:
   chroma_data:

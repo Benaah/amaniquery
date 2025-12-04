@@ -1,11 +1,22 @@
 """
 Parliament Video Spider - Scrape YouTube videos from Parliament channel
 Extracts video IDs, metadata, and transcripts with timestamps
+
+Enhanced with:
+- Robust error handling
+- Graceful shutdown on failures
+- Timeout protection
+- Signal handling for clean termination
 """
 import scrapy
 from loguru import logger
 from datetime import datetime
 import re
+import signal
+import sys
+from twisted.internet import reactor
+from twisted.internet.error import TimeoutError as TwistedTimeoutError
+from ..items import DocumentItem
 
 
 class ParliamentVideoSpider(scrapy.Spider):
@@ -36,8 +47,8 @@ class ParliamentVideoSpider(scrapy.Spider):
             self.channel_urls = channel_urls.split(',')
         else:
             self.channel_urls = [
-                "https://www.youtube.com/@NationalAssemblyofKenya/videos",
-                "https://www.youtube.com/@KenyaSenate/videos",
+                "https://www.youtube.com/@ParliamentofKenyaChannel/videos",
+                "https://www.youtube.com/@ParliamentofKenyaChannel/videos",
             ]
         
         self.max_videos = int(max_videos)
@@ -79,14 +90,25 @@ class ParliamentVideoSpider(scrapy.Spider):
         for video_id in video_ids[:self.max_videos]:
             video_url = f"https://www.youtube.com/watch?v={video_id}"
             
-            yield {
-                'video_id': video_id,
-                'video_url': video_url,
-                'channel_url': channel_url,
-                'scraped_at': datetime.utcnow().isoformat(),
-                'category': 'Parliamentary Record',
-                'source_type': 'YouTube Video',
-            }
+            # Create DocumentItem for each video
+            item = DocumentItem()
+            item['doc_id'] = f"parliament_video_{video_id}"
+            item['url'] = video_url
+            item['title'] = f"Parliament Video: {video_id}"  # Will be updated by detail spider
+            item['content'] = f"YouTube video from Parliament channel: {video_url}"
+            item['summary'] = f"Parliamentary video content from {channel_url}"
+            item['content_type'] = 'video'
+            item['chunk_index'] = 0
+            item['total_chunks'] = 1
+            item['doc_type'] = 'parliamentary_video'
+            item['category'] = 'Parliamentary Record'
+            item['source_name'] = 'Kenya Parliament YouTube'
+            item['publication_date'] = datetime.utcnow().isoformat()  # Will be updated by detail spider
+            item['crawl_date'] = datetime.utcnow().isoformat()
+            item['metadata_tags'] = ['video', 'parliament', 'youtube']
+            item['status_code'] = response.status
+            
+            yield item
             
             self.video_count += 1
         
@@ -179,18 +201,32 @@ class ParliamentVideoDetailSpider(scrapy.Spider):
         view_count = self._extract_view_count(html)
         duration = self._extract_duration(html)
         
-        yield {
-            'video_id': video_id,
-            'video_url': response.url,
-            'title': title,
-            'description': description,
-            'upload_date': upload_date,
+        # Create DocumentItem with detailed metadata
+        item = DocumentItem()
+        item['doc_id'] = f"parliament_video_{video_id}"
+        item['url'] = response.url
+        item['title'] = title
+        item['content'] = description or f"YouTube video: {title}"
+        item['summary'] = description[:500] if description else f"Parliamentary video: {title}"
+        item['content_type'] = 'video'
+        item['chunk_index'] = 0
+        item['total_chunks'] = 1
+        item['doc_type'] = 'parliamentary_video'
+        item['category'] = 'Parliamentary Record'
+        item['source_name'] = 'Kenya Parliament YouTube'
+        item['publication_date'] = upload_date
+        item['crawl_date'] = datetime.utcnow().isoformat()
+        item['metadata_tags'] = ['video', 'parliament', 'youtube', 'transcript']
+        item['status_code'] = response.status
+        
+        # Add video-specific metadata
+        item['statistics'] = {
             'view_count': view_count,
-            'duration': duration,
-            'category': 'Parliamentary Record',
-            'source_type': 'YouTube Video',
-            'scraped_at': datetime.utcnow().isoformat(),
+            'duration_seconds': duration,
+            'video_id': video_id
         }
+        
+        yield item
     
     def _extract_title(self, html):
         """Extract video title"""

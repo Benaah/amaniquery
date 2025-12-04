@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
             headers["X-Session-Token"] = userToken
         }
 
-        const response = await fetch(`${apiBaseUrl}/admin/database-storage`, { headers })
+        const response = await fetch(`${apiBaseUrl}/api/admin/database-storage`, { headers })
 
         if (!response.ok) {
             return NextResponse.json(

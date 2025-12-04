@@ -1,0 +1,141 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  namespace: amaniquery
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: api
+  template:
+    metadata:
+      labels:
+        app: api
+    spec:
+      initContainers:
+      # Wait for dependencies to be ready
+      - name: wait-for-postgres
+        image: busybox:1.35
+        command: ['sh', '-c', 'until nc -z postgres-service 5432; do echo waiting for postgres; sleep 2; done;']
+      - name: wait-for-chromadb
+        image: busybox:1.35
+        command: ['sh', '-c', 'until nc -z chromadb-service 8000; do echo waiting for chromadb; sleep 2; done;']
+      - name: wait-for-redis
+        image: busybox:1.35
+        command: ['sh', '-c', 'until nc -z redis-service 6379; do echo waiting for redis; sleep 2; done;']
+      containers:
+      - name: api
+        image: amaniquery-api:latest  # Replace with your registry
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8000
+          name: http
+        envFrom:
+        - configMapRef:
+            name: amaniquery-config
+        - secretRef:
+            name: amaniquery-secrets
+        env:
+        - name: CORS_ORIGINS
+          value: "http://localhost:3000,http://frontend-service:3000,https://amaniquery.example.com"
+        - name: DATABASE_URL
+          value: "postgresql://amaniquery:$(POSTGRES_PASSWORD)@postgres-service:5432/amaniquery"
+        volumeMounts:
+        - name: data-storage
+          mountPath: /app/data
+        - name: logs-storage
+          mountPath: /app/logs
+        - name: config-storage
+          mountPath: /app/config
+          readOnly: true
+        - name: models-cache
+          mountPath: /app/models
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "4Gi"
+            cpu: "2000m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 60
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+      volumes:
+      - name: data-storage
+        persistentVolumeClaim:
+          claimName: api-data-pvc
+      - name: logs-storage
+        persistentVolumeClaim:
+          claimName: api-logs-pvc
+      - name: config-storage
+        configMap:
+          name: amaniquery-config
+      - name: models-cache
+        persistentVolumeClaim:
+          claimName: models-cache-pvc
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: amaniquery
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+    spec:
+      containers:
+      - name: frontend
+        image: amaniquery-frontend:latest  # Replace with your registry
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 3000
+          name: http
+        env:
+        - name: NEXT_PUBLIC_API_URL
+          value: "http://api-service:8000"
+        - name: NODE_ENV
+          value: "production"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 3000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 3000
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3

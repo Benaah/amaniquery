@@ -20,6 +20,8 @@ langchain
 langchain-community
 sentence-transformers>=2.2.0
 huggingface-hub>=0.20.0
+sentencepiece>=0.1.99
+protobuf>=4.0.0
 tiktoken  # Token counting
 textblob  # Sentiment analysis
 youtube-transcript-api  # YouTube transcript extraction
@@ -39,6 +41,7 @@ weaviate-client  # Fallback vector store
 
 # Database (PostgreSQL for sessions, feedback, chat history)
 psycopg2-binary
+asyncpg
 sqlalchemy
 alembic  # Database migrations
 
@@ -70,6 +73,7 @@ numpy
 tqdm
 schedule  # For automated crawling
 celery  # Async task queue
+apscheduler>=3.10.0  # Advanced scheduler (standalone, no Redis required)
 colorama  # Colored terminal output
 loguru  # Advanced logging
 psutil  # System monitoring
@@ -98,6 +102,7 @@ streamlit  # Optional: for monitoring dashboard
 # Agentic AI & LangGraph
 langgraph>=0.2.0
 langchain-core>=0.3.0
+langchain-openai
 
 # External Data Sources
 twikit>=0.1.0
@@ -109,3 +114,16 @@ rank-bm25>=0.2.2
 pytest
 black
 flake8
+
+# Module 9: NiruSense (Kenyan NLP Processing Pipeline)
+minio
+playwright
+playwright-stealth
+pydantic-settings>=2.1.0
+python-json-logger>=2.0.7
+huggingface_hub[hf_xet]
+# Note: transformers, torch, sentence-transformers already required by Module 7
+# Note: asyncpg already required above
+# Note: redis, qdrant-client already required above
+# Note: tenacity already required by Module 6
+

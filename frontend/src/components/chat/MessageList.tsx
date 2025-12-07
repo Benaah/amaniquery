@@ -32,6 +32,8 @@ import rehypeRaw from "rehype-raw"
 import rehypeHighlight from "rehype-highlight"
 import { WelcomeScreen } from "./WelcomeScreen"
 import { ImagePreview } from "./ImagePreview"
+import { AudioPreview } from "./AudioPreview"
+import { VideoPreview } from "./VideoPreview"
 import { SHARE_PLATFORMS } from "./constants"
 import { AmaniQueryResponse } from "../AmaniQueryResponse"
 import { ImpactCalculator } from "./ImpactCalculator"
@@ -296,7 +298,7 @@ export function MessageList({
                         {/* Attachments - displayed above message content */}
                         {message.attachments && message.attachments.length > 0 && (
                           <div className="space-y-3">
-                            {/* Separate images from other files */}
+                            {/* Image attachments */}
                             {message.attachments.filter((att) => {
                               const isImage = att.file_type === "image" || 
                                 /\.(png|jpg|jpeg|gif|bmp|webp)$/i.test(att.filename)
@@ -320,12 +322,52 @@ export function MessageList({
                               </div>
                             )}
 
-                            {/* Non-image files and images without Cloudinary URLs */}
+                            {/* Audio attachments */}
+                            {message.attachments
+                              .filter((att) => {
+                                const isAudio = att.file_type === "audio" || 
+                                  /\.(mp3|wav|m4a|ogg|flac|aac)$/i.test(att.filename)
+                                return isAudio
+                              })
+                              .map((attachment) => (
+                                <AudioPreview
+                                  key={attachment.id}
+                                  src={attachment.cloudinary_url || `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/v1/chat/sessions/${message.session_id}/attachments/${attachment.id}/content`}
+                                  filename={attachment.filename}
+                                  transcript={attachment.transcript}
+                                  className="w-full"
+                                />
+                              ))}
+
+                            {/* Video attachments */}
+                            {message.attachments
+                              .filter((att) => {
+                                const isVideo = att.file_type === "video" || 
+                                  /\.(mp4|mov|avi|mkv|webm|m4v)$/i.test(att.filename)
+                                return isVideo
+                              })
+                              .map((attachment) => (
+                                <VideoPreview
+                                  key={attachment.id}
+                                  src={attachment.cloudinary_url || `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/v1/chat/sessions/${message.session_id}/attachments/${attachment.id}/content`}
+                                  filename={attachment.filename}
+                                  transcript={attachment.transcript}
+                                  frameUrls={attachment.frame_urls}
+                                  className="w-full"
+                                />
+                              ))}
+
+                            {/* Non-media files (PDFs, text, etc.) and files without URLs */}
                             {message.attachments
                               .filter((att) => {
                                 const isImage = att.file_type === "image" || 
                                   /\.(png|jpg|jpeg|gif|bmp|webp)$/i.test(att.filename)
-                                return !isImage || !att.cloudinary_url
+                                const isAudio = att.file_type === "audio" || 
+                                  /\.(mp3|wav|m4a|ogg|flac|aac)$/i.test(att.filename)
+                                const isVideo = att.file_type === "video" || 
+                                  /\.(mp4|mov|avi|mkv|webm|m4v)$/i.test(att.filename)
+                                // Show if it's not a media type, or if it's an image without cloudinary URL
+                                return (!isImage && !isAudio && !isVideo) || (isImage && !att.cloudinary_url)
                               })
                               .map((attachment) => {
                                 const isImage = attachment.file_type === "image" || 

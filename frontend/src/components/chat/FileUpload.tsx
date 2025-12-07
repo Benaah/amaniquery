@@ -2,21 +2,43 @@
 
 import React, { useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
-import { X, FileText, Image, File, Upload, Plus } from "lucide-react"
+import { X, FileText, Image, File, Upload, Plus, Music, Video } from "lucide-react"
 
 interface FileUploadProps {
   files: File[]
   onFilesChange: (files: File[]) => void
   maxFiles?: number
   maxSizeMB?: number
+  enableMedia?: boolean // Enable audio/video support
 }
 
 const ALLOWED_TYPES = {
+  // Documents
   "application/pdf": [".pdf"],
-  "image/png": [".png"],
-  "image/jpeg": [".jpg", ".jpeg"],
   "text/plain": [".txt"],
   "text/markdown": [".md"],
+  // Images
+  "image/png": [".png"],
+  "image/jpeg": [".jpg", ".jpeg"],
+  "image/gif": [".gif"],
+  "image/webp": [".webp"],
+}
+
+const MEDIA_TYPES = {
+  // Audio
+  "audio/mpeg": [".mp3"],
+  "audio/wav": [".wav"],
+  "audio/mp4": [".m4a"],
+  "audio/ogg": [".ogg"],
+  "audio/flac": [".flac"],
+  "audio/aac": [".aac"],
+  // Video
+  "video/mp4": [".mp4"],
+  "video/quicktime": [".mov"],
+  "video/x-msvideo": [".avi"],
+  "video/x-matroska": [".mkv"],
+  "video/webm": [".webm"],
+  "video/x-m4v": [".m4v"],
 }
 
 export function FileUpload({
@@ -24,16 +46,26 @@ export function FileUpload({
   onFilesChange,
   maxFiles = 5,
   maxSizeMB = 10,
+  enableMedia = true,
 }: FileUploadProps) {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [dragActive, setDragActive] = useState(false)
   const [imagePreviews, setImagePreviews] = useState<Map<string, string>>(new Map())
+
+  // Combine allowed types based on enableMedia flag
+  const getAllowedTypes = () => {
+    if (enableMedia) {
+      return { ...ALLOWED_TYPES, ...MEDIA_TYPES }
+    }
+    return ALLOWED_TYPES
+  }
 
   const handleFiles = (fileList: FileList | null) => {
     if (!fileList) return
 
     const newFiles: File[] = []
     const maxSize = maxSizeMB * 1024 * 1024
+    const allowedTypes = getAllowedTypes()
 
     Array.from(fileList).forEach((file) => {
       // Check file count
@@ -48,8 +80,8 @@ export function FileUpload({
       }
 
       // Check file type
-      const isValidType = Object.keys(ALLOWED_TYPES).some((mimeType) => {
-        const extensions = ALLOWED_TYPES[mimeType as keyof typeof ALLOWED_TYPES]
+      const isValidType = Object.keys(allowedTypes).some((mimeType) => {
+        const extensions = allowedTypes[mimeType as keyof typeof allowedTypes]
         return extensions.some((ext) => file.name.toLowerCase().endsWith(ext))
       })
 
@@ -121,6 +153,10 @@ export function FileUpload({
       return <FileText className="w-4 h-4" />
     } else if (file.type.startsWith("image/")) {
       return <Image className="w-4 h-4" />
+    } else if (file.type.startsWith("audio/")) {
+      return <Music className="w-4 h-4 text-blue-400" />
+    } else if (file.type.startsWith("video/")) {
+      return <Video className="w-4 h-4 text-purple-400" />
     } else {
       return <File className="w-4 h-4" />
     }
@@ -135,6 +171,22 @@ export function FileUpload({
   const isImage = (file: File) => file.type.startsWith("image/")
   const canAddMore = files.length < maxFiles
 
+  // Build accept string based on enableMedia
+  const getAcceptString = () => {
+    const base = ".pdf,.png,.jpg,.jpeg,.gif,.webp,.txt,.md"
+    if (enableMedia) {
+      return `${base},.mp3,.wav,.m4a,.ogg,.flac,.aac,.mp4,.mov,.avi,.mkv,.webm,.m4v`
+    }
+    return base
+  }
+
+  const getDescriptionText = () => {
+    if (enableMedia) {
+      return `PDF, Images, Audio, Video (max ${maxSizeMB}MB, up to ${maxFiles} files)`
+    }
+    return `PDF, Images, Text files (max ${maxSizeMB}MB, up to ${maxFiles} files)`
+  }
+
   return (
     <div className="space-y-2">
       <input
@@ -142,7 +194,7 @@ export function FileUpload({
         type="file"
         title="Upload Files"
         multiple
-        accept=".pdf,.png,.jpg,.jpeg,.txt,.md"
+        accept={getAcceptString()}
         onChange={(e) => handleFiles(e.target.files)}
         className="hidden"
       />
@@ -173,7 +225,7 @@ export function FileUpload({
               </button>
             </p>
             <p className="text-[10px] md:text-xs text-muted-foreground">
-              PDF, Images, Text files (max {maxSizeMB}MB, up to {maxFiles} files)
+              {getDescriptionText()}
             </p>
           </div>
         </div>

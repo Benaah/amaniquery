@@ -3,48 +3,32 @@ AmaniQ v2 Supervisor Node - Bulletproof System Prompt
 =====================================================
 
 This module contains:
-1. Pydantic models for strict JSON output validation
-2. The supervisor system prompt with few-shot examples
-3. Token counting utilities
-4. Prompt construction functions
+1. The supervisor system prompt with few-shot examples
+2. Token counting utilities
+3. Prompt construction functions
+
+Note: Pydantic models are now imported from agents/types.py for consistency.
 
 Author: Eng. Onyango Benard
-Version: 2.0
+Version: 2.1
 """
 
 from typing import List, Literal, Optional, Dict, Any
-from pydantic import BaseModel, Field, field_validator, model_validator
-from enum import Enum
 import tiktoken
 
+# Import canonical types from unified module
+from ..types import (
+    IntentType,
+    ToolName,
+    ToolCall,
+    ClarificationRequest,
+    SupervisorDecision,
+)
+
 
 # =============================================================================
-# ENUMS AND CONSTANTS
+# CONSTANTS (Tool descriptions kept here for supervisor context)
 # =============================================================================
-
-class IntentType(str, Enum):
-    """Exact intent classifications - no others allowed"""
-    LEGAL_RESEARCH = "LEGAL_RESEARCH"
-    NEWS_SUMMARY = "NEWS_SUMMARY"
-    GENERAL_CHAT = "GENERAL_CHAT"
-    CLARIFY = "CLARIFY"
-    ESCALATE = "ESCALATE"
-
-
-class ToolName(str, Enum):
-    """Exact tool names - supervisor cannot hallucinate others.
-    
-    These are the ACTUAL tools registered in tool_registry.py.
-    All tools query local data or perform specific operations.
-    """
-    KB_SEARCH = "kb_search"           # Knowledge base search (cloud Qdrant vector store)
-    WEB_SEARCH = "web_search"         # Web search via DuckDuckGo
-    NEWS_SEARCH = "news_search"       # News article search
-    CALCULATOR = "calculator"         # Mathematical calculations
-    URL_FETCH = "url_fetch"           # Fetch content from URLs
-    YOUTUBE_SEARCH = "youtube_search" # YouTube video search
-    TWITTER_SEARCH = "twitter_search" # Twitter/X search
-
 
 # Tool descriptions for supervisor context
 TOOL_DESCRIPTIONS: Dict[str, str] = {
@@ -60,190 +44,6 @@ TOOL_DESCRIPTIONS: Dict[str, str] = {
 
 # Maximum context window
 MAX_CONTEXT_TOKENS = 12000
-
-
-# =============================================================================
-# PYDANTIC MODELS FOR STRICT JSON OUTPUT
-# =============================================================================
-
-class ToolCall(BaseModel):
-    """Single tool invocation in the parallel plan"""
-    tool_name: ToolName = Field(
-        ...,
-        description="Exact tool name from allowed list. No hallucination allowed."
-    )
-    query: str = Field(
-        ...,
-        min_length=3,
-        max_length=500,
-        description="Optimized search query for this specific tool"
-    )
-    priority: Literal[1, 2, 3] = Field(
-        default=2,
-        description="Execution priority: 1=critical, 2=important, 3=supplementary"
-    )
-    
-    @field_validator('tool_name', mode='before')
-    @classmethod
-    def validate_tool_name(cls, v):
-        """Ensure tool name is exactly one of the allowed values"""
-        if isinstance(v, str):
-            # Normalize and validate
-            normalized = v.lower().strip()
-            valid_tools = [t.value for t in ToolName]
-            if normalized not in valid_tools:
-                raise ValueError(
-                    f"Invalid tool name '{v}'. Must be exactly one of: {valid_tools}"
-                )
-            return normalized
-        return v
-
-
-class ClarificationRequest(BaseModel):
-    """Structured clarification when more info needed"""
-    missing_fields: List[str] = Field(
-        ...,
-        min_length=1,
-        description="List of specific missing information (e.g., 'year', 'case_number', 'act_name')"
-    )
-    clarification_question: str = Field(
-        ...,
-        min_length=10,
-        max_length=300,
-        description="Clear, specific question to ask the user in English or Swahili"
-    )
-    partial_understanding: str = Field(
-        ...,
-        max_length=200,
-        description="What you understood so far from the query"
-    )
-
-
-class SupervisorDecision(BaseModel):
-    """
-    The ONLY output format for the Supervisor node.
-    Strict JSON validation - any deviation will be rejected.
-    """
-    
-    # Required fields
-    intent: IntentType = Field(
-        ...,
-        description="Exactly one of: LEGAL_RESEARCH, NEWS_SUMMARY, GENERAL_CHAT, CLARIFY, ESCALATE"
-    )
-    
-    confidence: float = Field(
-        ...,
-        ge=0.0,
-        le=1.0,
-        description="Confidence score between 0.0 and 1.0"
-    )
-    
-    reasoning: str = Field(
-        ...,
-        min_length=10,
-        max_length=1000,
-        description="Brief chain-of-thought explanation (max 1000 chars)"
-    )
-    
-    # Conditional fields based on intent
-    tool_plan: Optional[List[ToolCall]] = Field(
-        default=None,
-        description="Required if intent is LEGAL_RESEARCH or NEWS_SUMMARY. List of tools to call in parallel."
-    )
-    
-    clarification: Optional[ClarificationRequest] = Field(
-        default=None,
-        description="Required if intent is CLARIFY. Details about what info is missing."
-    )
-    
-    direct_response: Optional[str] = Field(
-        default=None,
-        max_length=1000,
-        description="Required if intent is GENERAL_CHAT. Direct answer without tool calls."
-    )
-    
-    escalation_reason: Optional[str] = Field(
-        default=None,
-        max_length=200,
-        description="Required if intent is ESCALATE. Why human review is needed."
-    )
-    
-    # Metadata
-    detected_language: Literal["en", "sw", "mixed"] = Field(
-        default="en",
-        description="Detected query language: English, Swahili, or mixed"
-    )
-    
-    detected_entities: List[str] = Field(
-        default_factory=list,
-        description="Extracted legal entities: case names, statute refs, dates, courts"
-    )
-    
-    token_count: int = Field(
-        ...,
-        ge=0,
-        description="Estimated token count of the input context"
-    )
-    
-    context_overflow: bool = Field(
-        default=False,
-        description="True if context exceeds 12k tokens - must refuse processing"
-    )
-    
-    @model_validator(mode='after')
-    def validate_conditional_fields(self):
-        """Ensure required fields are present based on intent"""
-        
-        # Context overflow check
-        if self.context_overflow:
-            if self.intent != IntentType.ESCALATE:
-                raise ValueError(
-                    "When context_overflow=True, intent must be ESCALATE"
-                )
-            return self
-        
-        # Intent-specific validation
-        if self.intent == IntentType.LEGAL_RESEARCH:
-            if not self.tool_plan or len(self.tool_plan) == 0:
-                raise ValueError(
-                    "LEGAL_RESEARCH intent requires non-empty tool_plan"
-                )
-            # Validate kb_search is included for legal research (primary tool)
-            if not any(tc.tool_name == ToolName.KB_SEARCH for tc in self.tool_plan):
-                raise ValueError(
-                    "LEGAL_RESEARCH must include kb_search tool for querying legal knowledge base"
-                )
-                
-        elif self.intent == IntentType.NEWS_SUMMARY:
-            if not self.tool_plan or len(self.tool_plan) == 0:
-                raise ValueError(
-                    "NEWS_SUMMARY intent requires non-empty tool_plan"
-                )
-            # Must include news_search tool
-            if not any(tc.tool_name == ToolName.NEWS_SEARCH for tc in self.tool_plan):
-                raise ValueError(
-                    "NEWS_SUMMARY must include news_search tool"
-                )
-                
-        elif self.intent == IntentType.CLARIFY:
-            if not self.clarification:
-                raise ValueError(
-                    "CLARIFY intent requires clarification field"
-                )
-                
-        elif self.intent == IntentType.GENERAL_CHAT:
-            if not self.direct_response:
-                raise ValueError(
-                    "GENERAL_CHAT intent requires direct_response field"
-                )
-                
-        elif self.intent == IntentType.ESCALATE:
-            if not self.escalation_reason and not self.context_overflow:
-                raise ValueError(
-                    "ESCALATE intent requires escalation_reason field"
-                )
-        
-        return self
 
 
 # =============================================================================
@@ -351,7 +151,22 @@ Set intent = "CLARIFY" when:
 - Case number format is ambiguous
 - Multiple possible interpretations exist
 
-### Rule 6: OUTPUT FORMAT
+### Rule 6: MULTI-HOP DETECTION (requires_multi_hop)
+Set requires_multi_hop = true when the query requires SEQUENTIAL tool calls where the output of one tool is needed as input for the next. This routes to the ReAct agent for step-by-step reasoning.
+
+**Set requires_multi_hop = true when:**
+- Query has multiple parts connected by "and", "then", "also": "Did bill X pass AND what does it say?"
+- Status-then-content queries: "What is the status of bill X and summarize its provisions?"
+- Comparative queries requiring multiple lookups: "Compare Njoya case with BBI case on amendment procedure"
+- Follow-up questions needing prior result: "Find all cases citing the ruling you just mentioned"
+- Temporal queries: "How has the court's position on X changed from 2010 to 2020?"
+
+**Set requires_multi_hop = false when:**
+- Single concept search (even with multiple tools in parallel)
+- Straightforward legal research with one answer
+- General chat, clarification, or escalation intents
+
+### Rule 7: OUTPUT FORMAT
 You MUST output ONLY valid JSON matching the SupervisorDecision schema. No markdown, no explanation outside JSON.
 
 ## AVAILABLE TOOL DESCRIPTIONS
@@ -368,7 +183,7 @@ You MUST output ONLY valid JSON matching the SupervisorDecision schema. No markd
 
 ## FEW-SHOT EXAMPLES
 
-### Example 1: Clear Legal Research Query
+### Example 1: Clear Legal Research Query (Single Concept - No Multi-Hop)
 **User Query**: "What did the Supreme Court say about the two-thirds gender rule in the BBI case?"
 
 **Output**:
@@ -376,7 +191,8 @@ You MUST output ONLY valid JSON matching the SupervisorDecision schema. No markd
 {
   "intent": "LEGAL_RESEARCH",
   "confidence": 0.95,
-  "reasoning": "Clear question about Supreme Court ruling on BBI case regarding gender rule - requires knowledge base search",
+  "reasoning": "Clear question about Supreme Court ruling on BBI case regarding gender rule - single concept requiring parallel search",
+  "requires_multi_hop": false,
   "tool_plan": [
     {
       "tool_name": "kb_search",
@@ -408,6 +224,7 @@ You MUST output ONLY valid JSON matching the SupervisorDecision schema. No markd
   "intent": "CLARIFY",
   "confidence": 0.85,
   "reasoning": "User asks about 'that land case' in Swahili but doesn't specify which case, parties, year, or location",
+  "requires_multi_hop": false,
   "tool_plan": null,
   "clarification": {
     "missing_fields": ["case_name", "year", "parties", "county"],
@@ -431,7 +248,8 @@ You MUST output ONLY valid JSON matching the SupervisorDecision schema. No markd
 {
   "intent": "NEWS_SUMMARY",
   "confidence": 0.92,
-  "reasoning": "User asks for recent news about Finance Bill 2024 protests - requires news search plus knowledge base for parliamentary context",
+  "reasoning": "User asks for recent news about Finance Bill 2024 protests - requires parallel news search plus knowledge base for context",
+  "requires_multi_hop": false,
   "tool_plan": [
     {
       "tool_name": "news_search",
@@ -468,6 +286,7 @@ You MUST output ONLY valid JSON matching the SupervisorDecision schema. No markd
   "intent": "GENERAL_CHAT",
   "confidence": 0.98,
   "reasoning": "User expressing gratitude in Swahili-English mix - no research needed, direct response appropriate",
+  "requires_multi_hop": false,
   "tool_plan": null,
   "clarification": null,
   "direct_response": "Karibu sana! I'm glad I could help. Feel free to ask if you have any more questions about Kenyan law or legal matters. 🇰🇪",
@@ -479,7 +298,34 @@ You MUST output ONLY valid JSON matching the SupervisorDecision schema. No markd
 }
 ```
 
-### Example 5: Complex Multi-Tool Legal Query
+### Example 5: Multi-Hop Query (Requires Sequential Reasoning)
+**User Query**: "What was the vote count for the Finance Bill 2024 and what specific tax provisions did MPs object to?"
+
+**Output**:
+```json
+{
+  "intent": "LEGAL_RESEARCH",
+  "confidence": 0.94,
+  "reasoning": "Two-part question: first needs vote count lookup, then needs content analysis of objected provisions - sequential dependency",
+  "requires_multi_hop": true,
+  "tool_plan": [
+    {
+      "tool_name": "kb_search",
+      "query": "Finance Bill 2024 parliamentary vote count Hansard",
+      "priority": 1
+    }
+  ],
+  "clarification": null,
+  "direct_response": null,
+  "escalation_reason": null,
+  "detected_language": "en",
+  "detected_entities": ["Finance Bill 2024", "vote count", "tax provisions"],
+  "token_count": 756,
+  "context_overflow": false
+}
+```
+
+### Example 6: Complex Multi-Tool Legal Query (Parallel - No Multi-Hop)
 **User Query**: "I'm a law student at UoN. Can you help me understand the Njoya case on constitutional amendments and how it relates to Article 255 basic structure doctrine?"
 
 **Output**:
@@ -487,7 +333,8 @@ You MUST output ONLY valid JSON matching the SupervisorDecision schema. No markd
 {
   "intent": "LEGAL_RESEARCH",
   "confidence": 0.97,
-  "reasoning": "Law student asking about landmark Njoya case and basic structure doctrine - requires comprehensive legal research",
+  "reasoning": "Law student asking about landmark Njoya case and basic structure doctrine - single concept that can be researched in parallel",
+  "requires_multi_hop": false,
   "tool_plan": [
     {
       "tool_name": "kb_search",

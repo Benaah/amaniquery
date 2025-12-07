@@ -4,6 +4,11 @@
 livekit-agents[openai,assemblyai,silero]>=0.8.0
 livekit>=0.10.0
 
+# OpenTelemetry - pin compatible versions for livekit-agents
+opentelemetry-api>=1.20.0,<1.30.0
+opentelemetry-sdk>=1.20.0,<1.30.0
+opentelemetry-exporter-otlp>=1.20.0,<1.30.0
+
 # Optional: Additional TTS providers
 # livekit-plugins-elevenlabs  # For ElevenLabs TTS
 # livekit-plugins-deepgram    # For Deepgram STT

@@ -212,8 +212,8 @@ async def main():
         signal.signal(signal.SIGINT, signal_handler)
         signal.signal(signal.SIGTERM, signal_handler)
     except ValueError:
-        # Signal only works in main thread
-        logger.warning("Could not register signal handlers (running in background thread?)")
+        # Signal only works in main thread - this is expected in background thread
+        logger.debug("Signal handlers not registered (running in background thread)")
     
     # Connect to database
     logger.info("Connecting to PostgreSQL...")

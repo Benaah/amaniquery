@@ -44,11 +44,19 @@ export interface AmaniQueryResponse {
   metadata?: {
     reasoning_path?: {
       query: string;
-      thoughts: any[];
+      thoughts: Array<{
+        step: number;
+        action: string;
+        observation: string;
+        reasoning: string;
+        duration_ms?: number;
+        confidence?: number;
+      }>;
       total_duration_ms: number;
       final_conclusion: string;
     };
-    [key: string]: any;
+    quality_issues?: string[];
+    [key: string]: unknown;
   };
 }
 
@@ -184,8 +192,8 @@ export const AmaniQueryResponse: React.FC<AmaniQueryResponseProps> = ({ data, cl
       )}
 
       {/* FACT CHECK ALERT - Display if issues found */}
-      {data.metadata?.quality_issues && data.metadata.quality_issues.length > 0 && (
-        <FactCheckAlert issues={data.metadata.quality_issues} />
+      {data.metadata?.quality_issues && Array.isArray(data.metadata.quality_issues) && data.metadata.quality_issues.length > 0 && (
+        <FactCheckAlert issues={data.metadata.quality_issues as string[]} />
       )}
 
       {/* SUMMARY CARD - HUGE AND PROMINENT */}
@@ -412,11 +420,10 @@ const Citations: React.FC<{
             <div
               key={idx}
               className={cn(
-                "p-3 rounded-lg border-l-4",
+                "p-3 rounded-lg border-l-4 [border-left-color:currentColor]",
                 theme.classes.container,
                 theme.classes.border
               )}
-              style={{ borderLeftColor: 'currentColor' }} // Use current text color for border
             >
               <div className={cn(
                 "text-sm font-semibold mb-1",
@@ -430,7 +437,7 @@ const Citations: React.FC<{
                   "mt-2 mb-0 pl-3 border-l-2 text-sm italic",
                   "border-muted-foreground/30 text-muted-foreground"
                 )}>
-                  "{citation.quote}"
+                  &quot;{citation.quote}&quot;
                 </blockquote>
               )}
               
@@ -440,8 +447,9 @@ const Citations: React.FC<{
                   target="_blank"
                   rel="noopener noreferrer"
                   className={cn(
-                    "text-xs no-underline inline-flex items-center gap-1 mt-2 hover:underline",
-                    theme.classes.accentText
+                    "text-sm underline decoration-2 underline-offset-2 inline-flex items-center gap-1 mt-2",
+                    "text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300",
+                    "transition-colors duration-200 font-medium"
                   )}
                 >
                   View source <ExternalLink size={12} />

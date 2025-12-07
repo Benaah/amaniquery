@@ -23,6 +23,18 @@ export class ApiClient {
     return headers
   }
 
+  private getAuthOnlyHeaders(): HeadersInit {
+    const headers: HeadersInit = {}
+
+    // Add session token if available (no Content-Type for FormData)
+    const sessionToken = localStorage.getItem("session_token")
+    if (sessionToken) {
+      headers["X-Session-Token"] = sessionToken
+    }
+
+    return headers
+  }
+
   async get<T>(endpoint: string): Promise<T> {
     const response = await fetch(`${this.baseURL}${endpoint}`, {
       method: "GET",
@@ -79,6 +91,45 @@ export class ApiClient {
     }
 
     return response.json()
+  }
+
+  /**
+   * Upload files using FormData (multipart/form-data)
+   * Used for media uploads to /api/v1/media/* endpoints
+   */
+  async uploadFormData<T>(endpoint: string, formData: FormData): Promise<T> {
+    const response = await fetch(`${this.baseURL}${endpoint}`, {
+      method: "POST",
+      headers: this.getAuthOnlyHeaders(), // No Content-Type - browser sets it with boundary
+      body: formData,
+    })
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: "Upload failed" }))
+      throw new Error(error.detail || `HTTP ${response.status}`)
+    }
+
+    return response.json()
+  }
+
+  /**
+   * Upload a single file to the media API
+   */
+  async uploadFile<T>(
+    endpoint: string, 
+    file: File, 
+    additionalFields?: Record<string, string>
+  ): Promise<T> {
+    const formData = new FormData()
+    formData.append("file", file)
+    
+    if (additionalFields) {
+      Object.entries(additionalFields).forEach(([key, value]) => {
+        formData.append(key, value)
+      })
+    }
+
+    return this.uploadFormData<T>(endpoint, formData)
   }
 }
 

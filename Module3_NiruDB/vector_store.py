@@ -1006,9 +1006,14 @@ class VectorStore:
     def _get_sample_qdrant(self, limit: int = 2000) -> List[Dict]:
         """Get sample documents from Qdrant for preview"""
         try:
+            # Check if QDrant backend is available
+            if "qdrant" not in self.backends:
+                logger.debug("QDrant backend not initialized, skipping sample fetch")
+                return []
+            
             # Attempt to scroll through the collection
             # This will fail if the collection does not exist
-            response = self.qdrant_client.scroll(
+            response = self.backends["qdrant"].scroll(
                 collection_name="amaniquery_docs_kenya_news",
                 limit=limit,
                 with_payload=True,

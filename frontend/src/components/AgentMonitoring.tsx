@@ -36,6 +36,22 @@ import {
 import { cn } from "@/lib/utils"
 
 // Types (same as before)
+interface ThoughtStep {
+  step: number
+  action: string
+  observation: string
+  reasoning: string
+  duration_ms?: number
+  confidence?: number
+}
+
+interface ReasoningPath {
+  query: string
+  thoughts: ThoughtStep[]
+  total_duration_ms: number
+  final_conclusion: string
+}
+
 interface QueryLog {
   id: string
   timestamp: string
@@ -49,7 +65,7 @@ interface QueryLog {
   human_review_required: boolean
   agent_path: string[]
   quality_issues: string[]
-  reasoning_path?: any  // For ThinkingProcess component
+  reasoning_path?: ReasoningPath | string
   user_feedback?: "positive" | "negative" | null
 }
 
@@ -94,7 +110,12 @@ export function AgentMonitoring() {
   // Fetch functions
   const fetchMetrics = async () => {
     try {
-      const response = await fetch("/api/admin/agent-metrics")
+      const response = await fetch("/api/admin/agent-metrics?days=30")
+      if (!response.ok) {
+        console.error("Failed to fetch metrics:", response.statusText)
+        setMetrics(null)
+        return
+      }
       const data = await response.json()
       setMetrics(data)
     } catch (error) {
@@ -106,7 +127,12 @@ export function AgentMonitoring() {
   const fetchQueryLogs = async () => {
     setLoading(true)
     try {
-      const response = await fetch("/api/admin/query-logs?limit=100")
+      const response = await fetch("/api/admin/query-logs?limit=100&offset=0")
+      if (!response.ok) {
+        console.error("Failed to fetch query logs:", response.statusText)
+        setQueryLogs([])
+        return
+      }
       const data = await response.json()
       setQueryLogs(data.logs || [])
     } catch (error) {
@@ -120,6 +146,11 @@ export function AgentMonitoring() {
   const fetchReviewQueue = async () => {
     try {
       const response = await fetch("/api/admin/review-queue")
+      if (!response.ok) {
+        console.error("Failed to fetch review queue:", response.statusText)
+        setReviewQueue([])
+        return
+      }
       const data = await response.json()
       setReviewQueue(data.queue || [])
     } catch (error) {
@@ -130,23 +161,35 @@ export function AgentMonitoring() {
 
   const handleReviewApprove = async (logId: string) => {
     try {
-      await fetch(`/api/admin/review-queue/${logId}/approve`, { method: "POST" })
+      const response = await fetch(`/api/admin/review-queue/${logId}/approve`, { method: "POST" })
+      if (!response.ok) {
+        throw new Error(`Failed to approve: ${response.statusText}`)
+      }
       setReviewQueue(reviewQueue.filter(item => item.id !== logId))
+      // Refresh metrics to reflect the approval
+      fetchMetrics()
     } catch (error) {
       console.error("Error approving review:", error)
+      alert("Failed to approve query. Please try again.")
     }
   }
 
   const handleReviewReject = async (logId: string, feedback: string) => {
     try {
-      await fetch(`/api/admin/review-queue/${logId}/reject`, {
+      const response = await fetch(`/api/admin/review-queue/${logId}/reject`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ feedback })
       })
+      if (!response.ok) {
+        throw new Error(`Failed to reject: ${response.statusText}`)
+      }
       setReviewQueue(reviewQueue.filter(item => item.id !== logId))
+      // Refresh metrics to reflect the rejection
+      fetchMetrics()
     } catch (error) {
       console.error("Error rejecting review:", error)
+      alert("Failed to reject query. Please try again.")
     }
   }
 
@@ -159,11 +202,20 @@ export function AgentMonitoring() {
     }
   }
 
-  // Fetch data on mount
+  // Fetch data on mount and set up polling for real-time updates
   useEffect(() => {
     fetchMetrics()
     fetchQueryLogs()
     fetchReviewQueue()
+    
+    // Auto-refresh every 30 seconds for real-time monitoring
+    const interval = setInterval(() => {
+      fetchMetrics()
+      fetchQueryLogs()
+      fetchReviewQueue()
+    }, 30000)
+    
+    return () => clearInterval(interval)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -266,10 +318,13 @@ export function AgentMonitoring() {
   )
 }
 
-// Helper components (same implementations as before, but included here)
-// MetricsOverview, QueryLogsView, ReviewQueueView, AnalyticsView, TrainingView
+// Helper components with proper TypeScript types
 
-function MetricsOverview({ metrics }: { metrics: AgentMetrics | null }) {
+interface MetricsOverviewProps {
+  metrics: AgentMetrics | null
+}
+
+function MetricsOverview({ metrics }: MetricsOverviewProps) {
   // Return placeholder if metrics not loaded
   if (!metrics) {
     return (
@@ -345,6 +400,19 @@ function MetricsOverview({ metrics }: { metrics: AgentMetrics | null }) {
   )
 }
 
+interface QueryLogsViewProps {
+  logs: QueryLog[]
+  selectedLog: QueryLog | null
+  onSelectLog: (log: QueryLog | null) => void
+  searchQuery: string
+  onSearchChange: (query: string) => void
+  filterPersona: string
+  onFilterPersonaChange: (persona: string) => void
+  filterConfidence: string
+  onFilterConfidenceChange: (confidence: string) => void
+  loading: boolean
+}
+
 function QueryLogsView({ 
   logs, 
   selectedLog, 
@@ -356,7 +424,7 @@ function QueryLogsView({
   filterConfidence,
   onFilterConfidenceChange,
   loading
-}: any) {
+}: QueryLogsViewProps) {
   return (
     <div className="grid gap-4 md:grid-cols-2">
       <Card>
@@ -531,7 +599,13 @@ function QueryLogsView({
   )
 }
 
-function ReviewQueueView({ queue, onApprove, onReject }: any) {
+interface ReviewQueueViewProps {
+  queue: ReviewQueueItem[]
+  onApprove: (logId: string) => void
+  onReject: (logId: string, feedback: string) => void
+}
+
+function ReviewQueueView({ queue, onApprove, onReject }: ReviewQueueViewProps) {
   const [selectedItem, setSelectedItem] = useState<ReviewQueueItem | null>(null)
   const [rejectFeedback, setRejectFeedback] = useState("")
 
@@ -629,7 +703,12 @@ function ReviewQueueView({ queue, onApprove, onReject }: any) {
   )
 }
 
-function AnalyticsView({ metrics }: any) {
+interface AnalyticsViewProps {
+  metrics: AgentMetrics | null
+  logs?: QueryLog[]
+}
+
+function AnalyticsView({ metrics }: AnalyticsViewProps) {
   if (!metrics) return <div>Loading...</div>
 
   return (
@@ -640,7 +719,7 @@ function AnalyticsView({ metrics }: any) {
         </CardHeader>
         <CardContent>
           <div className="space-y-3">
-            {Object.entries(metrics.persona_distribution).map(([persona, count]: any) => {
+            {Object.entries(metrics.persona_distribution).map(([persona, count]: [string, number]) => {
               const percentage = (count / metrics.total_queries) * 100
               return (
                 <div key={persona}>
@@ -667,7 +746,7 @@ function AnalyticsView({ metrics }: any) {
         </CardHeader>
         <CardContent>
           <div className="space-y-3">
-            {Object.entries(metrics.confidence_buckets).map(([bucket, count]: any) => {
+            {Object.entries(metrics.confidence_buckets).map(([bucket, count]: [string, number]) => {
               const percentage = (count / metrics.total_queries) * 100
               return (
                 <div key={bucket}>
@@ -696,7 +775,11 @@ function AnalyticsView({ metrics }: any) {
   )
 }
 
-function TrainingView({ onRetrain }: any) {
+interface TrainingViewProps {
+  onRetrain: () => void
+}
+
+function TrainingView({ onRetrain }: TrainingViewProps) {
   const [trainingData, setTrainingData] = useState("")
 
   return (

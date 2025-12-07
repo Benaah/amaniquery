@@ -72,6 +72,15 @@ export interface Attachment {
     uploaded_at: string
     processed: boolean
     cloudinary_url?: string
+    // Media-specific fields
+    transcript?: string
+    frame_urls?: string[]
+    duration_seconds?: number
+    metadata?: {
+        width?: number
+        height?: number
+        mime_type?: string
+    }
 }
 
 export interface ChatSession {
@@ -118,3 +127,57 @@ export interface SharePlatformConfig {
     description: string
     icon: ReactNode
 }
+
+// ============================================================
+// Media Types (for multimodal RAG)
+// ============================================================
+
+export type MediaFileType = "image" | "pdf" | "audio" | "video"
+export type MediaProcessingStatus = "pending" | "processing" | "completed" | "failed"
+
+export interface MediaAsset {
+    id: string
+    session_id: string
+    user_id?: string
+    file_type: MediaFileType
+    original_filename: string
+    storage_path?: string
+    cloudinary_url?: string
+    transcript?: string
+    metadata?: MediaMetadata
+    processed: boolean
+    created_at: string
+}
+
+export interface MediaMetadata {
+    duration_seconds?: number
+    frame_count?: number
+    dimensions?: { width: number; height: number }
+    audio_format?: string
+    video_format?: string
+    file_size_bytes?: number
+    mime_type?: string
+}
+
+export interface MediaUploadResult {
+    asset_id: string
+    session_id: string
+    file_type: MediaFileType
+    filename: string
+    status: MediaProcessingStatus
+    cloudinary_url?: string
+    processing_time_ms?: number
+    transcript?: string
+    frame_urls?: string[]
+    embedding_dimensions?: number
+    metadata?: MediaMetadata
+}
+
+export interface ProcessingProgress {
+    asset_id: string
+    status: MediaProcessingStatus
+    progress_percent?: number
+    current_step?: string
+    error_message?: string
+}
+

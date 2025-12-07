@@ -1,6 +1,10 @@
 {
   "name": "AmaniQuery",
   "displayName": "AmaniQuery",
-  "version": "1.0.0"
+  "version": "1.0.0",
+  "extra": {
+    "eas": {
+      "projectId": "d85d2549-3dc1-423f-932e-2efe9aa27071"
+    }
+  }
 }
-

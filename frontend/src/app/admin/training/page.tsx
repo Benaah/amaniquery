@@ -2,10 +2,10 @@
 
 import { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { BarChart3, TrendingUp, Database, Target, Download, RefreshCw } from "lucide-react";
+import { Database, Download, RefreshCw } from "lucide-react";
+import { AdminSidebar } from "@/components/admin-sidebar";
 
 interface FeedbackAnalytics {
   feedback_distribution: {
@@ -47,7 +47,6 @@ interface ClusterStats {
 export default function TrainingMonitorPage() {
   const [feedbackData, setFeedbackData] = useState<FeedbackAnalytics | null>(null);
   const [trainingData, setTrainingData] = useState<TrainingStats | null>(null);
-  const [clusterData, setClusterData] = useState<ClusterStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -64,11 +63,6 @@ export default function TrainingMonitorPage() {
       if (trainingRes.ok) {
         setTrainingData(await trainingRes.json());
       }
-
-      const clusterRes = await fetch("/api/v1/clusters/stats");
-      if (clusterRes.ok) {
-        setClusterData(await clusterRes.json());
-      }
     } catch (error) {
       console.error("Failed to fetch analytics:", error);
     } finally {
@@ -79,6 +73,13 @@ export default function TrainingMonitorPage() {
 
   useEffect(() => {
     fetchAnalytics();
+    
+    // Auto-refresh every 30 seconds for real-time monitoring
+    const interval = setInterval(() => {
+      fetchAnalytics();
+    }, 30000);
+    
+    return () => clearInterval(interval);
   }, []);
 
   const handleExport = async (format: string) => {
@@ -118,7 +119,10 @@ export default function TrainingMonitorPage() {
   }
 
   return (
-    <div className="container mx-auto p-6 space-y-6">
+    <>
+      <AdminSidebar />
+      <div className="ml-0 md:ml-5 transition-all duration-300">
+        <div className="container mx-auto p-6 space-y-6">
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-bold">Training & Feedback Monitor</h1>
@@ -223,9 +227,9 @@ export default function TrainingMonitorPage() {
                       <span className="text-sm capitalize">{tier.replace(/_/g, " ")}</span>
                       <span className="text-sm font-medium">{count}</span>
                     </div>
-                    <div className="w-full bg-gray-200 rounded-full h-2">
+                    <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
                       <div
-                        className="bg-blue-500 h-2 rounded-full"
+                        className="bg-blue-500 h-2 rounded-full transition-all duration-300"
                         style={{ width: `${percentage}%` }}
                       />
                     </div>
@@ -262,6 +266,8 @@ export default function TrainingMonitorPage() {
           </CardContent>
         </Card>
       </div>
-    </div>
+        </div>
+      </div>
+    </>
   );
 }

@@ -129,7 +129,7 @@ export function MessageList({
       const citation = `[${index + 1}]`
       formattedContent = formattedContent.replace(
         new RegExp(`\\${citation}`, 'g'),
-        `<sup class="text-primary font-semibold">${index + 1}</sup>`
+        `<sup class="text-blue-500 dark:text-blue-400 font-semibold cursor-pointer hover:underline transition-all">${index + 1}</sup>`
       )
     })
 

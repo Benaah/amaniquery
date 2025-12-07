@@ -248,6 +248,8 @@ class AmaniQState(TypedDict, total=False):
     react_iterations: List[Dict[str, Any]]  # ReAct loop iterations
     react_final_answer: Optional[str]  # Answer from ReAct
     react_success: bool  # Whether ReAct completed successfully
+    react_failed: bool  # Whether ReAct encountered an error
+    requires_multi_hop: bool  # LLM-detected need for sequential reasoning
     react_failed: bool  # Whether ReAct failed
     react_max_iterations_reached: bool  # Max iterations hit
     
@@ -493,12 +495,16 @@ async def supervisor_node(state: AmaniQState) -> AmaniQState:
                     "priority": tc.priority,
                 })
         
+        # Extract requires_multi_hop from decision (defaults to False if not present)
+        requires_multi_hop = getattr(decision, 'requires_multi_hop', False)
+        
         return {
             **state,
             "supervisor_decision": decision.model_dump(),
             "intent": decision.intent.value,
             "confidence": decision.confidence,
             "tool_plan": tool_plan,
+            "requires_multi_hop": requires_multi_hop,
             "detected_language": decision.detected_language,
             "detected_entities": decision.detected_entities,
             "token_usage": {
@@ -584,7 +590,7 @@ async def tool_executor_wrapper(state: AmaniQState) -> AmaniQState:
 
 async def responder_node(state: AmaniQState) -> AmaniQState:
     """
-    Responder node - Synthesize final response from tool results.
+    Responder node - Synthesize final response from tool results or ReAct output.
     Uses Moonshot AI with large context window.
     """
     logger.info("=== RESPONDER NODE ===")
@@ -598,6 +604,35 @@ async def responder_node(state: AmaniQState) -> AmaniQState:
             "citations": cached.get("citations", []),
             "response_confidence": 0.95,  # High confidence for cached
             "completed_at": datetime.utcnow().isoformat(),
+        }
+    
+    # Handle ReAct agent results FIRST (priority over tool results)
+    if state.get("react_success") and state.get("react_final_answer"):
+        logger.info("[Responder] Using ReAct agent final answer")
+        react_answer = state["react_final_answer"]
+        return {
+            **state,
+            "final_response": react_answer,
+            "response_confidence": 0.85,  # ReAct answers are generally reliable
+            "completed_at": datetime.utcnow().isoformat(),
+            "analysis": f"ReAct agent completed in {len(state.get('react_iterations', []))} iterations",
+        }
+    
+    # Handle ReAct failure - provide graceful degradation
+    if state.get("react_failed"):
+        logger.warning("[Responder] ReAct agent failed - falling back to error message")
+        return {
+            **state,
+            "final_response": (
+                "I encountered difficulties processing your query. "
+                "This may be due to tool limitations or the query requiring information "
+                "I don't currently have access to. Please try rephrasing your question "
+                "or breaking it into simpler parts."
+            ),
+            "response_confidence": 0.3,
+            "human_review_required": True,
+            "completed_at": datetime.utcnow().isoformat(),
+            "error": "ReAct agent failed",
         }
     
     # Handle escalation
@@ -627,7 +662,7 @@ async def responder_node(state: AmaniQState) -> AmaniQState:
             "completed_at": datetime.utcnow().isoformat(),
         }
     
-    # Build responder prompt
+    # Build responder prompt for normal tool results
     tool_results = state.get("tool_results", [])
     supervisor_decision = state.get("supervisor_decision", {})
     original_question = state.get("original_question", state.get("current_query", ""))
@@ -764,26 +799,22 @@ def route_from_entry(state: AmaniQState) -> Literal["supervisor", "respond"]:
 
 
 def route_from_supervisor(state: AmaniQState) -> Literal["clarify", "tools", "react", "respond", "escalate"]:
-    """Route based on supervisor intent and query complexity"""
-    intent = state.get("intent", "")
-    query = state.get("current_query", "")
+    """
+    Route based on supervisor intent and LLM-detected multi-hop requirement.
     
-    # Check for complex queries that need multi-step reasoning
-    is_complex = (
-        # Multi-part questions
-        any(word in query.lower() for word in ["and", "also", "additionally", "furthermore"]) and len(query.split()) > 15
-        # Questions requiring multiple sources
-        or any(phrase in query.lower() for phrase in ["what was the vote", "what does it say", "compare", "status and"])
-        # Temporal queries (need status then content)
-        or ("bill" in query.lower() and any(word in query.lower() for word in ["passed", "status", "voted", "vote count"]))
-    )
+    Uses requires_multi_hop field from SupervisorDecision instead of regex heuristics.
+    """
+    intent = state.get("intent", "")
+    
+    # LLM-based multi-hop detection (from SupervisorDecision.requires_multi_hop)
+    requires_multi_hop = state.get("requires_multi_hop", False)
     
     if intent == "CLARIFY":
         return "clarify"
     elif intent in ("LEGAL_RESEARCH", "NEWS_SUMMARY"):
-        # Route complex queries to ReAct for multi-step reasoning
-        if is_complex:
-            logger.info(f"[Router] Complex query detected - routing to ReAct agent")
+        # Route multi-hop queries to ReAct for sequential reasoning
+        if requires_multi_hop:
+            logger.info(f"[Router] Multi-hop query detected (LLM) - routing to ReAct agent")
             return "react"
         return "tools"
     elif intent == "GENERAL_CHAT":
@@ -795,6 +826,19 @@ def route_from_supervisor(state: AmaniQState) -> Literal["clarify", "tools", "re
     else:
         # Default to tools for unknown intents
         return "tools"
+
+
+def route_from_react(state: AmaniQState) -> Literal["respond", "fallback_tools"]:
+    """
+    Route from ReAct agent based on success/failure.
+    
+    If ReAct failed, fall back to parallel tool execution.
+    If ReAct succeeded, proceed to responder.
+    """
+    if state.get("react_failed"):
+        logger.warning("[Router] ReAct failed - falling back to parallel tools")
+        return "fallback_tools"
+    return "respond"
 
 
 def route_clarification(state: AmaniQState) -> Literal["wait", "resume", "max_reached", "done"]:
@@ -877,8 +921,15 @@ def create_amaniq_v2_graph(
     # Tool executor → Responder
     workflow.add_edge("tool_executor", "responder")
     
-    # ReAct agent → Responder (after multi-step reasoning)
-    workflow.add_edge("react_agent", "responder")
+    # ReAct agent → conditional routing (success → respond, failure → fallback)
+    workflow.add_conditional_edges(
+        "react_agent",
+        route_from_react,
+        {
+            "respond": "responder",
+            "fallback_tools": "tool_executor",  # Fall back to parallel tools on failure
+        }
+    )
     
     # Clarification sub-graph
     workflow.add_conditional_edges(
@@ -907,10 +958,34 @@ def create_amaniq_v2_graph(
     # Responder → END
     workflow.add_edge("responder", END)
     
-    # Compile graph
+    # Compile graph with appropriate checkpointer
+    checkpointer = None
     if enable_persistence:
-        memory = MemorySaver()
-        graph = workflow.compile(checkpointer=memory)
+        # Try PostgresSaver for production, fall back to MemorySaver
+        try:
+            from langgraph.checkpoint.postgres import PostgresSaver
+            import os
+            
+            postgres_uri = os.getenv("POSTGRES_URI") or os.getenv("DATABASE_URL")
+            if postgres_uri:
+                checkpointer = PostgresSaver.from_conn_string(postgres_uri)
+                logger.info("Using PostgresSaver for production checkpointing")
+            else:
+                checkpointer = MemorySaver()
+                logger.warning("POSTGRES_URI not set - using MemorySaver (state not persisted across restarts)")
+        except ImportError:
+            checkpointer = MemorySaver()
+            logger.warning("langgraph.checkpoint.postgres not available - using MemorySaver")
+        except Exception as e:
+            checkpointer = MemorySaver()
+            logger.warning(f"PostgresSaver failed to initialize: {e} - using MemorySaver")
+    
+    if checkpointer:
+        # Compile with interrupt support for clarification
+        graph = workflow.compile(
+            checkpointer=checkpointer,
+            interrupt_before=["clarification_entry"],  # Pause before clarification for HITL
+        )
     else:
         graph = workflow.compile()
     
@@ -998,6 +1073,39 @@ class AmaniQAgent:
                     logger.info("Telemetry initialized")
                 except Exception as e:
                     logger.warning(f"Telemetry failed to initialize: {e}, continuing without telemetry")
+            
+            # Initialize agentic tools for ReAct agent (optional - don't fail if this fails)
+            try:
+                # Get dependencies from initialized services
+                from Module3_NiruDB.qdrant_cloud import get_vector_store
+                
+                vector_store = await get_vector_store()
+                
+                # Initialize RAG pipeline if available
+                rag_pipeline = None
+                try:
+                    from Module3_NiruDB.rag_pipeline import get_rag_pipeline
+                    rag_pipeline = await get_rag_pipeline()
+                except Exception:
+                    logger.warning("RAG pipeline not available for agentic tools")
+                
+                # Initialize metadata manager if available
+                metadata_manager = None
+                try:
+                    from Module3_NiruDB.metadata_manager import get_metadata_manager
+                    metadata_manager = await get_metadata_manager()
+                except Exception:
+                    logger.warning("Metadata manager not available for agentic tools")
+                
+                # Initialize the agentic tool registry
+                initialize_agentic_tools(
+                    vector_store=vector_store,
+                    rag_pipeline=rag_pipeline,
+                    metadata_manager=metadata_manager
+                )
+                logger.info("Agentic tools initialized for ReAct agent")
+            except Exception as e:
+                logger.warning(f"Agentic tools failed to initialize: {e}, ReAct agent may have limited capability")
             
             self._initialized = True
             logger.info("✅ AmaniQ v2 Agent initialized successfully")

@@ -12,7 +12,7 @@
   "dependencies": {
     "@livekit/react-native": "^2.0.0",
     "@react-native-async-storage/async-storage": "^1.19.5",
-    "@react-navigation/bottom-tabs": "^7.8.6",
+    "@react-navigation/bottom-tabs": "^7.8.12",
     "@react-navigation/native": "^6.1.9",
     "@react-navigation/stack": "^7.6.7",
     "react": "18.2.0",

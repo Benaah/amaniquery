@@ -92,7 +92,7 @@ elevenlabs>=0.2.0  # ElevenLabs TTS
 
 # OpenTelemetry - pin compatible versions for livekit-agents
 opentelemetry-api==1.29.0
-opentelemetry-sdk==1.29.0
+opentelemetry-sdk==1.39.0
 opentelemetry-exporter-otlp==1.39.0
 
 # Module 7: NiruHybrid - Hybrid Conv-Transformer Pipeline

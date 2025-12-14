@@ -24,7 +24,6 @@ import {
   Clock,
   ChevronRight
 } from "lucide-react"
-import "./sidebar.css"
 
 interface AmaniSidebarProps {
   chatHistory: ChatSession[]
@@ -51,6 +50,7 @@ export function AmaniSidebar({
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null)
   const [editTitle, setEditTitle] = useState("")
   const [showUserMenu, setShowUserMenu] = useState(false)
+  const [showAllChats, setShowAllChats] = useState(false)
   const pathname = usePathname()
   const router = useRouter()
   const { user, logout } = useAuth()
@@ -129,18 +129,47 @@ export function AmaniSidebar({
     return groups
   }, {} as Record<string, ChatSession[]>)
 
+  // Get limited sessions for collapsed view
+  const getDisplayedSessions = () => {
+    if (showAllChats || searchQuery) return groupedSessions
+    
+    // When collapsed, show all from "Today" + up to 3 total from other groups
+    const result: Record<string, ChatSession[]> = {}
+    let remainingSlots = 3
+    const groupOrder = ["Today", "Yesterday", "This Week", "This Month", "Older"]
+    
+    for (const group of groupOrder) {
+      if (groupedSessions[group]) {
+        if (group === "Today") {
+          // Always show all from today
+          result[group] = groupedSessions[group]
+        } else if (remainingSlots > 0) {
+          // Show up to remaining slots from other groups
+          result[group] = groupedSessions[group].slice(0, remainingSlots)
+          remainingSlots -= result[group].length
+        }
+      }
+    }
+    
+    return result
+  }
+
+  const displayedSessions = getDisplayedSessions()
+  const totalSessions = filteredHistory.length
+  const displayedCount = Object.values(displayedSessions).reduce((sum, sessions) => sum + sessions.length, 0)
+
   return (
     <div className="h-full flex">
       {/* Main Sidebar - Always visible on desktop */}
       <aside
         className={cn(
-          "w-72 bg-card border-r flex flex-col transition-all duration-300 ease-in-out",
+          "h-full w-72 bg-card border-r flex flex-col overflow-hidden transition-all duration-300 ease-in-out",
           "hidden md:flex", // Always show on desktop
           isOpen ? "w-80" : "w-72"
         )}
       >
         {/* Header */}
-        <div className="p-4 border-b">
+        <div className="shrink-0 p-4 border-b">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
               <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
@@ -148,7 +177,7 @@ export function AmaniSidebar({
               </div>
               <div>
                 <h1 className="text-lg font-semibold">AmaniQuery</h1>
-                <p className="text-xs text-muted-foreground">AI Assistant</p>
+                <p className="text-xs text-muted-foreground">Democratizing Information</p>
               </div>
             </div>
             <Button
@@ -177,7 +206,7 @@ export function AmaniSidebar({
         </div>
 
         {/* Navigation */}
-        <nav className="p-2 border-b max-h-48 overflow-y-auto scrollbar-thin scrollbar-thumb-primary/20 scrollbar-track-transparent">
+        <nav className="shrink-0 p-2 border-b max-h-48 overflow-y-auto">
           {navItems.map((item) => {
             const Icon = item.icon
             return (
@@ -199,7 +228,7 @@ export function AmaniSidebar({
         </nav>
 
         {/* Chat History */}
-        <div className="flex-1 overflow-y-auto overflow-x-hidden scrollbar-thin scrollbar-thumb-primary/20 scrollbar-track-transparent hover:scrollbar-thumb-primary/40 transition-colors">
+        <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden">
           <div className="p-4">
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-medium text-muted-foreground">Recent Chats</h3>
@@ -228,7 +257,7 @@ export function AmaniSidebar({
               </div>
             ) : (
               <div className="space-y-4">
-                {Object.entries(groupedSessions).map(([group, sessions]) => (
+                {Object.entries(displayedSessions).map(([group, sessions]) => (
                   <div key={group}>
                     <h4 className="text-xs font-medium text-muted-foreground mb-2 px-1">
                       {group}
@@ -301,26 +330,26 @@ export function AmaniSidebar({
                             </div>
                           </div>
                           
-                          {/* Action buttons - appear on hover */}
+                          {/* Action buttons - More visible for touch devices */}
                           {editingSessionId !== session.id && (
-                            <div className="absolute right-3 top-1/2 transform -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-all duration-200 bg-background/95 backdrop-blur-sm rounded-lg p-1 shadow-lg border border-border/50">
+                            <div className="absolute right-2 top-1/2 transform -translate-y-1/2 opacity-60 group-hover:opacity-100 transition-all duration-200 bg-background/80 backdrop-blur-sm rounded-md p-0.5 border border-border/30 group-hover:border-border/50 group-hover:shadow-md">
                               <div className="flex items-center gap-0.5">
                                 <Button
                                   variant="ghost"
                                   size="sm"
-                                  className="h-7 w-7 p-0 hover:bg-primary/10 hover:text-primary transition-colors"
+                                  className="h-6 w-6 p-0 hover:bg-primary/10 hover:text-primary transition-colors"
                                   onClick={(e) => {
                                     e.stopPropagation()
                                     startEditing(session)
                                   }}
                                   title="Edit chat title"
                                 >
-                                  <Pencil className="w-3.5 h-3.5" />
+                                  <Pencil className="w-3 h-3" />
                                 </Button>
                                 <Button
                                   variant="ghost"
                                   size="sm"
-                                  className="h-7 w-7 p-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
+                                  className="h-6 w-6 p-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
                                   onClick={(e) => {
                                     e.stopPropagation()
                                     if (confirm('Delete this conversation?')) {
@@ -329,7 +358,7 @@ export function AmaniSidebar({
                                   }}
                                   title="Delete conversation"
                                 >
-                                  <Trash2 className="w-3.5 h-3.5" />
+                                  <Trash2 className="w-3 h-3" />
                                 </Button>
                               </div>
                             </div>
@@ -339,13 +368,37 @@ export function AmaniSidebar({
                     </div>
                   </div>
                 ))}
+                
+                {/* Show All / Show Less Button */}
+                {!searchQuery && totalSessions > 3 && (
+                  <div className="mt-4 pt-3 border-t border-border/50">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="w-full justify-center text-xs font-medium text-primary hover:text-primary hover:bg-primary/10 transition-colors"
+                      onClick={() => setShowAllChats(!showAllChats)}
+                    >
+                      {showAllChats ? (
+                        <>
+                          <ChevronRight className="w-3 h-3 mr-1 rotate-90" />
+                          Show Less
+                        </>
+                      ) : (
+                        <>
+                          <ChevronRight className="w-3 h-3 mr-1 -rotate-90" />
+                          Show All ({totalSessions - displayedCount} more)
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                )}
               </div>
             )}
           </div>
         </div>
 
         {/* Footer */}
-        <div className="p-4 border-t">
+        <div className="shrink-0 p-4 border-t">
           {user && (
             <div className="relative mb-3">
               <button

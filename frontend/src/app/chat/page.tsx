@@ -7,6 +7,7 @@ import { AmaniSidebar } from "@/components/AmaniSidebar"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { useAuth } from "@/lib/auth-context"
 import { cn } from "@/lib/utils"
+import { Menu } from "lucide-react"
 import type { ChatSession } from "@/components/chat/types"
 
 export default function ChatPage() {
@@ -16,13 +17,8 @@ export default function ChatPage() {
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null)
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
 
-  // Load chat history on mount
-  useEffect(() => {
-    if (isAuthenticated) {
-      loadChatHistory()
-    }
-  }, [isAuthenticated])
 
+  // Define loadChatHistory before useEffect to avoid TDZ error
   const loadChatHistory = async () => {
     try {
       const token = localStorage.getItem("session_token")
@@ -36,6 +32,15 @@ export default function ChatPage() {
       console.error("Failed to load chat history:", error)
     }
   }
+
+  // Load chat history on mount
+  useEffect(() => {
+    if (isAuthenticated) {
+      (async () => {
+        await loadChatHistory();
+      })();
+    }
+  }, [isAuthenticated])
 
   useEffect(() => {
     if (!loading && !isAuthenticated) {
@@ -111,6 +116,15 @@ export default function ChatPage() {
         "flex-1 min-w-0 overflow-hidden relative transition-all duration-300",
         isSidebarOpen ? "md:ml-0" : "md:ml-0"
       )}>
+        {/* Mobile Menu Button */}
+        <button
+          onClick={() => setIsSidebarOpen(true)}
+          className="md:hidden absolute top-4 left-4 z-10 p-2 bg-card border rounded-lg shadow-sm hover:bg-accent transition-colors"
+          aria-label="Open menu"
+        >
+          <Menu className="w-5 h-5" />
+        </button>
+
         <div className="absolute top-2 right-2 md:top-4 md:right-4 z-10">
           <ThemeToggle />
         </div>
@@ -123,6 +137,7 @@ export default function ChatPage() {
           onSessionChange={setCurrentSessionId}
           chatHistory={chatHistory}
           onChatHistoryUpdate={setChatHistory}
+          onToggleSidebar={() => setIsSidebarOpen(true)}
         />
       </div>
     </div>

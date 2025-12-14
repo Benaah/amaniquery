@@ -36,6 +36,7 @@ interface AmaniChatProps {
   onChatHistoryUpdate?: (sessions: ChatSession[]) => void
   onLoadSession?: (sessionId: string) => void
   onDeleteSession?: (sessionId: string) => void
+  onToggleSidebar?: () => void
 }
 
 export function AmaniChat({ 
@@ -49,7 +50,8 @@ export function AmaniChat({
   chatHistory: externalChatHistory,
   onChatHistoryUpdate,
   onLoadSession,
-  onDeleteSession
+  onDeleteSession,
+  onToggleSidebar
 }: AmaniChatProps) {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState("")
@@ -271,9 +273,8 @@ export function AmaniChat({
       for (const file of files) {
         const formData = new FormData()
         formData.append("file", file)
-        formData.append("session_id", currentSessionId!)
 
-        const response = await fetch(`${API_BASE_URL}/api/upload`, {
+        const response = await fetch(`${API_BASE_URL}/api/v1/chat/sessions/${currentSessionId}/attachments`, {
           method: "POST",
           headers: getAuthHeaders(),
           body: formData
@@ -602,6 +603,15 @@ export function AmaniChat({
     loadChatHistory()
   }, [loadChatHistory])
 
+  // Load session messages when currentSessionId changes
+  useEffect(() => {
+    if (currentSessionId) {
+      loadSession(currentSessionId)
+    } else {
+      setMessages([])
+    }
+  }, [currentSessionId, loadSession])
+
   return (
     <div className={cn("flex flex-col h-screen bg-background", className)}>
       {/* Header */}
@@ -609,6 +619,7 @@ export function AmaniChat({
           currentSessionId={currentSessionId}
           showHistory={showHistory}
           onToggleHistory={() => setShowHistory(!showHistory)}
+          onToggleSidebar={onToggleSidebar}
           useHybrid={useHybrid}
           isResearchMode={isResearchMode}
           isLoading={isLoading}
@@ -616,7 +627,7 @@ export function AmaniChat({
         />
 
       {/* Messages */}
-      <div className="flex-1 overflow-hidden" ref={messagesContainerRef}>
+      <div className="flex-1 overflow-y-auto overflow-x-hidden" ref={messagesContainerRef}>
         {streamingContent ? (
             <div className="h-full">
               <AmaniMessageList

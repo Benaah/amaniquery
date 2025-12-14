@@ -39,7 +39,7 @@ const MainTabs = () => {
         component={HomeScreen}
         options={{
           tabBarLabel: 'Home',
-          tabBarIcon: ({color, size}) => (
+          tabBarIcon: ({color, size}: {color: string; size: number}) => (
             <Icon name="home" size={size || 24} color={color} />
           ),
         }}
@@ -49,7 +49,7 @@ const MainTabs = () => {
         component={ChatScreen}
         options={{
           tabBarLabel: 'Chat',
-          tabBarIcon: ({color, size}) => (
+          tabBarIcon: ({color, size}: {color: string; size: number}) => (
             <Icon name="chatbubbles" size={size || 24} color={color} />
           ),
         }}
@@ -59,7 +59,7 @@ const MainTabs = () => {
         component={VoiceScreen}
         options={{
           tabBarLabel: 'Voice',
-          tabBarIcon: ({color, size}) => (
+          tabBarIcon: ({color, size}: {color: string; size: number}) => (
             <Icon name="mic" size={size || 24} color={color} />
           ),
         }}
@@ -69,7 +69,7 @@ const MainTabs = () => {
         component={NotificationsScreen}
         options={{
           tabBarLabel: 'Alerts',
-          tabBarIcon: ({color, size}) => (
+          tabBarIcon: ({color, size}: {color: string; size: number}) => (
             <Icon name="notifications" size={size || 24} color={color} />
           ),
         }}
@@ -79,7 +79,7 @@ const MainTabs = () => {
         component={SettingsScreen}
         options={{
           tabBarLabel: 'Settings',
-          tabBarIcon: ({color, size}) => (
+          tabBarIcon: ({color, size}: {color: string; size: number}) => (
             <Icon name="settings" size={size || 24} color={color} />
           ),
         }}

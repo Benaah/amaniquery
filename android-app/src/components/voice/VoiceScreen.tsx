@@ -7,12 +7,8 @@ import {
   TextInput,
   Alert,
 } from 'react-native';
-import {
-  Room,
-  RoomEvent,
-  RemoteParticipant,
-  DataPacket_Kind,
-} from '@livekit/react-native';
+import {Room, RoomEvent} from 'livekit-client';
+import type {RemoteParticipant} from 'livekit-client';
 import {voiceAPI} from '../../api/voice';
 import {LIVEKIT_URL} from '../../utils/config';
 import {TranscriptView, TranscriptMessage} from './TranscriptView';
@@ -70,8 +66,9 @@ export const VoiceScreen: React.FC = () => {
         roomRef.current = null;
       });
 
-      newRoom.on(RoomEvent.DataReceived, (payload, participant) => {
-        if (participant && participant !== newRoom.localParticipant) {
+      newRoom.on(RoomEvent.DataReceived, (payload: Uint8Array, participant?: RemoteParticipant) => {
+        // Only process data from remote participants
+        if (participant) {
           try {
             const data = JSON.parse(new TextDecoder().decode(payload));
             if (data.type === 'transcript' && data.role === 'assistant') {

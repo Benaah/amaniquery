@@ -30,7 +30,7 @@ export const TranscriptView: React.FC<TranscriptViewProps> = ({messages}) => {
           </Text>
           <Text
             style={[
-              styles.content,
+              styles.messageText,
               message.isStreaming && styles.streamingContent,
             ]}>
             {message.content}
@@ -71,7 +71,7 @@ const styles = StyleSheet.create({
     color: '#666',
     marginBottom: 4,
   },
-  content: {
+  messageText: {
     fontSize: 16,
     lineHeight: 22,
     color: '#212529',

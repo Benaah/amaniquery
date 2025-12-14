@@ -1,3 +1,14 @@
+---
+title: AmaniQuery
+emoji: ⚖️
+colorFrom: green
+colorTo: blue
+sdk: docker
+app_port: 8000
+pinned: false
+---
+
+
 # AmaniQuery 🇰🇪
 
 ![AmaniQuery](imgs/readme.png)

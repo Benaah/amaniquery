@@ -6,6 +6,8 @@ const STORAGE_KEYS = {
   NOTIFICATION_SUBSCRIPTIONS: '@amaniquery:notification_subscriptions',
   SESSION_TOKEN: '@amaniquery:session_token',
   USER_DATA: '@amaniquery:user_data',
+  THEME_PREFERENCE: '@amaniquery:theme_preference',
+  BIOMETRIC_ENABLED: '@amaniquery:biometric_enabled',
 };
 
 export const storage = {
@@ -57,4 +59,25 @@ export const storage = {
   async clearUserData(): Promise<void> {
     return AsyncStorage.removeItem(STORAGE_KEYS.USER_DATA);
   },
+
+  async getThemePreference(): Promise<string | null> {
+    return AsyncStorage.getItem(STORAGE_KEYS.THEME_PREFERENCE);
+  },
+
+  async setThemePreference(theme: 'light' | 'dark'): Promise<void> {
+    return AsyncStorage.setItem(STORAGE_KEYS.THEME_PREFERENCE, theme);
+  },
+
+  async getBiometricEnabled(): Promise<boolean> {
+    const data = await AsyncStorage.getItem(STORAGE_KEYS.BIOMETRIC_ENABLED);
+    return data === 'true';
+  },
+
+  async setBiometricEnabled(enabled: boolean): Promise<void> {
+    return AsyncStorage.setItem(
+      STORAGE_KEYS.BIOMETRIC_ENABLED,
+      enabled.toString(),
+    );
+  },
 };
+

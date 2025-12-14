@@ -1,8 +1,8 @@
-import {useState, useCallback, useEffect} from 'react';
-import {Message, ChatSession} from '../types';
-import {chatAPI} from '../api/chat';
-import {storage} from '../utils/storage';
-import {useStreamingResponse} from './useStreamingResponse';
+import { useState, useCallback, useEffect } from 'react';
+import { Message, ChatSession } from '../types';
+import { chatAPI } from '../api/chat';
+import { storage } from '../utils/storage';
+import { useStreamingResponse } from './useStreamingResponse';
 
 export function useChat() {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -18,11 +18,17 @@ export function useChat() {
       const sessionId = await storage.getCurrentSessionId();
       if (sessionId) {
         setCurrentSessionId(sessionId);
-        await loadMessages(sessionId);
+        try {
+          const data = await chatAPI.getMessages(sessionId);
+          setMessages(data);
+        } catch (err) {
+          console.error('Failed to load messages:', err);
+          setError(err instanceof Error ? err.message : 'Failed to load messages');
+        }
       }
     };
     loadSession();
-  }, [loadMessages]);
+  }, []);
 
   const loadSessions = useCallback(async () => {
     try {
@@ -127,7 +133,7 @@ export function useChat() {
               setMessages(prev =>
                 prev.map(msg =>
                   msg.id === assistantMessageId
-                    ? {...msg, content: streamResponse.content + chunk}
+                    ? { ...msg, content: streamResponse.content + chunk }
                     : msg,
                 ),
               );
@@ -138,12 +144,12 @@ export function useChat() {
                 prev.map(msg =>
                   msg.id === assistantMessageId
                     ? {
-                        ...msg,
-                        content: streamResponse.content,
-                        sources: metadata?.sources,
-                        model_used: metadata?.model_used,
-                        token_count: metadata?.token_count,
-                      }
+                      ...msg,
+                      content: streamResponse.content,
+                      sources: metadata?.sources,
+                      model_used: metadata?.model_used,
+                      token_count: metadata?.token_count,
+                    }
                     : msg,
                 ),
               );
@@ -165,7 +171,7 @@ export function useChat() {
         setError(err instanceof Error ? err.message : 'Failed to send message');
         setMessages(prev =>
           prev.map(msg =>
-            msg.id === userMessage.id ? {...msg, failed: true} : msg,
+            msg.id === userMessage.id ? { ...msg, failed: true } : msg,
           ),
         );
       } finally {
@@ -181,7 +187,7 @@ export function useChat() {
         await chatAPI.submitFeedback(messageId, feedbackType);
         setMessages(prev =>
           prev.map(msg =>
-            msg.id === messageId ? {...msg, feedback_type: feedbackType} : msg,
+            msg.id === messageId ? { ...msg, feedback_type: feedbackType } : msg,
           ),
         );
       } catch (err) {

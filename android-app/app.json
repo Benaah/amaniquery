@@ -1,6 +1,4 @@
 {
-  "name": "AmaniQuery",
-  "displayName": "AmaniQuery",
   "expo": {
     "name": "AmaniQuery",
     "slug": "amaniquery",
@@ -46,14 +44,10 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
-    "plugins": [
-      "expo-router"
-    ],
     "extra": {
       "eas": {
-        "projectId": "d85d2549-3dc1-423f-932e-2efe9aa27071"
+        "projectId": "0f69d084-8ee4-4d87-b79c-f2e532351b7e"
       }
     }
   }
 }
-

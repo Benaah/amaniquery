@@ -56,3 +56,6 @@ yarn-error.log
 .env
 .env.local
 
+# Expo/EAS - Native folders for CNG (Continuous Native Generation)
+/android
+/ios

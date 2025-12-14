@@ -1,6 +1,7 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState } from "react"
+import Image from "next/image"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { useAuth } from "@/lib/auth-context"
@@ -21,11 +22,7 @@ import {
   MoreVertical,
   Search,
   Clock,
-  Star,
-  Settings,
-  ChevronRight,
-  FileText,
-  BarChart3
+  ChevronRight
 } from "lucide-react"
 import "./sidebar.css"
 
@@ -170,6 +167,8 @@ export function AmaniSidebar({
             <input
               type="text"
               placeholder="Search conversations..."
+              aria-label="Search conversations"
+              title="Search conversations"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-10 pr-3 py-2 bg-background border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
@@ -178,7 +177,7 @@ export function AmaniSidebar({
         </div>
 
         {/* Navigation */}
-        <nav className="p-2 border-b">
+        <nav className="p-2 border-b max-h-48 overflow-y-auto scrollbar-thin scrollbar-thumb-primary/20 scrollbar-track-transparent">
           {navItems.map((item) => {
             const Icon = item.icon
             return (
@@ -200,7 +199,7 @@ export function AmaniSidebar({
         </nav>
 
         {/* Chat History */}
-        <div className="flex-1 overflow-y-auto custom-scrollbar">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden scrollbar-thin scrollbar-thumb-primary/20 scrollbar-track-transparent hover:scrollbar-thumb-primary/40 transition-colors">
           <div className="p-4">
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-medium text-muted-foreground">Recent Chats</h3>
@@ -254,6 +253,9 @@ export function AmaniSidebar({
                                 <div className="flex items-center gap-2">
                                   <input
                                     type="text"
+                                    placeholder="Edit chat title"
+                                    aria-label="Edit chat title"
+                                    title="Edit chat title"
                                     value={editTitle}
                                     onChange={(e) => setEditTitle(e.target.value)}
                                     onKeyDown={(e) => {
@@ -300,32 +302,38 @@ export function AmaniSidebar({
                           </div>
                           
                           {/* Action buttons - appear on hover */}
-                          <div className="absolute right-2 top-1/2 transform -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <div className="flex items-center gap-1">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-6 w-6 p-0"
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  startEditing(session)
-                                }}
-                              >
-                                <Pencil className="w-3 h-3" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  onDeleteSession(session.id)
-                                }}
-                              >
-                                <Trash2 className="w-3 h-3" />
-                              </Button>
+                          {editingSessionId !== session.id && (
+                            <div className="absolute right-3 top-1/2 transform -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-all duration-200 bg-background/95 backdrop-blur-sm rounded-lg p-1 shadow-lg border border-border/50">
+                              <div className="flex items-center gap-0.5">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 w-7 p-0 hover:bg-primary/10 hover:text-primary transition-colors"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    startEditing(session)
+                                  }}
+                                  title="Edit chat title"
+                                >
+                                  <Pencil className="w-3.5 h-3.5" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 w-7 p-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    if (confirm('Delete this conversation?')) {
+                                      onDeleteSession(session.id)
+                                    }
+                                  }}
+                                  title="Delete conversation"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </Button>
+                              </div>
                             </div>
-                          </div>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -346,9 +354,11 @@ export function AmaniSidebar({
               >
                 {user.profile_image_url ? (
                   <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0">
-                    <img
+                    <Image
                       src={user.profile_image_url}
                       alt={user.name || "Profile"}
+                      width={32}
+                      height={32}
                       className="w-full h-full object-cover"
                     />
                   </div>
@@ -420,6 +430,8 @@ export function AmaniSidebar({
                 <input
                   type="text"
                   placeholder="Search conversations..."
+                  aria-label="Search conversations"
+                  title="Search conversations"
                   className="w-full px-3 py-2 bg-background border rounded-lg text-sm"
                 />
               </div>

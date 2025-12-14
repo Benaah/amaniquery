@@ -14,9 +14,8 @@ import {
   BookOpen,
   FileText,
   Newspaper,
-  AcademicCap,
+  GraduationCap,
   LinkIcon,
-  Eye,
   Filter
 } from "lucide-react"
 import type { Source } from "./types"
@@ -40,7 +39,7 @@ interface SourceCardProps {
 function getSourceIcon(category: string) {
   switch (category.toLowerCase()) {
     case "academic":
-      return <AcademicCap className="w-4 h-4" />
+      return <GraduationCap className="w-4 h-4" />
     case "news":
       return <Newspaper className="w-4 h-4" />
     case "documentation":

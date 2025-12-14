@@ -300,6 +300,8 @@ export function AmaniInput({
                 className="hidden"
                 id="file-upload"
                 accept="image/*,audio/*,video/*,.pdf"
+                title="Attach files"
+                placeholder="Attach files"
               />
               <Button
                 variant="ghost"

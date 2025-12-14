@@ -1,19 +1,20 @@
 "use client"
 
 import { useState, useEffect, useCallback, useRef } from "react"
+import { cn } from "@/lib/utils"
 import { toast } from "sonner"
 import { AmaniMessageList } from "./AmaniMessageList"
 import { AmaniInput } from "./AmaniInput"
-import { ChatSidebar } from "./ChatSidebar"
 import { ChatHeader } from "./ChatHeader"
 import { StreamingMessage } from "./AmaniMessageList"
+import type { Source } from "./types"
 import type {
   Message,
   ChatSession,
-  StreamMetadata,
   SharePlatform,
   ShareFormatResponse,
-  ShareSheetState
+  ShareSheetState,
+  StreamMetadata
 } from "./types"
 
 // Extend Window interface for OAuth callback
@@ -33,6 +34,8 @@ interface AmaniChatProps {
   onSessionChange?: (sessionId: string | null) => void
   chatHistory?: ChatSession[]
   onChatHistoryUpdate?: (sessions: ChatSession[]) => void
+  onLoadSession?: (sessionId: string) => void
+  onDeleteSession?: (sessionId: string) => void
 }
 
 export function AmaniChat({ 
@@ -44,7 +47,9 @@ export function AmaniChat({
   currentSessionId: externalSessionId,
   onSessionChange,
   chatHistory: externalChatHistory,
-  onChatHistoryUpdate
+  onChatHistoryUpdate,
+  onLoadSession,
+  onDeleteSession
 }: AmaniChatProps) {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState("")
@@ -60,14 +65,19 @@ export function AmaniChat({
   const [showAutocomplete, setShowAutocomplete] = useState(false)
   const [isVoiceActive, setIsVoiceActive] = useState(false)
   const [streamingContent, setStreamingContent] = useState("")
-  const [streamingSources, setStreamingSources] = useState<any[]>([])
+  const [streamingSources, setStreamingSources] = useState<Source[]>([])
+  const [showHistory, setShowHistory] = useState(false)
+  const [shareSheet, setShareSheet] = useState<ShareSheetState | null>(null)
+  const [shareCache, setShareCache] = useState<
+    Record<string, Partial<Record<SharePlatform, ShareFormatResponse>>>
+  >({})
 
   // Use external props if provided, otherwise use internal state
   const currentSessionId = externalSessionId ?? internalSessionId
   const chatHistory = externalChatHistory ?? internalChatHistory
   
-  const messagesContainerRef = useRef<HTMLDivElement>(null)
   const autocompleteTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const messagesContainerRef = useRef<HTMLDivElement | null>(null)
 
   const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
   const ENABLE_AUTOCOMPLETE = process.env.NEXT_PUBLIC_ENABLE_AUTOCOMPLETE !== "false"
@@ -126,11 +136,19 @@ export function AmaniChat({
       console.error("Failed to create session:", error)
     }
     return null
-  }, [getAuthHeaders, API_BASE_URL, loadChatHistory])
+  }, [getAuthHeaders, API_BASE_URL, loadChatHistory, onSessionChange])
 
-  // Load session
+  // Load session - Available for parent components via onLoadSession callback
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const loadSession = useCallback(async (sessionId: string) => {
     try {
+      // Call parent callback if provided
+      if (onLoadSession) {
+        onLoadSession(sessionId)
+        return
+      }
+      
+      // Otherwise handle internally
       const headers = { "Content-Type": "application/json", ...getAuthHeaders() }
       const response = await fetch(`${API_BASE_URL}/api/v1/chat/sessions/${sessionId}`, { headers })
       if (response.ok) {
@@ -145,11 +163,19 @@ export function AmaniChat({
     } catch (error) {
       console.error("Failed to load session:", error)
     }
-  }, [getAuthHeaders, API_BASE_URL])
+  }, [getAuthHeaders, API_BASE_URL, onSessionChange, onLoadSession])
 
-  // Delete session
+  // Delete session - Available for parent components via onDeleteSession callback
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const deleteSession = useCallback(async (sessionId: string) => {
     try {
+      // Call parent callback if provided
+      if (onDeleteSession) {
+        onDeleteSession(sessionId)
+        return
+      }
+      
+      // Otherwise handle internally
       const headers = { ...getAuthHeaders() }
       const response = await fetch(`${API_BASE_URL}/api/v1/chat/sessions/${sessionId}`, {
         method: "DELETE",
@@ -177,7 +203,7 @@ export function AmaniChat({
     } catch (error) {
       console.error("Failed to delete session:", error)
     }
-  }, [getAuthHeaders, API_BASE_URL, currentSessionId, loadChatHistory])
+  }, [getAuthHeaders, API_BASE_URL, currentSessionId, loadChatHistory, onChatHistoryUpdate, chatHistory, onSessionChange, onDeleteSession])
 
   // Autocomplete functionality
   const fetchAutocomplete = useCallback(async (query: string) => {
@@ -332,7 +358,8 @@ export function AmaniChat({
       const reader = response.body?.getReader()
       const decoder = new TextDecoder()
       let assistantContent = ""
-      let sources: any[] = []
+      let sources: Source[] = []
+      let metadata: StreamMetadata = {}
 
       while (true) {
         const { done, value } = await reader!.read()
@@ -359,6 +386,9 @@ export function AmaniChat({
                 sources = parsed.sources
                 setStreamingSources(sources)
               }
+              if (parsed.metadata) {
+                metadata = { ...metadata, ...parsed.metadata }
+              }
             } catch (error) {
               console.error("Failed to parse SSE data:", error)
             }
@@ -372,7 +402,9 @@ export function AmaniChat({
         role: "assistant",
         content: assistantContent,
         created_at: new Date().toISOString(),
-        sources: sources
+        sources: sources,
+        token_count: metadata.token_count,
+        model_used: metadata.model_used
       }
 
       setMessages(prev => [...prev, assistantMessage])
@@ -448,40 +480,144 @@ export function AmaniChat({
     }
   }, [API_BASE_URL, getAuthHeaders])
 
+  // Sharing functionality
+  const findPreviousUserPrompt = useCallback(
+    (messageId: string) => {
+      const index = messages.findIndex((msg) => msg.id === messageId)
+      if (index === -1) return undefined
+      for (let i = index - 1; i >= 0; i--) {
+        if (messages[i].role === "user") {
+          return messages[i].content
+        }
+      }
+      return undefined
+    },
+    [messages]
+  )
+
+  const sanitizeForSharing = (content: string): string => {
+    return content.trim()
+  }
+
+  const ensureSharePreview = useCallback(async (message: Message, platform: SharePlatform) => {
+    const cached = shareCache[message.id]?.[platform]
+    if (cached) return cached
+
+    try {
+      setShareSheet((prev) =>
+        prev?.messageId === message.id
+          ? { ...prev, isLoading: true, shareError: null, success: null, shareLink: null }
+          : prev
+      )
+
+      const response = await fetch(`${API_BASE_URL}/share/format`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+        body: JSON.stringify({
+          answer: sanitizeForSharing(message.content),
+          sources: message.sources || [],
+          platform,
+          query: findPreviousUserPrompt(message.id),
+          include_hashtags: true
+        })
+      })
+
+      if (!response.ok) {
+        const detail = await response.text()
+        throw new Error(detail || "Unable to format response")
+      }
+
+      const data: ShareFormatResponse = await response.json()
+      setShareCache((prev) => ({
+        ...prev,
+        [message.id]: { ...(prev[message.id] || {}), [platform]: data }
+      }))
+      setShareSheet((prev) =>
+        prev?.messageId === message.id ? { ...prev, preview: data, isLoading: false } : prev
+      )
+      return data
+    } catch (error) {
+      console.error("Failed to format post:", error)
+      setShareSheet((prev) =>
+        prev?.messageId === message.id
+          ? {
+              ...prev,
+              isLoading: false,
+              shareError:
+                error instanceof Error ? error.message : "Unable to format this response right now."
+            }
+          : prev
+      )
+      return null
+    }
+  }, [shareCache, API_BASE_URL, getAuthHeaders, findPreviousUserPrompt])
+
+  const handleShare = useCallback(async (message: Message, platform: SharePlatform = "twitter") => {
+    if (message.role !== "assistant") return
+
+    if (shareSheet?.messageId === message.id && shareSheet.platform === platform) {
+      setShareSheet(null)
+      return
+    }
+
+    const cached = shareCache[message.id]?.[platform]
+    setShareSheet({
+      messageId: message.id,
+      platform,
+      preview: cached,
+      isLoading: !cached,
+      shareLink: null,
+      shareError: null,
+      success: null
+    })
+
+    if (!cached) {
+      await ensureSharePreview(message, platform)
+    }
+  }, [shareSheet, shareCache, ensureSharePreview])
+
+  const copyShareContent = useCallback(async () => {
+    if (!shareSheet?.preview) return
+    const preview = shareSheet.preview
+    const text = Array.isArray(preview.content) ? preview.content.join("\n\n") : preview.content
+
+    try {
+      await navigator.clipboard.writeText(text)
+      toast.success("Formatted answer copied!")
+    } catch (error) {
+      console.error("Failed to copy share content:", error)
+      toast.error("Unable to copy content")
+    }
+  }, [shareSheet])
+
+  // Scroll to bottom when messages change
+  useEffect(() => {
+    if (messagesContainerRef.current) {
+      messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight
+    }
+  }, [messages, streamingContent])
+
   // Initialize
   useEffect(() => {
     loadChatHistory()
   }, [loadChatHistory])
 
   return (
-    <div className={cn("flex h-screen bg-background", className)}>
-      {/* Sidebar */}
-      <ChatSidebar
-        sessions={chatHistory}
-        currentSessionId={currentSessionId}
-        onSessionSelect={loadSession}
-        onNewSession={() => createNewSession()}
-        onDeleteSession={deleteSession}
-        isOpen={showHistory}
-        onToggle={() => setShowHistory(!showHistory)}
-      />
-
-      {/* Main Chat Area */}
-      <div className="flex-1 flex flex-col min-w-0">
-        {/* Header */}
-        <ChatHeader
-          currentSession={chatHistory.find(s => s.id === currentSessionId)}
-          onNewChat={() => createNewSession()}
+    <div className={cn("flex flex-col h-screen bg-background", className)}>
+      {/* Header */}
+      <ChatHeader
+          currentSessionId={currentSessionId}
+          showHistory={showHistory}
           onToggleHistory={() => setShowHistory(!showHistory)}
           useHybrid={useHybrid}
-          onToggleHybrid={() => setUseHybrid(!useHybrid)}
           isResearchMode={isResearchMode}
-          onToggleResearch={() => setIsResearchMode(!isResearchMode)}
+          isLoading={isLoading}
+          onShare={copyShareContent}
         />
 
-        {/* Messages */}
-        <div className="flex-1 overflow-hidden">
-          {streamingContent ? (
+      {/* Messages */}
+      <div className="flex-1 overflow-hidden" ref={messagesContainerRef}>
+        {streamingContent ? (
             <div className="h-full">
               <AmaniMessageList
                 messages={messages}
@@ -491,7 +627,7 @@ export function AmaniChat({
                 onRegenerate={handleRegenerate}
                 onFeedback={handleFeedback}
                 onCopy={handleCopy}
-                onShare={() => {}} // TODO: Implement sharing
+                onShare={handleShare}
                 showWelcomeScreen={showWelcomeScreen && messages.length === 0}
                 enableThinkingIndicator={enableThinkingIndicator}
                 showInlineSources={showInlineSources}
@@ -513,16 +649,16 @@ export function AmaniChat({
               onRegenerate={handleRegenerate}
               onFeedback={handleFeedback}
               onCopy={handleCopy}
-              onShare={() => {}} // TODO: Implement sharing
+              onShare={handleShare}
               showWelcomeScreen={showWelcomeScreen && messages.length === 0}
               enableThinkingIndicator={enableThinkingIndicator}
               showInlineSources={showInlineSources}
             />
           )}
-        </div>
+      </div>
 
-        {/* Input */}
-        <div className="border-t bg-background/80 backdrop-blur-sm p-4">
+      {/* Input */}
+      <div className="border-t bg-background/80 backdrop-blur-sm p-4">
           <AmaniInput
             value={input}
             onChange={setInput}
@@ -533,8 +669,8 @@ export function AmaniChat({
               setIsResearchMode(mode === "research")
             }}
             placeholder="Ask AmaniQuery anything..."
-            disabled={isLoading}
-            isLoading={isLoading}
+            disabled={isLoading || uploadingFiles}
+            isLoading={isLoading || uploadingFiles}
             mode={isResearchMode ? "research" : useHybrid ? "hybrid" : "chat"}
             attachments={selectedFiles.map(file => ({
               id: file.name,
@@ -558,7 +694,6 @@ export function AmaniChat({
               setShowAutocomplete(false)
             }}
           />
-        </div>
       </div>
     </div>
   )

@@ -159,17 +159,17 @@ export function AmaniSidebar({
   const displayedCount = Object.values(displayedSessions).reduce((sum, sessions) => sum + sessions.length, 0)
 
   return (
-    <div className="h-full flex">
+    <>
       {/* Main Sidebar - Always visible on desktop */}
       <aside
         className={cn(
-          "h-full w-72 bg-card border-r flex flex-col overflow-hidden transition-all duration-300 ease-in-out",
-          "hidden md:flex", // Always show on desktop
+          "max-h-full h-screen w-72 bg-card border-r overflow-y-auto custom-scrollbar transition-all duration-300 ease-in-out",
+          "hidden md:block", // Always show on desktop
           isOpen ? "w-80" : "w-72"
         )}
       >
         {/* Header */}
-        <div className="shrink-0 p-4 border-b">
+        <div className="p-4 border-b">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
               <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
@@ -206,7 +206,7 @@ export function AmaniSidebar({
         </div>
 
         {/* Navigation */}
-        <nav className="shrink-0 p-2 border-b max-h-48 overflow-y-auto">
+        <nav className="p-2 border-b">
           {navItems.map((item) => {
             const Icon = item.icon
             return (
@@ -228,8 +228,7 @@ export function AmaniSidebar({
         </nav>
 
         {/* Chat History */}
-        <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden">
-          <div className="p-4">
+        <div className="p-4">
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-medium text-muted-foreground">Recent Chats</h3>
               <Button
@@ -394,11 +393,10 @@ export function AmaniSidebar({
                 )}
               </div>
             )}
-          </div>
         </div>
 
         {/* Footer */}
-        <div className="shrink-0 p-4 border-t">
+        <div className="p-4 border-t">
           {user && (
             <div className="relative mb-3">
               <button
@@ -516,6 +514,6 @@ export function AmaniSidebar({
           </div>
         )}
       </div>
-    </div>
+    </>
   )
 }

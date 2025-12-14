@@ -110,7 +110,11 @@ export function AmaniMessageList({
   if (showWelcomeScreen && messages.length === 0) {
     return (
       <div className={cn("flex-1 flex items-center justify-center", className)}>
-        <WelcomeScreen onSendMessage={onSendMessage} />
+        <WelcomeScreen 
+          onSuggestionClick={onSendMessage}
+          isResearchMode={false}
+          useHybrid={false}
+        />
       </div>
     )
   }

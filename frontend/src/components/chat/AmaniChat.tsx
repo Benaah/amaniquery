@@ -143,24 +143,33 @@ export function AmaniChat({
   // Load session - Available for parent components via onLoadSession callback
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const loadSession = useCallback(async (sessionId: string) => {
+    console.log('[AmaniChat] loadSession called with sessionId:', sessionId)
     try {
       // Call parent callback if provided
       if (onLoadSession) {
+        console.log('[AmaniChat] Using parent onLoadSession callback')
         onLoadSession(sessionId)
         return
       }
       
       // Otherwise handle internally
       const headers = { "Content-Type": "application/json", ...getAuthHeaders() }
-      const response = await fetch(`${API_BASE_URL}/api/v1/chat/sessions/${sessionId}`, { headers })
+      const url = `${API_BASE_URL}/api/v1/chat/sessions/${sessionId}`
+      console.log('[AmaniChat] Fetching session from:', url)
+      const response = await fetch(url, { headers })
+      console.log('[AmaniChat] Response status:', response.status)
       if (response.ok) {
         const session = await response.json()
+        console.log('[AmaniChat] Session data received:', session)
+        console.log('[AmaniChat] Messages count:', session.messages?.length || 0)
         if (onSessionChange) {
           onSessionChange(sessionId)
         } else {
           setInternalSessionId(sessionId)
         }
         setMessages(session.messages || [])
+      } else {
+        console.error('[AmaniChat] Failed to fetch session, status:', response.status)
       }
     } catch (error) {
       console.error("Failed to load session:", error)
@@ -605,6 +614,7 @@ export function AmaniChat({
 
   // Load session messages when currentSessionId changes
   useEffect(() => {
+    console.log('[AmaniChat] useEffect triggered - currentSessionId:', currentSessionId)
     if (currentSessionId) {
       loadSession(currentSessionId)
     } else {

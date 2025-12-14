@@ -301,7 +301,6 @@ class TwitterScraperTool:
                 if search_type == "tweet":
                     # Build search parameters
                     search_params = {
-                        'query': query,
                         'count': max_results
                     }
                     
@@ -312,7 +311,7 @@ class TwitterScraperTool:
                     # Note: result_type parameter removed as it's not supported in current twikit version
                     
                     # Perform search
-                    tweets = self.client.search_tweet(**search_params)
+                    tweets = self.client.search_tweet(query, 'latest', **search_params)
                     return tweets
                 else:
                     raise ValueError(f"Unsupported search type: {search_type}")

@@ -1,4 +1,4 @@
-import { Twitter, Linkedin, Facebook, MessageCircle, Send, Mail } from "lucide-react"
+import { Twitter, Linkedin, Facebook, MessageCircle, Send, Mail, AtSign, Cloud, Video } from "lucide-react"
 import type { SharePlatformConfig } from "./types"
 
 export const SHARE_PLATFORMS: SharePlatformConfig[] = [
@@ -43,6 +43,27 @@ export const SHARE_PLATFORMS: SharePlatformConfig[] = [
     accent: "from-[#EA4335] to-[#C5221F] text-white",
     description: "Send via email",
     icon: <Mail className="w-4 h-4" />
+  },
+  {
+    id: "threads",
+    label: "Threads",
+    accent: "from-[#000000] to-[#1a1a1a] text-white",
+    description: "500 characters",
+    icon: <AtSign className="w-4 h-4" />
+  },
+  {
+    id: "bluesky",
+    label: "Bluesky",
+    accent: "from-[#0085ff] to-[#0062bd] text-white",
+    description: "300 characters",
+    icon: <Cloud className="w-4 h-4" />
+  },
+  {
+    id: "tiktok",
+    label: "TikTok",
+    accent: "from-[#000000] to-[#1a1a1a] text-white",
+    description: "2200 characters",
+    icon: <Video className="w-4 h-4" />
   }
 ]
 

@@ -11,6 +11,9 @@ from .reddit_platform import RedditPlatform
 from .telegram_platform import TelegramPlatform
 from .whatsapp_platform import WhatsAppPlatform
 from .mastodon_platform import MastodonPlatform
+from .threads_platform import ThreadsPlatform
+from .bluesky_platform import BlueskyPlatform
+from .tiktok_platform import TikTokPlatform
 
 __all__ = [
     "BasePlatform",
@@ -24,5 +27,8 @@ __all__ = [
     "TelegramPlatform",
     "WhatsAppPlatform",
     "MastodonPlatform",
+    "ThreadsPlatform",
+    "BlueskyPlatform",
+    "TikTokPlatform",
 ]
 

@@ -17,6 +17,9 @@ from .platforms import (
     TelegramPlatform,
     WhatsAppPlatform,
     MastodonPlatform,
+    ThreadsPlatform,
+    BlueskyPlatform,
+    TikTokPlatform,
 )
 from .image_generator import ImageGenerator
 from .formatters.natural_formatter import NaturalFormatter
@@ -60,6 +63,9 @@ class ShareService:
             TelegramPlatform(),
             WhatsAppPlatform(),
             MastodonPlatform(),
+            ThreadsPlatform(),
+            BlueskyPlatform(),
+            TikTokPlatform(),
         ]
         
         for platform in platforms:

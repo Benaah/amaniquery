@@ -36,6 +36,7 @@ EXCLUDE_DIRS = {
     'android-app',  # Exclude Android app - deployed separately
     '.scrapy', 'httpcache',  # Exclude Scrapy cache
     '.hf-deploy-temp',  # Exclude temp directory itself
+    'WeKnora/dataset', # Weknora Dataset examples
 }
 
 # Files to exclude

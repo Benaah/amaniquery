@@ -6,7 +6,7 @@
     </div>
 
     <div class="settings-group">
-      <!-- 语言选择 -->
+      <!-- Language Selection -->
       <div class="setting-row">
         <div class="setting-info">
           <label>{{ $t('language.language') }}</label>
@@ -36,30 +36,32 @@ import { useI18n } from 'vue-i18n'
 
 const { t, locale } = useI18n()
 
-// 本地状态
-const localLanguage = ref('zh-CN')
+// Local state
+const localLanguage = ref('en-US')
 const localTheme = ref('light')
 
-// 初始化加载
+// Initialize on mount
 onMounted(() => {
-  // 从 localStorage 加载语言设置
+  // Load language setting from localStorage
   const savedLocale = localStorage.getItem('locale')
   if (savedLocale) {
     localLanguage.value = savedLocale
     locale.value = savedLocale
   } else {
-    localLanguage.value = locale.value
+    // Default to English if no saved preference
+    localLanguage.value = 'en-US'
+    locale.value = 'en-US'
   }
 })
 
-// 处理语言变化
+// Handle language change
 const handleLanguageChange = () => {
   locale.value = localLanguage.value
   localStorage.setItem('locale', localLanguage.value)
   MessagePlugin.success(t('language.languageSaved'))
     }
 
-// 处理主题变化
+// Handle theme change
 const handleThemeChange = () => {
   const settings = {
     language: localLanguage.value,

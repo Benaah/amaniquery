@@ -11,6 +11,9 @@ from fastapi.responses import StreamingResponse
 from loguru import logger
 from pydantic import BaseModel
 
+# WeKnora integration (optional)
+WEKNORA_ENABLED = os.getenv("WEKNORA_ENABLED", "false").lower() == "true"
+
 router = APIRouter(prefix="/api/v1", tags=["Query"])
 
 
@@ -395,3 +398,133 @@ async def query_stream(request: QueryRequest):
     except Exception as e:
         logger.error(f"Error processing streaming query: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# WEKNORA HYBRID SEARCH ENDPOINT
+# =============================================================================
+
+class WeKnoraSearchRequest(BaseModel):
+    """WeKnora search request"""
+    query: str
+    kb_id: Optional[str] = None
+    top_k: int = 5
+    merge_with_amaniquery: bool = True
+
+
+class WeKnoraSearchResponse(BaseModel):
+    """WeKnora search response"""
+    success: bool
+    query: str
+    results: List[Dict[str, Any]]
+    weknora_count: int
+    amaniquery_count: int = 0
+    total_count: int
+
+
+@router.post("/query/weknora", response_model=WeKnoraSearchResponse)
+async def weknora_search(request: WeKnoraSearchRequest):
+    """
+    WeKnora hybrid search endpoint
+    
+    Uses Tencent's WeKnora RAG framework for advanced document retrieval:
+    - BM25 keyword search
+    - Dense vector similarity
+    - Knowledge graph relationships
+    
+    Can optionally merge with AmaniQuery RAG results.
+    
+    **Example:**
+    ```json
+    {
+        "query": "Kenya constitution article 43 rights",
+        "top_k": 5,
+        "merge_with_amaniquery": true
+    }
+    ```
+    """
+    if not WEKNORA_ENABLED:
+        raise HTTPException(
+            status_code=503,
+            detail="WeKnora integration is not enabled. Set WEKNORA_ENABLED=true in .env"
+        )
+    
+    try:
+        from Module7_NiruHybrid.weknora_tool import weknora_search as wk_search
+        
+        # Search WeKnora
+        weknora_result = await wk_search(
+            query=request.query,
+            kb_id=request.kb_id,
+            top_k=request.top_k,
+        )
+        
+        weknora_results = weknora_result.get("results", [])
+        amaniquery_results = []
+        
+        # Optionally merge with AmaniQuery results
+        if request.merge_with_amaniquery and _state.rag_pipeline:
+            try:
+                aq_result = _state.rag_pipeline.retrieve(
+                    query=request.query,
+                    top_k=request.top_k,
+                )
+                amaniquery_results = [
+                    {
+                        "rank": i + 1,
+                        "content": chunk.get("content", ""),
+                        "title": chunk.get("title", ""),
+                        "source": "amaniquery",
+                        "score": chunk.get("score", 0),
+                    }
+                    for i, chunk in enumerate(aq_result.get("chunks", []))
+                ]
+            except Exception as e:
+                logger.warning(f"AmaniQuery retrieval failed: {e}")
+        
+        # Merge and deduplicate results
+        all_results = []
+        seen_content = set()
+        
+        for result in weknora_results + amaniquery_results:
+            content_hash = hash(result.get("content", "")[:100])
+            if content_hash not in seen_content:
+                seen_content.add(content_hash)
+                all_results.append(result)
+        
+        # Re-rank by score
+        all_results.sort(key=lambda x: x.get("score", 0), reverse=True)
+        
+        return WeKnoraSearchResponse(
+            success=True,
+            query=request.query,
+            results=all_results[:request.top_k * 2],  # Return up to 2x results
+            weknora_count=len(weknora_results),
+            amaniquery_count=len(amaniquery_results),
+            total_count=len(all_results),
+        )
+        
+    except ImportError as e:
+        logger.error(f"WeKnora module not found: {e}")
+        raise HTTPException(
+            status_code=503,
+            detail="WeKnora module not available. Check installation."
+        )
+    except Exception as e:
+        logger.error(f"WeKnora search failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/weknora/health")
+async def weknora_health():
+    """Check WeKnora service health"""
+    if not WEKNORA_ENABLED:
+        return {"status": "disabled", "message": "WeKnora is not enabled"}
+    
+    try:
+        from Module7_NiruHybrid.weknora_tool import get_weknora_tool
+        tool = get_weknora_tool()
+        health = await tool.health_check()
+        return health
+    except Exception as e:
+        return {"status": "error", "error": str(e)}

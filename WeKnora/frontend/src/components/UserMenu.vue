@@ -1,6 +1,6 @@
 <template>
   <div class="user-menu" ref="menuRef">
-    <!-- 用户按钮 -->
+    <!-- User Button -->
     <div class="user-button" @click="toggleMenu">
       <div class="user-avatar">
         <img v-if="userAvatar" :src="userAvatar" :alt="$t('common.avatar')" />
@@ -13,7 +13,7 @@
       <t-icon :name="menuVisible ? 'chevron-up' : 'chevron-down'" class="dropdown-icon" />
     </div>
 
-    <!-- 下拉菜单 -->
+    <!-- Dropdown Menu -->
     <Transition name="dropdown">
       <div v-if="menuVisible" class="user-dropdown" @click.stop>
         <div class="menu-item" @click="handleQuickNav('models')">
@@ -119,9 +119,9 @@ const authStore = useAuthStore()
 const menuRef = ref<HTMLElement>()
 const menuVisible = ref(false)
 
-// 用户信息
+// User information
 const userInfo = ref({
-  username: '用户',
+  username: 'User',
   email: 'user@example.com',
   avatar: ''
 })
@@ -130,17 +130,17 @@ const userName = computed(() => userInfo.value.username)
 const userEmail = computed(() => userInfo.value.email)
 const userAvatar = computed(() => userInfo.value.avatar)
 
-// 用户名首字母（用于无头像时显示）
+// User name initials (displayed when no avatar is available)
 const userInitial = computed(() => {
   return userName.value.charAt(0).toUpperCase()
 })
 
-// 切换菜单显示
+// Toggle menu display
 const toggleMenu = () => {
   menuVisible.value = !menuVisible.value
 }
 
-// 快捷导航到设置的特定部分
+// Quick navigation to specific settings sections
 const handleQuickNav = (section: string) => {
   menuVisible.value = false
   uiStore.openSettings()
@@ -154,32 +154,32 @@ const handleQuickNav = (section: string) => {
   }, 100)
 }
 
-// 打开设置
+// Open settings
 const handleSettings = () => {
   menuVisible.value = false
   uiStore.openSettings()
   router.push('/platform/settings')
 }
 
-// 打开 API 文档
+// Open API documentation
 const openApiDoc = () => {
   menuVisible.value = false
   window.open('https://github.com/Tencent/WeKnora/blob/main/docs/API.md', '_blank')
 }
 
-// 打开官网
+// Open official website
 const openWebsite = () => {
   menuVisible.value = false
   window.open('https://weknora.weixin.qq.com/', '_blank')
 }
 
-// 打开 GitHub
+// Open GitHub
 const openGithub = () => {
   menuVisible.value = false
   window.open('https://github.com/Tencent/WeKnora', '_blank')
 }
 
-// 注销
+// Logout
 const handleLogout = async () => {
   menuVisible.value = false
   
@@ -187,8 +187,8 @@ const handleLogout = async () => {
     // 调用后端API注销
     await logoutApi()
   } catch (error) {
-    // 即使API调用失败，也继续执行本地清理
-    console.error('注销API调用失败:', error)
+    // Even if the API call fails, continue with local cleanup
+    console.error('Logout API call failed:', error)
   }
   
   // 清理所有状态和本地存储
@@ -200,7 +200,7 @@ const handleLogout = async () => {
   router.push('/login')
 }
 
-// 加载用户信息
+// Load user information
 const loadUserInfo = async () => {
   try {
     const response = await getCurrentUser()
@@ -211,7 +211,7 @@ const loadUserInfo = async () => {
         email: user.email || 'user@example.com',
         avatar: user.avatar || ''
       }
-      // 同时更新 authStore 中的用户信息，确保包含 can_access_all_tenants 字段
+      // Also update user information in authStore, ensuring can_access_all_tenants field is included
       authStore.setUser({
         id: user.id,
         username: user.username,
@@ -222,7 +222,7 @@ const loadUserInfo = async () => {
         created_at: user.created_at,
         updated_at: user.updated_at
       })
-      // 如果返回了租户信息，也更新租户信息
+      // If tenant information is returned, also update tenant information
       if (response.data.tenant) {
         authStore.setTenant({
           id: String(response.data.tenant.id),
@@ -235,11 +235,11 @@ const loadUserInfo = async () => {
       }
     }
   } catch (error) {
-    console.error('Failed to load user info:', error)
+    console.error('Failed to load user information:', error)
   }
 }
 
-// 点击外部关闭菜单
+// Close menu when clicking outside
 const handleClickOutside = (e: MouseEvent) => {
   if (menuRef.value && !menuRef.value.contains(e.target as Node)) {
     menuVisible.value = false
@@ -421,7 +421,7 @@ onUnmounted(() => {
   margin: 4px 0;
 }
 
-// 下拉动画
+// Dropdown animation
 .dropdown-enter-active,
 .dropdown-leave-active {
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);

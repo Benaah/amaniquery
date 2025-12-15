@@ -6,12 +6,13 @@ import { useAuth } from "@/lib/auth-context"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Sidebar } from "@/components/sidebar"
+import { AmaniSidebar } from "@/components/AmaniSidebar"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { toast } from "sonner"
 import { Loader2, User, Mail, Shield, Calendar, CheckCircle, XCircle, Lock, Upload, Camera } from "lucide-react"
 import Image from "next/image"
 import { Badge } from "@/components/ui/badge"
+import type { ChatSession } from "@/components/chat/types"
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
@@ -20,6 +21,7 @@ export default function ProfilePage() {
   const router = useRouter()
   const [isLoading, setIsLoading] = useState(false)
   const [isChangingPassword, setIsChangingPassword] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
   const [profileData, setProfileData] = useState({
     name: "",
     email: "",
@@ -188,8 +190,17 @@ export default function ProfilePage() {
 
   return (
     <div className="min-h-screen bg-background flex">
-      <Sidebar />
-      <div className="flex-1 ml-0 md:ml-[20px] p-4 md:p-6">
+      <AmaniSidebar
+        chatHistory={[] as ChatSession[]}
+        currentSessionId={null}
+        onSessionSelect={() => {}}
+        onNewSession={() => router.push("/chat")}
+        onDeleteSession={() => {}}
+        onRenameSession={() => {}}
+        isOpen={sidebarOpen}
+        onToggle={() => setSidebarOpen(!sidebarOpen)}
+      />
+      <div className="flex-1 p-4 md:p-6">
         <div className="absolute top-4 right-4 z-10">
           <ThemeToggle />
         </div>

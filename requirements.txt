@@ -90,6 +90,14 @@ prometheus-client>=0.19.0  # Prometheus metrics (optional)
 deepgram-sdk>=3.0.0  # Deepgram STT
 elevenlabs>=0.2.0  # ElevenLabs TTS
 
+# VibeVoice TTS Dependencies
+torch>=2.0.0
+transformers==4.51.3
+accelerate==1.6.0
+diffusers
+scipy
+librosa
+
 # OpenTelemetry - pin compatible versions for livekit-agents
 opentelemetry-api==1.29.0
 opentelemetry-sdk==1.29.0

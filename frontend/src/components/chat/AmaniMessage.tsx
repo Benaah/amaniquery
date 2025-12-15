@@ -140,17 +140,20 @@ export function AmaniMessage({
                 {children}
               </blockquote>
             ),
-            code: ({ inline, children, ...props }) => (
-              inline ? (
+            code: ({ children, className, ...props }) => {
+              // Check if this is inline code by looking at the className
+              // Code blocks have a language class (e.g., "language-js"), inline code doesn't
+              const isInline = !className || !className.startsWith("language-")
+              return isInline ? (
                 <code className="bg-muted px-1.5 py-0.5 rounded text-sm font-mono" {...props}>
                   {children}
                 </code>
               ) : (
-                <code className="block bg-muted p-4 rounded-lg text-sm font-mono overflow-x-auto" {...props}>
+                <code className={`block bg-muted p-4 rounded-lg text-sm font-mono overflow-x-auto ${className || ""}`} {...props}>
                   {children}
                 </code>
               )
-            ),
+            },
           }}
         >
           {processedContent.replace(/\{\{CITATION:(\d+)\}\}/g, (match, index) => {

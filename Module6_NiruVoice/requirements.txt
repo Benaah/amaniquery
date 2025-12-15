@@ -1,43 +1,24 @@
-# LiveKit Voice Agent Dependencies
+# Voice Module Dependencies (Refactored - No LiveKit)
 
-# Core LiveKit Agents Framework
-livekit-agents[openai,assemblyai,silero]>=0.8.0
-livekit>=0.10.0
+# VibeVoice TTS Dependencies
+torch>=2.0.0
+transformers==4.51.3
+accelerate==1.6.0
+diffusers
+scipy
+numpy
+librosa
 
-# OpenTelemetry - pin compatible versions for livekit-agents
-opentelemetry-api>=1.20.0,<1.30.0
-opentelemetry-sdk>=1.20.0,<1.30.0
-opentelemetry-exporter-otlp>=1.20.0,<1.30.0
-
-# Optional: Additional TTS providers
-# livekit-plugins-elevenlabs  # For ElevenLabs TTS
-# livekit-plugins-deepgram    # For Deepgram STT
-
-# Noise cancellation (optional but recommended)
-livekit-plugins-noise-cancellation
+# Optional: Flash Attention for faster inference (CUDA only)
+# flash-attn  # Uncomment if you have CUDA
 
 # Environment management
 python-dotenv
 
-# Resilience and error handling
-tenacity>=8.2.0  # Retry logic with exponential backoff
-circuitbreaker>=1.4.0  # Circuit breaker pattern
-
-# Configuration validation
-pydantic>=2.0.0  # Configuration validation
-
-# Optional: Session persistence
-redis>=5.0.0  # Redis for session storage (optional)
-
-# Optional: Metrics and monitoring
-prometheus-client>=0.19.0  # Prometheus metrics (optional)
-
-# Additional providers (optional)
-# deepgram-sdk>=3.0.0  # Deepgram STT
-# elevenlabs>=0.2.0  # ElevenLabs TTS
+# Logging
+loguru
 
 # Note: The following dependencies are already in the main project requirements.txt:
-# - loguru (for logging)
-# - openai (for OpenAI STT/TTS)
+# - FastAPI (for API endpoints)
+# - pydantic (for request/response models)
 # - All RAG pipeline dependencies from Module4_NiruAPI
-

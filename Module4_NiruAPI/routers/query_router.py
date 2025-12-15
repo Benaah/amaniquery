@@ -11,6 +11,14 @@ from fastapi.responses import StreamingResponse
 from loguru import logger
 from pydantic import BaseModel
 
+# User profile store for persistent personalization
+try:
+    from ..services.user_profile_store import UserProfileStore, get_profile_store
+    PROFILE_STORE_AVAILABLE = True
+except ImportError:
+    PROFILE_STORE_AVAILABLE = False
+    logger.warning("UserProfileStore not available")
+
 # WeKnora integration (optional)
 WEKNORA_ENABLED = os.getenv("WEKNORA_ENABLED", "false").lower() == "true"
 
@@ -31,6 +39,7 @@ class QueryRequest(BaseModel):
     temperature: float = 0.7
     max_tokens: int = 2000
     session_id: Optional[str] = None
+    user_id: Optional[str] = None  # Added for user profiling
 
 
 class Source(BaseModel):
@@ -66,6 +75,7 @@ class QueryRouterState:
     chat_manager = None
     vision_rag_service = None
     vision_storage = None
+    user_profile_store: Optional[UserProfileStore] = None  # Added for profiles
 
 _state = QueryRouterState()
 
@@ -201,7 +211,7 @@ async def query(request: QueryRequest):
                 conversation_history = []
                 if request.session_id and _state.chat_manager:
                     try:
-                        messages = _state.chat_manager.get_messages(request.session_id, limit=5)
+                        messages = _state.chat_manager.get_messages(request.session_id, limit=10)
                         conversation_history = [
                             {"role": msg.role, "content": msg.content}
                             for msg in messages
@@ -209,12 +219,35 @@ async def query(request: QueryRequest):
                     except Exception:
                         conversation_history = []
                 
+                # Load or create user profile for personalization
+                user_profile = None
+                user_id = request.user_id or request.session_id
+                if user_id and PROFILE_STORE_AVAILABLE:
+                    try:
+                        if _state.user_profile_store is None:
+                            _state.user_profile_store = get_profile_store()
+                        
+                        profile = await _state.user_profile_store.get_profile(user_id)
+                        user_profile = profile.to_dict()
+                        logger.debug(f"Loaded user profile for {user_id}: queries={profile.total_queries}")
+                    except Exception as e:
+                        logger.warning(f"Failed to load user profile: {e}")
+                
                 # Execute AmaniQ v2 pipeline (THE BRAIN)
                 amaniq_result = await _state.amaniq_v2_agent.chat(
                     message=request.query,
                     thread_id=request.session_id,
                     message_history=conversation_history,
+                    user_profile=user_profile,  # Pass profile for personalization
                 )
+                
+                # Track query type for user profiling
+                if user_id and PROFILE_STORE_AVAILABLE and _state.user_profile_store:
+                    try:
+                        intent = amaniq_result.get("intent", "GENERAL_CHAT")
+                        await _state.user_profile_store.track_query(user_id, intent)
+                    except Exception as e:
+                        logger.warning(f"Failed to track query: {e}")
                 
                 # Extract response data
                 answer = amaniq_result.get("answer", "")

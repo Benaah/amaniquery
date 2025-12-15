@@ -1,43 +1,60 @@
 """
-Research Module for AmaniQuery
-Uses Gemini AI to analyze legal queries and generate reports on Kenya's laws
+Research Module for AmaniQuery - 2026 Edition
+Uses Gemini AI with async support for parallel query analysis and report generation
 """
 
 import os
 import json
+import asyncio
 from typing import Dict, List, Optional, Any
 from datetime import datetime
-import logging
+from loguru import logger
 
-logger = logging.getLogger(__name__)
+# Import RAG pipeline for enhanced retrieval
+try:
+    from .rag_pipeline import RAGPipeline
+    RAG_AVAILABLE = True
+except ImportError:
+    RAG_AVAILABLE = False
+
 
 class ResearchModule:
     """
     Research module using Gemini AI for analyzing legal queries
-    and generating reports on Kenya's laws and legal information
+    and generating reports on Kenya's laws and legal information.
+    
+    Enhancements:
+    - Async methods for parallel execution
+    - Integration with optimized RAG pipeline
+    - Faster gemini-2.5-flash model
+    - Improved error handling and fallbacks
     """
 
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(self, api_key: Optional[str] = None, rag_pipeline: Optional['RAGPipeline'] = None):
         """
         Initialize research module with Gemini API
-
+        
         Args:
             api_key: Gemini API key (optional, will use env var if not provided)
+            rag_pipeline: Optional RAG pipeline for enhanced retrieval
         """
         self.api_key = api_key or os.getenv("GEMINI_API_KEY")
         if not self.api_key:
             raise ValueError("GEMINI_API_KEY not set in environment")
+        
+        self.rag_pipeline = rag_pipeline
 
         try:
             import google.generativeai as genai
             genai.configure(api_key=self.api_key)
-            self.genai = genai  # Store reference for later use
+            self.genai = genai
+            # Use faster gemini-2.5-flash for better performance
             self.model = genai.GenerativeModel('gemini-2.5-flash')
-            logger.info("Research module initialized with Gemini AI")
+            logger.info("Research module initialized with Gemini 2.5 Flash")
         except ImportError:
             raise ValueError("google-generativeai package not installed. Install with: pip install google-generativeai")
 
-    def analyze_legal_query(self, query: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    async def analyze_legal_query_async(self, query: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
         Analyze a legal query about Kenya's laws with comprehensive research
 

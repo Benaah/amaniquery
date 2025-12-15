@@ -7,8 +7,8 @@ import {
   ChatSidebar
 } from "./chat/ChatSidebar"
 import { ChatHeader } from "./chat/ChatHeader"
+import { AmaniMessageList } from "./chat/AmaniMessageList"
 import { ChatInput } from "./chat/ChatInput"
-import { MessageList } from "./chat/MessageList"
 import type {
   Message,
   ChatSession,
@@ -55,6 +55,9 @@ export function Chat() {
     whatsapp: null,
     telegram: null,
     email: null,
+    threads: null,
+    bluesky: null,
+    tiktok: null
   })
   const autocompleteTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const messagesContainerRef = useRef<HTMLDivElement | null>(null)
@@ -111,6 +114,9 @@ export function Chat() {
         whatsapp: null, // WhatsApp doesn't use OAuth tokens
         telegram: null, // Telegram doesn't use OAuth tokens
         email: null, // Email doesn't use OAuth tokens
+        threads: tokens.threads || null,
+        bluesky: tokens.bluesky || null,
+        tiktok: null // TikTok might not support this flow yet or tokens.tiktok
       })
     } catch (error) {
       console.error("Failed to load stored tokens:", error)
@@ -1527,42 +1533,38 @@ ${researchProcess.tools_used && researchProcess.tools_used.length > 0
           HistoryIcon={HistoryIcon}
         />
 
-        <MessageList
-          messages={messages}
-          isLoading={isLoading}
-          isResearchMode={isResearchMode}
-          useHybrid={useHybrid}
-          onSendMessage={sendMessage}
-          onRegenerate={regenerateMessage}
-          onFeedback={submitFeedback}
-          onCopy={copyToClipboard}
-          onShare={openShareSheet}
-          onGeneratePDF={generatePDF}
-          onGenerateWord={generateWord}
-          showSources={showSources}
-          onToggleSources={() => setShowSources(!showSources)}
-          messagesContainerRef={messagesContainerRef}
-          messagesEndRef={messagesEndRef}
-          editingMessageId={editingMessageId}
-          editingContent={editingContent}
-          setEditingContent={setEditingContent}
-          onSaveEdit={saveEditedMessage}
-          onCancelEdit={cancelEditing}
-          onStartEdit={startEditingMessage}
-          regeneratingMessageId={regeneratingMessageId}
-          shareSheet={shareSheet}
-          onCloseShareSheet={() => setShareSheet(null)}
-          onChangeSharePlatform={changeSharePlatform}
-          onCopyShareContent={copyShareContent}
-          onOpenShareIntent={openShareIntent}
-          onPostDirectly={postDirectly}
-          onGenerateShareImage={generateShareImage}
-          onAuthenticatePlatform={initiateAuth}
-          platformTokens={platformTokens}
-          onCopyFailedQuery={copyFailedQuery}
-          onEditFailedQuery={editFailedQuery}
-          onResendFailedQuery={resendFailedQuery}
-        />
+        <div className="flex-1 overflow-y-auto px-4" ref={messagesContainerRef}>
+            <AmaniMessageList
+              messages={messages}
+              isLoading={isLoading}
+              onSendMessage={sendMessage}
+              onRegenerate={regenerateMessage}
+              onFeedback={submitFeedback}
+              onCopy={copyToClipboard}
+              onShare={openShareSheet}
+              onGeneratePDF={generatePDF}
+              onGenerateWord={generateWord}
+              showInlineSources={showSources}
+              editingMessageId={editingMessageId}
+              editingContent={editingContent}
+              setEditingContent={setEditingContent}
+              onSaveEdit={saveEditedMessage}
+              onCancelEdit={cancelEditing}
+              onStartEdit={startEditingMessage}
+              shareSheet={shareSheet}
+              onCloseShareSheet={() => setShareSheet(null)}
+              onChangeSharePlatform={changeSharePlatform}
+              onCopyShareContent={copyShareContent}
+              onOpenShareIntent={openShareIntent}
+              onPostDirectly={postDirectly}
+              onGenerateShareImage={generateShareImage}
+              onAuthenticatePlatform={initiateAuth}
+              platformTokens={platformTokens}
+              onCopyFailedQuery={copyFailedQuery}
+              onEditFailedQuery={editFailedQuery}
+              onResendFailedQuery={resendFailedQuery}
+            />
+        </div>
 
         <ChatInput
           input={input}

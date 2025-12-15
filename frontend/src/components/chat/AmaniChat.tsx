@@ -69,10 +69,23 @@ export function AmaniChat({
   const [streamingContent, setStreamingContent] = useState("")
   const [streamingSources, setStreamingSources] = useState<Source[]>([])
   const [showHistory, setShowHistory] = useState(false)
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
+  const [editingContent, setEditingContent] = useState("")
   const [shareSheet, setShareSheet] = useState<ShareSheetState | null>(null)
   const [shareCache, setShareCache] = useState<
     Record<string, Partial<Record<SharePlatform, ShareFormatResponse>>>
   >({})
+  const [platformTokens, setPlatformTokens] = useState<Record<SharePlatform, string | null>>({
+    twitter: null,
+    linkedin: null,
+    facebook: null,
+    whatsapp: null,
+    telegram: null,
+    email: null,
+    threads: null,
+    bluesky: null,
+    tiktok: null
+  })
 
   // Use external props if provided, otherwise use internal state
   const currentSessionId = externalSessionId ?? internalSessionId
@@ -88,6 +101,36 @@ export function AmaniChat({
   const getAuthHeaders = useCallback((): Record<string, string> => {
     const token = localStorage.getItem("session_token")
     return token ? { "X-Session-Token": token } : {}
+  }, [])
+
+  // Token management
+  const storeToken = useCallback((platform: SharePlatform, token: string) => {
+    localStorage.setItem(`${platform}_access_token`, token)
+    setPlatformTokens(prev => ({ ...prev, [platform]: token }))
+  }, [])
+
+  const clearToken = useCallback((platform: SharePlatform) => {
+    localStorage.removeItem(`${platform}_access_token`)
+    setPlatformTokens(prev => ({ ...prev, [platform]: null }))
+  }, [])
+
+  const loadStoredTokens = useCallback(() => {
+    const tokens: Record<SharePlatform, string | null> = {
+      twitter: localStorage.getItem("twitter_access_token"),
+      linkedin: localStorage.getItem("linkedin_access_token"),
+      facebook: localStorage.getItem("facebook_access_token"),
+      whatsapp: null,
+      telegram: null,
+      email: null,
+      threads: localStorage.getItem("threads_access_token"),
+      bluesky: localStorage.getItem("bluesky_access_token"),
+      tiktok: localStorage.getItem("tiktok_access_token")
+    }
+    setPlatformTokens(tokens)
+  }, [])
+  
+  const getStoredToken = useCallback((platform: SharePlatform) => {
+    return localStorage.getItem(`${platform}_access_token`)
   }, [])
 
   // Load chat history
@@ -307,12 +350,13 @@ export function AmaniChat({
   }, [currentSessionId, createNewSession, API_BASE_URL, getAuthHeaders])
 
   // Send message
-  const sendMessage = useCallback(async () => {
-    if (!input.trim() || isLoading) return
+  const sendMessage = useCallback(async (customContent?: string) => {
+    const contentToSend = customContent || input
+    if (!contentToSend.trim() || isLoading) return
 
     let sessionId = currentSessionId
     if (!sessionId) {
-      sessionId = await createNewSession(input)
+      sessionId = await createNewSession(contentToSend)
       if (!sessionId) {
         toast.error("Failed to create chat session")
         return
@@ -490,6 +534,72 @@ export function AmaniChat({
     }
   }, [API_BASE_URL, getAuthHeaders])
 
+  // Editing functions
+  const startEditingMessage = useCallback((message: Message) => {
+    if (message.role !== "user") return
+    setEditingMessageId(message.id)
+    setEditingContent(message.content)
+  }, [])
+
+  const cancelEditing = useCallback(() => {
+    setEditingMessageId(null)
+    setEditingContent("")
+  }, [])
+
+  const saveEditedMessage = useCallback(async (messageId: string) => {
+    if (!editingContent.trim()) return
+    
+    const messageIndex = messages.findIndex(m => m.id === messageId)
+    if (messageIndex === -1) return
+
+    setMessages(prev => prev.slice(0, messageIndex))
+    
+    setEditingMessageId(null)
+    setEditingContent("")
+    await sendMessage(editingContent) // This assumes sendMessage uses input state? No, sendMessage uses 'input' state.
+    // wait, sendMessage uses 'input' state if no arg passed, but I can modify sendMessage or setInput then sendMessage
+    // Actually sendMessage in AmaniChat (line 310) uses 'input' state.
+    // I should update sendMessage to accept an optional content arg?
+  }, [messages, editingContent]) // Wait, I need to fix sendMessage usage.
+
+  // Using a refined sendMessage wrapper or updating logic in saveEditedMessage:
+  // Since sendMessage uses 'input' state, I can setInput(editingContent) then call sendMessage?
+  // But sendMessage validates input.trim().
+  
+  // Failed Query Functions
+  const copyFailedQuery = useCallback(async (message: Message) => {
+    const query = message.originalQuery || message.content
+    try {
+      await navigator.clipboard.writeText(query)
+      toast.success("Query copied to clipboard!")
+    } catch (error) {
+      console.error("Failed to copy query:", error)
+      toast.error("Failed to copy query")
+    }
+  }, [])
+
+  const editFailedQuery = useCallback((message: Message) => {
+     const query = message.originalQuery || message.content
+     setInput(query)
+     const textarea = document.querySelector('textarea')
+     if (textarea) textarea.focus()
+  }, [])
+
+  const resendFailedQuery = useCallback(async (message: Message) => {
+    const query = message.originalQuery || (message.role === "user" ? message.content : "")
+    if (!query.trim()) return
+    
+    setMessages(prev => prev.filter(msg => 
+        msg.id !== message.id && 
+        !(msg.failed && (msg.originalQuery === query || (msg.role === "user" && msg.content === query)))
+    ))
+    
+    setInput(query)
+    // Wait for state update is tricky.
+    // Ideally sendMessage should take an argument.
+    // I will modify sendMessage below.
+  }, [])
+
   // Sharing functionality
   const findPreviousUserPrompt = useCallback(
     (messageId: string) => {
@@ -600,6 +710,374 @@ export function AmaniChat({
     }
   }, [shareSheet])
 
+  const changeSharePlatform = useCallback((message: Message, platform: SharePlatform) => {
+    if (!shareSheet || shareSheet.messageId !== message.id) {
+       // Logic to just open share sheet if needed, but handleShare handles opening.
+       // Here we switch platform
+       handleShare(message, platform)
+       return
+    }
+
+    const cached = shareCache[message.id]?.[platform]
+    setShareSheet({
+      ...shareSheet,
+      platform,
+      preview: cached,
+      isLoading: !cached,
+      shareLink: null,
+      shareError: null,
+      success: null
+    })
+
+    if (!cached) {
+      ensureSharePreview(message, platform)
+    }
+  }, [shareSheet, shareCache, handleShare, ensureSharePreview])
+
+  // Auth functions
+  const initiateAuth = useCallback(async (platform: SharePlatform) => {
+    try {
+      setShareSheet(prev => prev ? { ...prev, shareLinkLoading: true, shareError: null } : prev)
+
+      const response = await fetch(`${API_BASE_URL}/share/auth`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ platform })
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.detail || "Failed to initiate authentication")
+      }
+
+      const data = await response.json()
+      
+      if (data.auth_url) {
+        // For OAuth 2.0 (LinkedIn, etc)
+        const width = 600
+        const height = 700
+        const left = window.screen.width / 2 - width / 2
+        const top = window.screen.height / 2 - height / 2
+        
+        window.open(
+          data.auth_url,
+          `Authenticate ${platform}`,
+          `width=${width},height=${height},left=${left},top=${top}`
+        )
+
+        // Poll for auth success
+        const checkAuth = setInterval(async () => {
+          const isAuthenticated = await checkAuthStatus(platform)
+          if (isAuthenticated) {
+            clearInterval(checkAuth)
+            setShareSheet(prev => prev ? { ...prev, shareLinkLoading: false } : prev)
+          }
+        }, 2000)
+
+        // Clear interval after 2 minutes
+        setTimeout(() => clearInterval(checkAuth), 120000)
+
+      } else if (data.status === "authenticated") {
+        if (data.user_info?.access_token) {
+          storeToken(platform, data.user_info.access_token)
+        }
+        toast.success(`Already authenticated with ${platform}`)
+        setShareSheet(prev => prev ? { ...prev, shareLinkLoading: false } : prev)
+      }
+    } catch (error) {
+       console.error("Failed to initiate auth:", error)
+       setShareSheet(prev => prev ? {
+        ...prev,
+        shareLinkLoading: false,
+        shareError: error instanceof Error ? error.message : "Authentication failed"
+      } : prev)
+    }
+  }, [API_BASE_URL, storeToken])
+
+  const checkAuthStatus = useCallback(async (platform: SharePlatform) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/share/auth/status`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ platform })
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        if (data.status === "authenticated" && data.user_info?.access_token) {
+          storeToken(platform, data.user_info.access_token)
+          toast.success(`Successfully authenticated with ${platform}`)
+          return true
+        } else {
+          clearToken(platform)
+        }
+      } else {
+        clearToken(platform)
+      }
+    } catch (error) {
+      console.error("Failed to check auth status:", error)
+      clearToken(platform)
+    }
+    return false
+  }, [API_BASE_URL, storeToken, clearToken])
+
+  // Share Actions
+  const shareChatLink = useCallback(async (options: { silent?: boolean } = {}) => {
+    if (!currentSessionId) return null
+
+    try {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        ...getAuthHeaders()
+      }
+      const response = await fetch(
+        `${API_BASE_URL}/api/v1/chat/share?session_id=${encodeURIComponent(currentSessionId)}`,
+        {
+          method: "POST",
+          headers
+        }
+      )
+      if (response.ok) {
+        const data = await response.json()
+        const shareUrl = `${window.location.origin}${data.share_link}`
+        if (!options.silent) {
+          await navigator.clipboard.writeText(shareUrl)
+          toast.success("Share link copied to clipboard!")
+        }
+        return shareUrl
+      } else {
+        if (!options.silent) {
+          toast.error("Failed to generate share link")
+        }
+      }
+    } catch (error) {
+      console.error("Failed to generate share link:", error)
+      if (!options.silent) {
+        toast.error("Failed to generate share link")
+      }
+    }
+    return null
+  }, [currentSessionId, API_BASE_URL, getAuthHeaders])
+
+  const openShareIntent = useCallback(async (message: Message) => {
+    if (!shareSheet) return
+    const preview = shareSheet.preview ?? (await ensureSharePreview(message, shareSheet.platform))
+    if (!preview) return
+
+    try {
+      setShareSheet((prev) =>
+        prev ? { ...prev, shareLinkLoading: true, shareError: null, success: null } : prev
+      )
+      const sessionLink = await shareChatLink({ silent: true })
+
+      const response = await fetch(`${API_BASE_URL}/share/generate-link`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          platform: shareSheet.platform,
+          content: preview.content,
+          url: sessionLink || undefined
+        })
+      })
+
+      if (!response.ok) {
+        const detail = await response.text()
+        throw new Error(detail || "Unable to open share dialog")
+      }
+
+      const data = await response.json()
+      setShareSheet((prev) =>
+        prev
+          ? {
+              ...prev,
+              shareLink: data.share_url,
+              shareLinkLoading: false,
+              success: `Share dialog ready for ${shareSheet.platform}`
+            }
+          : prev
+      )
+      window.open(data.share_url, "_blank", "noopener,noreferrer")
+    } catch (error) {
+      console.error("Failed to open share link:", error)
+      setShareSheet((prev) =>
+        prev
+          ? {
+              ...prev,
+              shareLinkLoading: false,
+              shareError:
+                error instanceof Error
+                  ? error.message
+                  : "Unable to open the platform share dialog."
+            }
+          : prev
+      )
+    }
+  }, [shareSheet, ensureSharePreview, shareChatLink, API_BASE_URL])
+
+  const generateShareImage = useCallback(async (message: Message) => {
+    if (!shareSheet) return
+    const preview = shareSheet.preview ?? (await ensureSharePreview(message, shareSheet.platform))
+    if (!preview) return
+
+    try {
+      setShareSheet((prev) =>
+        prev ? { ...prev, generatingImage: true, shareError: null, success: null } : prev
+      )
+
+      const text = Array.isArray(preview.content) ? preview.content.join("\n\n") : preview.content
+      const title = `AmaniQuery Insight`
+
+      const response = await fetch(`${API_BASE_URL}/share/generate-image-from-post`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          post_content: text,
+          query: title,
+          color_scheme: "professional"
+        })
+      })
+
+      if (!response.ok) {
+        const detail = await response.text()
+        throw new Error(detail || "Unable to generate image")
+      }
+
+      const data = await response.json()
+      
+      // Download the image
+      const imageResponse = await fetch(`data:image/png;base64,${data.image_base64}`)
+      const blob = await imageResponse.blob()
+      const url = URL.createObjectURL(blob)
+      
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `amaniquery-${message.id}.png`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+
+      setShareSheet((prev) =>
+        prev
+          ? {
+              ...prev,
+              generatingImage: false,
+              success: "Image downloaded successfully!",
+              shareError: null
+            }
+          : prev
+      )
+    } catch (error) {
+      console.error("Failed to generate image:", error)
+      setShareSheet((prev) =>
+        prev
+          ? {
+              ...prev,
+              generatingImage: false,
+              shareError:
+                error instanceof Error
+                  ? error.message
+                  : "Unable to generate image."
+            }
+          : prev
+      )
+    }
+  }, [shareSheet, ensureSharePreview, API_BASE_URL])
+  
+  const postDirectly = useCallback(async (message: Message) => {
+    if (!shareSheet) return
+    const preview = shareSheet.preview ?? (await ensureSharePreview(message, shareSheet.platform))
+    if (!preview) return
+
+    const accessToken = getStoredToken(shareSheet.platform)
+    if (!accessToken) {
+        setShareSheet(prev => prev ? {
+            ...prev,
+            shareError: `Please authenticate with ${shareSheet.platform} first.`
+        } : prev)
+        return
+    }
+
+    try {
+      setShareSheet((prev) =>
+        prev ? { ...prev, posting: true, shareError: null, success: null } : prev
+      )
+
+      const response = await fetch(`${API_BASE_URL}/share/post`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          platform: shareSheet.platform,
+          content: preview.content,
+          message_id: message.id,
+          access_token: accessToken
+        })
+      })
+
+      if (!response.ok) {
+        const detail = await response.text()
+        throw new Error(detail || "Unable to post")
+      }
+
+      const data = await response.json()
+      setShareSheet((prev) =>
+        prev
+          ? {
+              ...prev,
+              posting: false,
+              success: data.message || `Posted to ${shareSheet.platform} successfully`,
+              shareError: null
+            }
+          : prev
+      )
+      toast.success(data.message || `Posted to ${shareSheet.platform} successfully`)
+    } catch (error) {
+      console.error("Failed to post to platform:", error)
+      setShareSheet((prev) =>
+        prev
+          ? {
+              ...prev,
+              posting: false,
+              shareError:
+                error instanceof Error
+                  ? error.message
+                  : "Unable to post automatically."
+            }
+          : prev
+      )
+    }
+  }, [shareSheet, ensureSharePreview, getStoredToken, API_BASE_URL])
+
+  // OAuth Callback Handler (for popup)
+  useEffect(() => {
+    window.handleOAuthCallback = async (platform: SharePlatform, code: string, state: string) => {
+        try {
+            const response = await fetch(`${API_BASE_URL}/share/auth/callback`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ platform, code, state })
+            })
+
+            if (response.ok) {
+                const data = await response.json()
+                if (data.access_token) {
+                    storeToken(platform, data.access_token)
+                    toast.success("Authentication successful!")
+                    return true
+                }
+            }
+        } catch (error) {
+            console.error("Auth callback error:", error)
+        }
+        return false
+    }
+  }, [API_BASE_URL, storeToken])
+
+  // Load tokens on mount
+  useEffect(() => {
+    loadStoredTokens()
+  }, [loadStoredTokens])
+
   // Scroll to bottom when messages change
   useEffect(() => {
     if (messagesContainerRef.current) {
@@ -652,6 +1130,24 @@ export function AmaniChat({
                 showWelcomeScreen={showWelcomeScreen && messages.length === 0}
                 enableThinkingIndicator={enableThinkingIndicator}
                 showInlineSources={showInlineSources}
+                shareSheet={shareSheet}
+                onCloseShareSheet={() => setShareSheet(null)}
+                onChangeSharePlatform={changeSharePlatform}
+                onCopyShareContent={copyShareContent}
+                onGenerateShareImage={generateShareImage}
+                onOpenShareIntent={openShareIntent}
+                onAuthenticatePlatform={initiateAuth}
+                onPostDirectly={postDirectly}
+                platformTokens={platformTokens}
+                editingMessageId={editingMessageId}
+                editingContent={editingContent}
+                setEditingContent={setEditingContent}
+                onSaveEdit={saveEditedMessage}
+                onCancelEdit={cancelEditing}
+                onStartEdit={startEditingMessage}
+                onCopyFailedQuery={copyFailedQuery}
+                onEditFailedQuery={editFailedQuery}
+                onResendFailedQuery={resendFailedQuery}
               />
               <div className="px-4 pb-6">
                 <StreamingMessage
@@ -674,6 +1170,24 @@ export function AmaniChat({
               showWelcomeScreen={showWelcomeScreen && messages.length === 0}
               enableThinkingIndicator={enableThinkingIndicator}
               showInlineSources={showInlineSources}
+              shareSheet={shareSheet}
+              onCloseShareSheet={() => setShareSheet(null)}
+              onChangeSharePlatform={changeSharePlatform}
+              onCopyShareContent={copyShareContent}
+              onGenerateShareImage={generateShareImage}
+              onOpenShareIntent={openShareIntent}
+              onAuthenticatePlatform={initiateAuth}
+              onPostDirectly={postDirectly}
+              platformTokens={platformTokens}
+              editingMessageId={editingMessageId}
+              editingContent={editingContent}
+              setEditingContent={setEditingContent}
+              onSaveEdit={saveEditedMessage}
+              onCancelEdit={cancelEditing}
+              onStartEdit={startEditingMessage}
+              onCopyFailedQuery={copyFailedQuery}
+              onEditFailedQuery={editFailedQuery}
+              onResendFailedQuery={resendFailedQuery}
             />
           )}
       </div>

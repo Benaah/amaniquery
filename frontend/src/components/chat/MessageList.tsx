@@ -37,6 +37,7 @@ import { VideoPreview } from "./VideoPreview"
 import { SHARE_PLATFORMS } from "./constants"
 import { AmaniQueryResponse } from "../AmaniQueryResponse"
 import { ImpactCalculator } from "./ImpactCalculator"
+import { ShareSheet } from "./ShareSheet"
 import { ThinkingProcess } from "../ThinkingProcess"
 import type { Message, Source, SharePlatform, ShareSheetState, StructuredResponse, InteractiveWidget } from "./types"
 
@@ -646,115 +647,18 @@ export function MessageList({
                     )}
 
                     {shareSheet && shareSheet.messageId === message.id && (
-                      <div className="rounded-3xl border border-white/10 bg-background/80 backdrop-blur-xl p-3 md:p-5 space-y-3 md:space-y-4 mt-2">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">Social share</p>
-                            <h4 className="font-semibold text-sm">Turn this answer into a post</h4>
-                          </div>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full" onClick={onCloseShareSheet}>
-                            <X className="w-4 h-4" />
-                          </Button>
-                        </div>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
-                          {SHARE_PLATFORMS.map((platform) => (
-                            <button
-                              type="button"
-                              key={platform.id}
-                              onClick={() => onChangeSharePlatform(message, platform.id)}
-                              className={`group rounded-2xl border border-white/10 p-2.5 md:p-3 text-left transition hover:border-white/30 min-h-[60px] ${
-                                shareSheet.platform === platform.id ? "bg-white/10" : "bg-white/[0.04]"
-                              }`}
-                            >
-                              <div className={`inline-flex items-center gap-2 rounded-full bg-gradient-to-r ${platform.accent} px-2.5 py-1 text-[11px] font-semibold`}>
-                                {platform.icon}
-                                {platform.label}
-                              </div>
-                              <p className="mt-2 text-[11px] text-muted-foreground">{platform.description}</p>
-                            </button>
-                          ))}
-                        </div>
-
-                        <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
-                          {shareSheet.isLoading && (
-                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                              <Loader2 className="w-4 h-4 animate-spin" />
-                              Formatting response for {shareSheet.platform}...
-                            </div>
-                          )}
-                          {!shareSheet.isLoading && shareSheet.preview && (
-                            <div className="space-y-2">
-                              <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Preview</p>
-                              <div className="rounded-xl bg-background/80 border border-white/10 p-3 max-h-64 overflow-auto text-xs md:text-sm whitespace-pre-wrap [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-                                {Array.isArray(shareSheet.preview.content)
-                                  ? shareSheet.preview.content.join("\n\n")
-                                  : shareSheet.preview.content}
-                              </div>
-                              {shareSheet.preview.hashtags && shareSheet.preview.hashtags.length > 0 && (
-                                <div className="flex flex-wrap gap-2 text-[11px] text-primary">
-                                  {shareSheet.preview.hashtags.map((tag) => (
-                                    <span key={tag} className="rounded-full bg-primary/10 px-2 py-0.5">
-                                      {tag}
-                                    </span>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-                          )}
-                          {shareSheet.shareError && <p className="mt-2 text-xs text-red-500">{shareSheet.shareError}</p>}
-                          {shareSheet.success && <p className="mt-2 text-xs text-emerald-400">{shareSheet.success}</p>}
-                        </div>
-
-                        <div className="flex flex-wrap gap-1.5 md:gap-2">
-                          <Button variant="outline" size="sm" className="rounded-full border-white/20 text-xs min-h-[44px] px-2.5 md:px-3" onClick={onCopyShareContent} disabled={!shareSheet.preview}>
-                            <Copy className="w-4 h-4 md:mr-1" />
-                            <span className="hidden sm:inline">Copy text</span>
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="rounded-full border-white/20 text-xs min-h-[44px] px-2.5 md:px-3"
-                            onClick={() => onGenerateShareImage(message)}
-                            disabled={!shareSheet.preview || shareSheet.generatingImage}
-                          >
-                            {shareSheet.generatingImage ? <Loader2 className="w-4 h-4 md:mr-1 animate-spin" /> : <ImageIcon className="w-4 h-4 md:mr-1" />}
-                            <span className="hidden sm:inline">Download image</span>
-                          </Button>
-                          <Button
-                            variant="default"
-                            size="sm"
-                            className="rounded-full text-xs min-h-[44px] px-2.5 md:px-3"
-                            onClick={() => onOpenShareIntent(message)}
-                            disabled={!shareSheet.preview || shareSheet.shareLinkLoading}
-                          >
-                            {shareSheet.shareLinkLoading ? <Loader2 className="w-4 h-4 md:mr-1 animate-spin" /> : <ExternalLink className="w-4 h-4 md:mr-1" />}
-                            <span className="hidden sm:inline">Open share dialog</span>
-                          </Button>
-                          {!platformTokens[shareSheet.platform] && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="rounded-full border-orange-500/50 text-orange-400 hover:bg-orange-500/10 text-xs min-h-[44px] px-2.5 md:px-3"
-                              onClick={() => onAuthenticatePlatform(shareSheet.platform)}
-                              disabled={shareSheet.shareLinkLoading}
-                            >
-                              {shareSheet.shareLinkLoading ? <Loader2 className="w-4 h-4 md:mr-1 animate-spin" /> : <LogIn className="w-4 h-4 md:mr-1" />}
-                              <span className="hidden sm:inline">Authenticate</span>
-                            </Button>
-                          )}
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="rounded-full text-xs min-h-[44px] px-2.5 md:px-3"
-                            onClick={() => onPostDirectly(message)}
-                            disabled={!shareSheet.preview || shareSheet.posting || !platformTokens[shareSheet.platform]}
-                          >
-                            {shareSheet.posting ? <Loader2 className="w-4 h-4 md:mr-1 animate-spin" /> : <Link2 className="w-4 h-4 md:mr-1" />}
-                            <span className="hidden sm:inline">Direct post (beta)</span>
-                          </Button>
-                        </div>
-                      </div>
+                      <ShareSheet
+                        message={message}
+                        shareSheet={shareSheet}
+                        onClose={onCloseShareSheet}
+                        onChangePlatform={onChangeSharePlatform}
+                        onCopyContent={onCopyShareContent}
+                        onGenerateImage={onGenerateShareImage}
+                        onOpenIntent={onOpenShareIntent}
+                        onAuthenticate={onAuthenticatePlatform}
+                        onPostDirectly={onPostDirectly}
+                        platformTokens={platformTokens}
+                      />
                     )}
                   </div>
                 </div>

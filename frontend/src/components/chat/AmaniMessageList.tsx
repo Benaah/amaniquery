@@ -8,7 +8,8 @@ import { ThinkingIndicator, CompactThinkingIndicator } from "./ThinkingIndicator
 import { SourcePanel, SourceSummary } from "./SourcePanel"
 import { WelcomeScreen } from "./WelcomeScreen"
 import { Loader2 } from "lucide-react"
-import type { Message } from "./types"
+import { ShareSheet } from "./ShareSheet"
+import type { Message, ShareSheetState, SharePlatform } from "./types"
 
 interface AmaniMessageListProps {
   messages: Message[]
@@ -27,6 +28,24 @@ interface AmaniMessageListProps {
   showInlineSources?: boolean
   enableThinkingIndicator?: boolean
   messageClassName?: string
+  shareSheet?: ShareSheetState | null
+  onCloseShareSheet?: () => void
+  onChangeSharePlatform?: (message: Message, platform: SharePlatform) => void
+  onCopyShareContent?: () => void
+  onGenerateShareImage?: (message: Message) => void
+  onOpenShareIntent?: (message: Message) => void
+  onAuthenticatePlatform?: (platform: SharePlatform) => void
+  onPostDirectly?: (message: Message) => void
+  platformTokens?: Record<SharePlatform, string | null>
+  editingMessageId?: string | null
+  editingContent?: string
+  setEditingContent?: (content: string) => void
+  onSaveEdit?: (messageId: string) => void
+  onCancelEdit?: () => void
+  onStartEdit?: (message: Message) => void
+  onCopyFailedQuery?: (message: Message) => void
+  onEditFailedQuery?: (message: Message) => void
+  onResendFailedQuery?: (message: Message) => void
 }
 
 interface MessageGroup {
@@ -52,7 +71,25 @@ export function AmaniMessageList({
   className,
   showInlineSources = true,
   enableThinkingIndicator = true,
-  messageClassName
+  messageClassName,
+  shareSheet,
+  onCloseShareSheet,
+  onChangeSharePlatform,
+  onCopyShareContent,
+  onGenerateShareImage,
+  onOpenShareIntent,
+  onAuthenticatePlatform,
+  onPostDirectly,
+  platformTokens,
+  editingMessageId,
+  editingContent,
+  setEditingContent,
+  onSaveEdit,
+  onCancelEdit,
+  onStartEdit,
+  onCopyFailedQuery,
+  onEditFailedQuery,
+  onResendFailedQuery
 }: AmaniMessageListProps) {
   const [expandedSources, setExpandedSources] = useState<Record<string, boolean>>({})
   const [expandedThinking, setExpandedThinking] = useState<Record<string, boolean>>({})
@@ -140,7 +177,30 @@ export function AmaniMessageList({
                     onRegenerate={onRegenerate}
                     onFeedback={onFeedback}
                     showFeedback={false}
+                    isEditing={editingMessageId === userMessage.id}
+                    editingContent={editingContent}
+                    onEditChange={setEditingContent}
+                    onSaveEdit={onSaveEdit}
+                    onCancelEdit={onCancelEdit}
+                    onStartEdit={onStartEdit}
+                    onCopyFailed={onCopyFailedQuery}
+                    onEditFailed={onEditFailedQuery}
+                    onResendFailed={onResendFailedQuery}
                   />
+                  {shareSheet && shareSheet.messageId === userMessage.id && (
+                      <ShareSheet
+                        message={userMessage}
+                        shareSheet={shareSheet}
+                        onClose={onCloseShareSheet!}
+                        onChangePlatform={onChangeSharePlatform!}
+                        onCopyContent={onCopyShareContent!}
+                        onGenerateImage={onGenerateShareImage!}
+                        onOpenIntent={onOpenShareIntent!}
+                        onAuthenticate={onAuthenticatePlatform!}
+                        onPostDirectly={onPostDirectly!}
+                        platformTokens={platformTokens!}
+                      />
+                  )}
                 </div>
               )}
 
@@ -205,6 +265,24 @@ export function AmaniMessageList({
                         className="text-xs"
                       />
                     </div>
+                  )}
+
+                  {/* Share Sheet */}
+                  {shareSheet && shareSheet.messageId === assistantMessage.id && (
+                      <div className="ml-12">
+                        <ShareSheet
+                            message={assistantMessage}
+                            shareSheet={shareSheet}
+                            onClose={onCloseShareSheet!}
+                            onChangePlatform={onChangeSharePlatform!}
+                            onCopyContent={onCopyShareContent!}
+                            onGenerateImage={onGenerateShareImage!}
+                            onOpenIntent={onOpenShareIntent!}
+                            onAuthenticate={onAuthenticatePlatform!}
+                            onPostDirectly={onPostDirectly!}
+                            platformTokens={platformTokens!}
+                        />
+                      </div>
                   )}
                 </div>
               )}

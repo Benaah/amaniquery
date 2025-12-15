@@ -12,8 +12,12 @@ import {
   ThumbsDown,
   MoreVertical,
   ExternalLink,
-  Check
+  Check,
+  Pencil,
+  AlertTriangle,
+  RefreshCw
 } from "lucide-react"
+import { Textarea } from "@/components/ui/textarea"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import rehypeHighlight from "rehype-highlight"
@@ -26,6 +30,15 @@ interface AmaniMessageProps {
   onFeedback: (messageId: string, type: "like" | "dislike") => void
   isLoading?: boolean
   showFeedback?: boolean
+  isEditing?: boolean
+  editingContent?: string
+  onEditChange?: (content: string) => void
+  onSaveEdit?: (messageId: string) => void
+  onCancelEdit?: () => void
+  onStartEdit?: (message: Message) => void
+  onCopyFailed?: (message: Message) => void
+  onEditFailed?: (message: Message) => void
+  onResendFailed?: (message: Message) => void
 }
 
 interface InlineCitationProps {
@@ -90,7 +103,16 @@ export function AmaniMessage({
   onRegenerate, 
   onFeedback, 
   isLoading = false,
-  showFeedback = true
+  showFeedback = true,
+  isEditing = false,
+  editingContent = "",
+  onEditChange,
+  onSaveEdit,
+  onCancelEdit,
+  onStartEdit,
+  onCopyFailed,
+  onEditFailed,
+  onResendFailed
 }: AmaniMessageProps) {
   const [hoveredSource, setHoveredSource] = useState<Source | null>(null)
   const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 })
@@ -123,11 +145,58 @@ export function AmaniMessage({
     const parts = processedContent.split(/(\{\{CITATION:\d+\}\})/g)
 
     return (
-      <div className="space-y-4">
-        <ReactMarkdown
-          remarkPlugins={[remarkGfm]}
-          rehypePlugins={[rehypeHighlight]}
-          components={{
+    <div className="space-y-4">
+        {/* Failed Message State */}
+        {message.failed && (
+            <div className="flex flex-col gap-2 p-3 border border-red-200 bg-red-50 rounded-lg text-red-700 text-sm">
+                <div className="flex items-center gap-2 font-medium">
+                    <AlertTriangle className="w-4 h-4" />
+                    <span>Failed to send message</span>
+                </div>
+                <div className="flex items-center gap-2">
+                    {onResendFailed && (
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 border-red-200 hover:bg-red-100 hover:text-red-800"
+                            onClick={() => onResendFailed(message)}
+                        >
+                            <RefreshCw className="w-3 h-3 mr-1" />
+                            Retry
+                        </Button>
+                    )}
+                    {onEditFailed && (
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 hover:bg-red-100 hover:text-red-800"
+                            onClick={() => onEditFailed(message)}
+                        >
+                            <Pencil className="w-3 h-3 mr-1" />
+                            Edit
+                        </Button>
+                    )}
+                    {onCopyFailed && (
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 hover:bg-red-100 hover:text-red-800"
+                            onClick={() => onCopyFailed(message)}
+                        >
+                            <Copy className="w-3 h-3 mr-1" />
+                            Copy
+                        </Button>
+                    )}
+                </div>
+            </div>
+        )}
+
+      {!message.failed && (
+        <>
+            <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        rehypePlugins={[rehypeHighlight]}
+        components={{
             p: ({ children }) => <p className="mb-4 last:mb-0">{children}</p>,
             h1: ({ children }) => <h1 className="text-xl font-semibold mb-3 mt-4">{children}</h1>,
             h2: ({ children }) => <h2 className="text-lg font-semibold mb-2 mt-3">{children}</h2>,
@@ -136,47 +205,49 @@ export function AmaniMessage({
             ol: ({ children }) => <ol className="list-decimal list-inside mb-4 space-y-1">{children}</ol>,
             li: ({ children }) => <li className="mb-1">{children}</li>,
             blockquote: ({ children }) => (
-              <blockquote className="border-l-4 border-primary/20 pl-4 my-4 italic text-muted-foreground">
+            <blockquote className="border-l-4 border-primary/20 pl-4 my-4 italic text-muted-foreground">
                 {children}
-              </blockquote>
+            </blockquote>
             ),
             code: ({ children, className, ...props }) => {
-              // Check if this is inline code by looking at the className
-              // Code blocks have a language class (e.g., "language-js"), inline code doesn't
-              const isInline = !className || !className.startsWith("language-")
-              return isInline ? (
+            // Check if this is inline code by looking at the className
+            // Code blocks have a language class (e.g., "language-js"), inline code doesn't
+            const isInline = !className || !className.startsWith("language-")
+            return isInline ? (
                 <code className="bg-muted px-1.5 py-0.5 rounded text-sm font-mono" {...props}>
-                  {children}
+                {children}
                 </code>
-              ) : (
+            ) : (
                 <code className={`block bg-muted p-4 rounded-lg text-sm font-mono overflow-x-auto ${className || ""}`} {...props}>
-                  {children}
+                {children}
                 </code>
-              )
+            )
             },
-          }}
+        }}
         >
-          {processedContent.replace(/\{\{CITATION:(\d+)\}\}/g, (match, index) => {
+        {processedContent.replace(/\{\{CITATION:(\d+)\}\}/g, (match, index) => {
             const source = message.sources?.[parseInt(index)]
             return source ? `[${parseInt(index) + 1}]` : match
-          })}
+        })}
         </ReactMarkdown>
 
         {message.sources && message.sources.length > 0 && (
-          <div className="flex flex-wrap gap-2 pt-2">
+        <div className="flex flex-wrap gap-2 pt-2">
             {message.sources.map((source, index) => (
-              <InlineCitation
+            <InlineCitation
                 key={index}
                 source={source}
                 index={index + 1}
                 onHover={(source) => handleSourceHover(source)}
-              />
+            />
             ))}
-          </div>
+        </div>
         )}
-      </div>
-    )
-  }
+        </>
+      )}
+    </div>
+  )
+}
 
   return (
     <div 
@@ -215,13 +286,47 @@ export function AmaniMessage({
             ? "bg-primary text-primary-foreground rounded-br-sm" 
             : "bg-muted rounded-bl-sm"
         )}>
-          {renderContent()}
+          {isEditing ? (
+            <div className="flex flex-col gap-3 min-w-[300px]">
+                <Textarea
+                    value={editingContent}
+                    onChange={(e) => onEditChange?.(e.target.value)}
+                    className="bg-transparent border-primary/20 focus:border-primary text-primary-foreground placeholder:text-primary-foreground/50 resize-none min-h-[100px]"
+                />
+                <div className="flex justify-end gap-2">
+                    <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-8 bg-transparent text-primary-foreground border-primary-foreground/20 hover:bg-primary-foreground/20 hover:text-primary-foreground"
+                        onClick={onCancelEdit}
+                    >
+                        Cancel
+                    </Button>
+                    <Button
+                        size="sm"
+                        variant="secondary"
+                        className="h-8 bg-white text-primary hover:bg-white/90"
+                        onClick={() => onSaveEdit?.(message.id)}
+                    >
+                        Save
+                    </Button>
+                </div>
+            </div>
+          ) : (
+            renderContent()
+          )}
         </div>
 
         {/* Message Actions */}
-        {showActions && !isUser && (
-          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-            <Button
+        {showActions && !isEditing && (
+            <div className={cn(
+                "flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity",
+                isUser && "opacity-100" // Keep visible for user when hovering group
+            )}>
+
+          {!isUser && (
+            <>
+             <Button
               variant="ghost"
               size="sm"
               className="h-7 px-2 text-muted-foreground hover:text-foreground"
@@ -242,8 +347,8 @@ export function AmaniMessage({
             >
               <RotateCw className="w-3 h-3" />
             </Button>
-
-            {showFeedback && (
+            
+             {showFeedback && (
               <>
                 <Button
                   variant="ghost"
@@ -282,6 +387,33 @@ export function AmaniMessage({
             >
               <MoreVertical className="w-3 h-3" />
             </Button>
+            </>
+          )}
+
+           {isUser && onStartEdit && (
+                <div className="flex items-center gap-1">
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-2 text-muted-foreground hover:text-foreground"
+                        onClick={() => onStartEdit(message)}
+                    >
+                        <Pencil className="w-3 h-3" />
+                    </Button>
+                     <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-2 text-muted-foreground hover:text-foreground"
+                        onClick={handleCopy}
+                        >
+                        {hasCopied ? (
+                            <Check className="w-3 h-3" />
+                        ) : (
+                            <Copy className="w-3 h-3" />
+                        )}
+                    </Button>
+                </div>
+           )}
           </div>
         )}
       </div>

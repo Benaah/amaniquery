@@ -47,18 +47,19 @@ import {
 } from "lucide-react"
 
 interface ModelConfig {
-  apiKey: string | number | readonly string[] | undefined
-  maxTokens: ReactNode
-  topP: ReactNode
-  isDefault: any
+  apiKey?: string
+  maxTokens?: number
+  topP?: number
+  isDefault?: boolean
   id: string
   name: string
   provider: string
   enabled: boolean
-  is_default: boolean
+  is_default?: boolean
   status: string
   temperature: number
-  max_tokens: number
+  max_tokens?: number
+  top_p?: number
 }
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
@@ -246,7 +247,7 @@ export default function ModelSettingsPage() {
                   </TableCell>
                   <TableCell>
                     <Switch
-                      checked={model.isDefault}
+                      checked={model.isDefault ?? model.is_default ?? false}
                       onCheckedChange={() => setAsDefault(model.id)}
                       disabled={!model.enabled}
                     />
@@ -290,18 +291,18 @@ export default function ModelSettingsPage() {
                               />
                             </div>
                             <div className="space-y-2">
-                              <Label>Max Tokens: {model.maxTokens}</Label>
+                              <Label>Max Tokens: {model.maxTokens ?? model.max_tokens ?? 4096}</Label>
                               <Slider
-                                defaultValue={[model.maxTokens]}
+                                defaultValue={[model.maxTokens ?? model.max_tokens ?? 4096]}
                                 max={16384}
                                 step={256}
                                 onValueChange={(v) => updateModel(model.id, { maxTokens: v[0] })}
                               />
                             </div>
                             <div className="space-y-2">
-                              <Label>Top P: {model.topP}</Label>
+                              <Label>Top P: {model.topP ?? model.top_p ?? 0.7}</Label>
                               <Slider
-                                defaultValue={[model.topP]}
+                                defaultValue={[model.topP ?? model.top_p ?? 0.7]}
                                 max={1}
                                 step={0.05}
                                 onValueChange={(v) => updateModel(model.id, { topP: v[0] })}

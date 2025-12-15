@@ -2,6 +2,24 @@
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
+/**
+ *  Enhanced Query Options  
+ */
+export interface QueryOptions {
+  knowledgeBases?: string[]  // kenya_law, kenya_news, parliament, general
+  model?: string             // gemini-2.5-flash, gpt-4o-mini, gpt-4o, claude-3.5-sonnet
+  useReranking?: boolean     // Enable intelligent re-ranking
+  useHyDE?: boolean          // Enable HyDE query expansion
+  temperature?: number       // LLM temperature (0-1)
+  userId?: string            // User ID for profiling
+}
+
+export interface StreamCallback {
+  onToken?: (token: string) => void
+  onComplete?: (response: unknown) => void
+  onError?: (error: Error) => void
+}
+
 export class ApiClient {
   private baseURL: string
 
@@ -116,13 +134,13 @@ export class ApiClient {
    * Upload a single file to the media API
    */
   async uploadFile<T>(
-    endpoint: string, 
-    file: File, 
+    endpoint: string,
+    file: File,
     additionalFields?: Record<string, string>
   ): Promise<T> {
     const formData = new FormData()
     formData.append("file", file)
-    
+
     if (additionalFields) {
       Object.entries(additionalFields).forEach(([key, value]) => {
         formData.append(key, value)

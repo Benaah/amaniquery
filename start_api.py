@@ -117,12 +117,16 @@ def start_api():
     # Check voice configuration
     vibevoice_enabled = os.getenv("VIBEVOICE_MODEL_PATH", "") != "" or True  # Always enabled
     
+    # Check WeKnora document processing
+    weknora_enabled = os.getenv("ENABLE_WEKNORA", "true").lower() == "true"
+    
     logger.info(f"📍 API Server: http://{host}:{port}")
     logger.info(f"📚 API Docs: http://{host}:{port}/docs")
     logger.info(f"🔧 Provider: {os.getenv('LLM_PROVIDER', 'moonshot')}")
     logger.info(f"🔄 Reload: {'Enabled' if reload_enabled else 'Disabled'}")
     logger.info(f"🔐 Auth Module: {'Enabled' if auth_enabled else 'Disabled'}")
     logger.info(f"🎤 Voice (VibeVoice): {'Enabled' if vibevoice_enabled else 'Disabled'}")
+    logger.info(f"📄 Document Processing (WeKnora): {'Enabled' if weknora_enabled else 'Disabled'}")
     
     if auth_enabled:
         logger.info("   Run 'python migrate_auth_db.py' if auth tables don't exist")

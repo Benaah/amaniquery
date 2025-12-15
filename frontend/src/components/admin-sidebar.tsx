@@ -19,6 +19,9 @@ import {
   Activity,
   Brain,
   ArrowBigUp,
+  Database,
+  Sparkles,
+  Zap,
 } from "lucide-react"
 import { Button } from "./ui/button"
 import { cn } from "@/lib/utils"
@@ -49,6 +52,9 @@ export function AdminSidebar() {
   const adminNavItems = [
     { href: "/admin", icon: BarChart3, label: "Dashboard" },
     { href: "/admin/users", icon: Users, label: "Users" },
+    { href: "/admin/knowledge", icon: Database, label: "Knowledge Bases" },
+    { href: "/admin/models", icon: Sparkles, label: "AI Models" },
+    { href: "/admin/rag", icon: Zap, label: "RAG Pipeline" },
     { href: "/admin/blog", icon: FileText, label: "Blog" },
     { href: "/admin/analytics", icon: Activity, label: "Analytics" },
     { href: "/admin/training", icon: ArrowBigUp, label: "Training" },

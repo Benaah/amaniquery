@@ -81,7 +81,7 @@ reportlab
 python-docx
 
 # Module 6: NiruVoice (Real-time Communication)
-livekit-agents[openai,assemblyai,silero]==1.1.7
+livekit-agents[openai,assemblyai,silero]==1.2.18
 livekit==1.0.20
 livekit-plugins-noise-cancellation==0.2.5
 tenacity>=8.2.0  # Retry logic with exponential backoff
@@ -100,8 +100,8 @@ librosa
 
 # OpenTelemetry - pin compatible versions for livekit-agents
 opentelemetry-api==1.29.0
-opentelemetry-sdk==1.29.0
-opentelemetry-exporter-otlp==1.29.0
+opentelemetry-sdk==1.39.0
+opentelemetry-exporter-otlp==1.39.0
 
 # Module 7: NiruHybrid - Hybrid Conv-Transformer Pipeline
 torch # PyTorch for neural networks

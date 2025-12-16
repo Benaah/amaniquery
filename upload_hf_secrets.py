@@ -2,32 +2,45 @@
 """
 Upload Environment Variables to HuggingFace Space Secrets
 
-This script uploads specific environment variables to a HuggingFace Space.
+This script uploads ALL environment variables from .env file to a HuggingFace Space.
 Requires: pip install huggingface_hub python-dotenv
 """
 
 import os
 import sys
+import re
 from pathlib import Path
 
-# New variables to upload for 2025 upgrades
-NEW_ENV_VARS = [
-    # WeKnora settings
-    "ENABLE_WEKNORA",
-    "MAX_UPLOAD_SIZE",
+
+def parse_env_file(env_path: Path) -> dict[str, str]:
+    """Parse .env file and return all key-value pairs."""
+    env_vars = {}
     
-    # VibeVoice settings
-    "ENABLE_VIBEVOICE",
-    "VIBEVOICE_MODEL_PATH",
+    if not env_path.exists():
+        return env_vars
     
+    with open(env_path, 'r', encoding='utf-8') as f:
+        for line in f:
+            line = line.strip()
+            
+            # Skip empty lines and comments
+            if not line or line.startswith('#'):
+                continue
+            
+            # Match KEY=VALUE pattern (handles quoted values)
+            match = re.match(r'^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$', line)
+            if match:
+                key = match.group(1)
+                value = match.group(2)
+                
+                # Remove surrounding quotes if present
+                if (value.startswith('"') and value.endswith('"')) or \
+                   (value.startswith("'") and value.endswith("'")):
+                    value = value[1:-1]
+                
+                env_vars[key] = value
     
-    # RAG settings
-    "USE_RERANKING",
-    "USE_HYDE",
-    "RAG_TOP_K",
-    
-    
-]
+    return env_vars
 
 
 def main():
@@ -41,13 +54,18 @@ def main():
     
     from dotenv import load_dotenv
     
-    # Load .env file
+    # Load .env file for getting HF credentials
     env_path = Path(__file__).parent / ".env"
     if env_path.exists():
         load_dotenv(env_path)
-        print(f"✓ Loaded .env from {env_path}")
+        print(f"✓ Found .env at {env_path}")
     else:
-        print(f"⚠ No .env file found at {env_path}")
+        print(f"✗ No .env file found at {env_path}")
+        return 1
+    
+    # Parse entire .env file
+    env_vars = parse_env_file(env_path)
+    print(f"✓ Parsed {len(env_vars)} environment variables from .env")
     
     # Get HuggingFace token
     hf_token = os.getenv("HF_TOKEN") or os.getenv("HUGGINGFACE_TOKEN")
@@ -67,20 +85,34 @@ def main():
         print("✗ Space name is required")
         return 1
     
+    # Variables to exclude from upload (sensitive local-only vars)
+    EXCLUDE_VARS = {
+        "HF_TOKEN",
+        "HUGGINGFACE_TOKEN", 
+        "HF_SPACE_NAME",
+        "SPACE_ID",
+    }
+    
     # Initialize API
     api = HfApi(token=hf_token)
     
-    print(f"\n📦 Uploading secrets to {space_name}...")
-    print("=" * 50)
+    print(f"\n📦 Uploading ALL secrets from .env to {space_name}...")
+    print("=" * 60)
     
     uploaded = 0
     skipped = 0
+    failed = 0
     
-    for var_name in NEW_ENV_VARS:
-        value = os.getenv(var_name)
+    for var_name, value in env_vars.items():
+        # Skip excluded variables
+        if var_name in EXCLUDE_VARS:
+            print(f"⏭  {var_name}: Excluded (local-only)")
+            skipped += 1
+            continue
         
+        # Skip empty values
         if not value:
-            print(f"⏭  {var_name}: Not set, skipping")
+            print(f"⏭  {var_name}: Empty value, skipping")
             skipped += 1
             continue
         
@@ -91,14 +123,18 @@ def main():
                 value=value,
             )
             # Mask sensitive values in output
-            display_value = value[:4] + "***" if len(value) > 4 else "***"
+            if any(s in var_name.upper() for s in ['KEY', 'SECRET', 'TOKEN', 'PASSWORD', 'API']):
+                display_value = value[:4] + "***" if len(value) > 4 else "***"
+            else:
+                display_value = value[:30] + "..." if len(value) > 30 else value
             print(f"✓  {var_name}: {display_value}")
             uploaded += 1
         except Exception as e:
             print(f"✗  {var_name}: Failed - {e}")
+            failed += 1
     
-    print("=" * 50)
-    print(f"\n✅ Uploaded: {uploaded} | ⏭ Skipped: {skipped}")
+    print("=" * 60)
+    print(f"\n✅ Uploaded: {uploaded} | ⏭ Skipped: {skipped} | ✗ Failed: {failed}")
     
     if uploaded > 0:
         print(f"\n🚀 Secrets uploaded to https://huggingface.co/spaces/{space_name}")

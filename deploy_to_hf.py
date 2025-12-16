@@ -25,35 +25,90 @@ SPACE_ID = "Benaah/amaniquery"
 TEMP_DIR = Path(".hf-deploy-temp")
 
 # Binary file extensions to exclude
-BINARY_EXTENSIONS = {'.png', '.ico', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bin', '.pt', '.pth'}
-# Directories to exclude
+BINARY_EXTENSIONS = {
+    '.png', '.ico', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp', '.tiff',
+    '.bin', '.pt', '.pth', '.onnx', '.safetensors', '.ckpt',  # Model files
+    '.mp3', '.mp4', '.wav', '.avi', '.mov', '.mkv', '.webm',  # Media files
+    '.zip', '.tar', '.gz', '.rar', '.7z',  # Archives
+    '.exe', '.dll', '.so', '.dylib',  # Binaries
+    '.db', '.sqlite', '.sqlite3',  # Database files (except chroma)
+    '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',  # Documents
+}
+
+# Single directory names to exclude (matched against each path part)
 EXCLUDE_DIRS = {
-    '.git', '.git-rewrite', '__pycache__', 'node_modules', 'venv', 'env', 
-    '.venv', 'dist', 'build', '.pytest_cache', 'htmlcov', '.coverage',
+    # Version control & IDE
+    '.git', '.git-rewrite', '.github', '.vscode', '.idea', '.vs',
+    
+    # Python caches & envs
+    '__pycache__', 'venv', 'env', '.venv', '.pytest_cache', '.mypy_cache',
+    '.ruff_cache', 'htmlcov', '.tox', '.nox',
+    
+    # Node/JS
+    'node_modules', '.next', '.nuxt', '.turbo',
+    
+    # Data & models (too large)
     'embeddings', 'processed', 'raw', 'models', 'logs', 'output',
-    'imgs',  # Exclude images directory
-    'frontend',  # Exclude frontend - deployed separately
-    'android-app',  # Exclude Android app - deployed separately
-    '.scrapy', 'httpcache',  # Exclude Scrapy cache
-    '.hf-deploy-temp',  # Exclude temp directory itself
-    'WeKnora/dataset', # Weknora Dataset examples
+    'chroma_db_backup', 'cache',
+    
+    # Separately deployed apps
+    'frontend',  # Next.js frontend - Deployed to Vercel
+    'android-app',  # React Native app - Deployed via EAS
+    
+    # Spider cache
+    '.scrapy', 'httpcache',
+    
+    # Temp directories
+    '.hf-deploy-temp', 'tmp', 'temp',
+    
+    # K8s configs (not used on HF)
+    'k8s',
+    
+    # Migrations (handled differently)
+    'migrations',
 }
 
-# Files to exclude
+# Path prefixes to exclude (for nested directories)
+EXCLUDE_PATHS = [
+    'WeKnora/frontend',   # WeKnora Vue frontend - separate deployment
+    'WeKnora/dataset',    # WeKnora example datasets
+    'VibeVoice/frontend', # VibeVoice frontend assets
+    'imgs',               # Project images
+]
+
+# Files to exclude (exact match on filename)
 EXCLUDE_FILES = {
-    '.DS_Store', 'Thumbs.db', '*.pyc', '*.pyo', '*.pyd'
+    '.DS_Store', 'Thumbs.db', 'desktop.ini',
+    '.env',  # Don't upload .env - use HF secrets instead
+    '.env.local', '.env.development', '.env.production',
+    'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml',
+    '.huggingfaceignore',
 }
 
+# File patterns to exclude (checked with endswith/startswith)
+EXCLUDE_PATTERNS = ['.pyc', '.pyo', '.pyd', '.log', '.bak', '.swp', '.swo']
 
-def should_exclude(path: Path) -> bool:
+
+def should_exclude(path: Path, source_dir: Path) -> bool:
     """Check if a file or directory should be excluded."""
     # Always allow files in chroma_db, bypassing other checks
     if 'chroma_db' in path.parts:
         return False
-
-    # Check if it's in an excluded directory
-    parts = path.parts
-    for part in parts:
+    
+    # Get relative path for path-prefix matching
+    try:
+        rel_path = path.relative_to(source_dir)
+        rel_str = str(rel_path).replace('\\', '/')
+    except ValueError:
+        rel_str = str(path).replace('\\', '/')
+    
+    # Check path prefixes (for nested exclusions like WeKnora/frontend)
+    for prefix in EXCLUDE_PATHS:
+        if rel_str.startswith(prefix + '/') or rel_str == prefix:
+            return True
+    
+    # Check if any part matches excluded directories
+    for part in path.parts:
         if part in EXCLUDE_DIRS:
             return True
     
@@ -61,9 +116,15 @@ def should_exclude(path: Path) -> bool:
     if path.is_file() and path.suffix.lower() in BINARY_EXTENSIONS:
         return True
     
-    # Check excluded files
+    # Check excluded files (exact match)
     if path.is_file() and path.name in EXCLUDE_FILES:
         return True
+    
+    # Check file patterns
+    if path.is_file():
+        for pattern in EXCLUDE_PATTERNS:
+            if path.name.endswith(pattern):
+                return True
     
     return False
 
@@ -73,20 +134,40 @@ def collect_code_files(source_dir: Path, dest_dir: Path) -> List[Path]:
     code_files = []
     
     for root, dirs, files in os.walk(source_dir):
-        # Filter out excluded directories
-        dirs[:] = [d for d in dirs if d not in EXCLUDE_DIRS]
-        
         root_path = Path(root)
         
+        # Get relative path for prefix matching
+        try:
+            rel_root = root_path.relative_to(source_dir)
+            rel_root_str = str(rel_root).replace('\\', '/')
+        except ValueError:
+            rel_root_str = ""
+        
+        # Filter out excluded directories (both by name and by path prefix)
+        filtered_dirs = []
+        for d in dirs:
+            if d in EXCLUDE_DIRS:
+                continue
+            # Check if full path matches any prefix
+            dir_rel_path = f"{rel_root_str}/{d}" if rel_root_str else d
+            excluded = False
+            for prefix in EXCLUDE_PATHS:
+                if dir_rel_path.startswith(prefix) or dir_rel_path == prefix:
+                    excluded = True
+                    break
+            if not excluded:
+                filtered_dirs.append(d)
+        dirs[:] = filtered_dirs
+        
         # Skip if root itself should be excluded
-        if should_exclude(root_path):
+        if should_exclude(root_path, source_dir):
             continue
         
         for file in files:
             file_path = root_path / file
             
             # Skip excluded files
-            if should_exclude(file_path):
+            if should_exclude(file_path, source_dir):
                 continue
             
             # Skip hidden files except .gitignore and similar

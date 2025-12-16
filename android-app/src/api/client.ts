@@ -1,5 +1,5 @@
-import {API_BASE_URL} from '../utils/config';
-import {APIError} from '../types';
+import { API_BASE_URL } from '../utils/config';
+import { APIError } from '../types';
 
 class APIClient {
   private baseURL: string;
@@ -10,7 +10,7 @@ class APIClient {
 
   private async getSessionToken(): Promise<string | null> {
     try {
-      const {storage} = await import('../utils/storage');
+      const { storage } = await import('../utils/storage');
       return storage.getSessionToken();
     } catch {
       return null;
@@ -27,7 +27,7 @@ class APIClient {
       ...options,
       headers: {
         'Content-Type': 'application/json',
-        ...(sessionToken && {'X-Session-Token': sessionToken}),
+        ...(sessionToken && { 'X-Session-Token': sessionToken }),
         ...options.headers,
       },
     };
@@ -64,7 +64,7 @@ class APIClient {
   }
 
   async get<T>(endpoint: string, options?: RequestInit): Promise<T> {
-    return this.request<T>(endpoint, {...options, method: 'GET'});
+    return this.request<T>(endpoint, { ...options, method: 'GET' });
   }
 
   async post<T>(
@@ -92,7 +92,7 @@ class APIClient {
   }
 
   async delete<T>(endpoint: string, options?: RequestInit): Promise<T> {
-    return this.request<T>(endpoint, {...options, method: 'DELETE'});
+    return this.request<T>(endpoint, { ...options, method: 'DELETE' });
   }
 
   async postForm<T>(endpoint: string, formData: FormData): Promise<T> {
@@ -137,7 +137,7 @@ class APIClient {
   // For streaming responses (SSE)
   async stream(
     endpoint: string,
-    data?: any,
+    data: any,
     onChunk: (chunk: string) => void,
     onComplete?: (metadata?: any) => void,
   ): Promise<void> {
@@ -165,10 +165,10 @@ class APIClient {
       let buffer = '';
 
       while (true) {
-        const {done, value} = await reader.read();
+        const { done, value } = await reader.read();
         if (done) break;
 
-        buffer += decoder.decode(value, {stream: true});
+        buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split('\n');
         buffer = lines.pop() || '';
 

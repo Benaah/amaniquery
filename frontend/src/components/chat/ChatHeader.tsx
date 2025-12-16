@@ -11,6 +11,7 @@ interface ChatHeaderProps {
   showHistory: boolean
   isLoading: boolean
   onToggleHistory: () => void
+  onToggleSidebar?: () => void
   onShare: () => void
   HistoryIcon?: LucideIcon
 }
@@ -21,6 +22,7 @@ export function ChatHeader({
   currentSessionId,
   showHistory,
   onToggleHistory,
+  onToggleSidebar,
   onShare,
   HistoryIcon
 }: ChatHeaderProps) {
@@ -51,7 +53,13 @@ export function ChatHeader({
               variant={showHistory ? "default" : "outline"}
               size="sm"
               className="h-8 md:h-7 rounded-full px-2 md:px-2 text-[11px] flex-shrink-0"
-              onClick={onToggleHistory}
+              onClick={() => {
+                if (onToggleSidebar && window.innerWidth < 768) {
+                  onToggleSidebar()
+                } else {
+                  onToggleHistory()
+                }
+              }}
             >
               {HistoryIcon ? <HistoryIcon className="w-3 h-3 md:mr-1" /> : <History className="w-3 h-3 md:mr-1" />}
               <span className="hidden md:inline">History</span>

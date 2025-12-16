@@ -1,15 +1,22 @@
 """
-Module6_NiruVoice - LiveKit Voice Agent for AmaniQuery
+Module6_NiruVoice - Voice Module for AmaniQuery
 
-This module provides a professional voice agent using LiveKit Agents framework
-that integrates with AmaniQuery's RAG pipeline to answer voice queries about
-Kenyan legal, parliamentary, and news intelligence.
+Provides text-to-speech using Microsoft VibeVoice and integrates with RAG pipeline.
+This is a simplified module that uses HTTP endpoints instead of LiveKit WebSockets.
 """
 
-__version__ = "1.0.0"
+from Module6_NiruVoice.vibevoice_tts import (
+    VibeVoiceTTS,
+    get_tts,
+    synthesize,
+)
+from Module6_NiruVoice.rag_integration import VoiceRAGIntegration
 
-from Module6_NiruVoice.voice_agent import AmaniQueryVoiceAgent
-from Module6_NiruVoice.agent_config import VoiceAgentConfig
+__all__ = [
+    "VibeVoiceTTS",
+    "get_tts",
+    "synthesize",
+    "VoiceRAGIntegration",
+]
 
-__all__ = ["AmaniQueryVoiceAgent", "VoiceAgentConfig"]
-
+__version__ = "2.0.0"  # Major version bump for refactor

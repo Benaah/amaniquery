@@ -243,6 +243,7 @@ class ConstitutionalAlignmentPipeline:
     ) -> AlignmentContext:
         """
         Perform dual retrieval: Bill context + Constitution context
+        Uses async parallel retrieval for 2x speedup.
         """
         import asyncio
         
@@ -254,44 +255,56 @@ class ConstitutionalAlignmentPipeline:
         constitution_search_query = self._construct_constitution_search_query(query, query_analysis)
         logger.info(f"Constitution search query: {constitution_search_query}")
         
-        # Run both retrievals concurrently
+        # Async retrieval with run_in_executor for blocking calls
         async def retrieve_bill():
-            bill_results = self.vector_store.query(
-                query_text=bill_search_query,
-                n_results=bill_top_k,
-                filter={"category": "Bill"},  # Filter for Bills only
-                namespace=["kenya_law"]
-            )
-            
-            # If no Bills found, try Acts
-            if not bill_results:
-                logger.warning("No Bills found, searching Acts...")
+            loop = asyncio.get_event_loop()
+            def _sync_query():
                 bill_results = self.vector_store.query(
                     query_text=bill_search_query,
                     n_results=bill_top_k,
-                    filter={"category": "Act"},
+                    filter={"category": "Bill"},
                     namespace=["kenya_law"]
                 )
-            
-            return bill_results
+                
+                # If no Bills found, try Acts
+                if not bill_results:
+                    logger.warning("No Bills found, searching Acts...")
+                    bill_results = self.vector_store.query(
+                        query_text=bill_search_query,
+                        n_results=bill_top_k,
+                        filter={"category": "Act"},
+                        namespace=["kenya_law"]
+                    )
+                return bill_results
+            return await loop.run_in_executor(None, _sync_query)
         
         async def retrieve_constitution():
-            constitution_results = self.vector_store.query(
-                query_text=constitution_search_query,
-                n_results=constitution_top_k,
-                filter={"category": "Constitution"},
-                namespace=["kenya_law"]
-            )
-            return constitution_results
+            loop = asyncio.get_event_loop()
+            def _sync_query():
+                return self.vector_store.query(
+                    query_text=constitution_search_query,
+                    n_results=constitution_top_k,
+                    filter={"category": "Constitution"},
+                    namespace=["kenya_law"]
+                )
+            return await loop.run_in_executor(None, _sync_query)
         
-        # Run concurrently
-        bill_results, constitution_results = asyncio.run(
-            asyncio.gather(retrieve_bill(), retrieve_constitution())
-        )
+        # Get or create event loop
+        try:
+            loop = asyncio.get_running_loop()
+            # We're already in an async context
+            bill_task = loop.create_task(retrieve_bill())
+            const_task = loop.create_task(retrieve_constitution())
+            bill_results, constitution_results = await asyncio.gather(bill_task, const_task)
+        except RuntimeError:
+            # No running loop, create one
+            bill_results, constitution_results = asyncio.run(
+                asyncio.gather(retrieve_bill(), retrieve_constitution())
+            )
         
         return AlignmentContext(
-            bill_chunks=bill_results,
-            constitution_chunks=constitution_results,
+            bill_chunks=bill_results or [],
+            constitution_chunks=constitution_results or [],
             query=query,
             bill_name=query_analysis["bill_name"],
             legal_concept=query_analysis["legal_concepts"][0] if query_analysis["legal_concepts"] else None

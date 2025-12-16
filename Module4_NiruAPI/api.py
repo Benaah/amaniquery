@@ -69,6 +69,7 @@ from Module4_NiruAPI.routers.finetuning_router import router as finetuning_route
 from Module4_NiruAPI.routers.feedback_analytics_router import router as feedback_analytics_router
 from Module4_NiruAPI.routers.voice_router import router as voice_router
 from Module4_NiruAPI.routers.media_router import router as media_router
+from Module4_NiruAPI.routers.admin_settings_router import router as admin_settings_router
 
 
 # ============================================================
@@ -800,6 +801,7 @@ app.include_router(finetuning_router)
 app.include_router(feedback_analytics_router)
 app.include_router(voice_router)
 app.include_router(media_router)
+app.include_router(admin_settings_router)
 
 # ============================================================
 #     Endpoints

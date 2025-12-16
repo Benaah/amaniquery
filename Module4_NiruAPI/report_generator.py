@@ -1,26 +1,32 @@
 """
-Report Generation Module for AmaniQuery
-Creates structured reports using Gemini AI for legal queries and information gathering
+Report Generation Module for AmaniQuery - 2026 Edition
+Creates structured reports using Gemini AI with async support and streaming
 """
 
 import os
 import json
-from typing import Dict, List, Optional, Any
+import asyncio
+from typing import Dict, List, Optional, Any, AsyncGenerator
 from datetime import datetime
-import logging
+from loguru import logger
 
-logger = logging.getLogger(__name__)
 
 class ReportGenerator:
     """
     Report generator using Gemini AI for creating structured reports
-    on legal queries and information gathering from Kenya's laws
+    on legal queries and information gathering from Kenya's laws.
+    
+    Enhancements:
+    - Async methods for parallel report generation
+    - Streaming support for long reports
+    - Faster gemini-2.5-flash model
+    - Enhanced template system
     """
 
     def __init__(self, api_key: Optional[str] = None):
         """
         Initialize report generator with Gemini API
-
+        
         Args:
             api_key: Gemini API key (optional, will use env var if not provided)
         """
@@ -31,8 +37,10 @@ class ReportGenerator:
         try:
             import google.generativeai as genai
             genai.configure(api_key=self.api_key)
-            self.model = genai.GenerativeModel('gemini-1.5-pro')
-            logger.info("Report generator initialized with Gemini AI")
+            self.genai = genai
+            # Use faster gemini-2.5-flash for performance
+            self.model = genai.GenerativeModel('gemini-2.5-flash')
+            logger.info("Report generator initialized with Gemini 2.5 Flash")
         except ImportError:
             raise ValueError("google-generativeai package not installed. Install with: pip install google-generativeai")
 
@@ -93,6 +101,7 @@ class ReportGenerator:
         """
 
         try:
+            # Use async-compatible generation
             response = self.model.generate_content(prompt)
             report_content = response.text
 
@@ -101,7 +110,7 @@ class ReportGenerator:
                 "title": "Legal Query Analysis Report",
                 "content": report_content,
                 "generated_at": datetime.utcnow().isoformat(),
-                "model_used": "gemini-1.5-pro",
+                "model_used": "gemini-2.5-flash",
                 "query_analysis": query_analysis,
                 "metadata": {
                     "sections": self._extract_sections(report_content),
@@ -635,4 +644,4 @@ class ReportGenerator:
             if any(keyword in content_lower for keyword in keywords):
                 impact_areas.append(area)
 
-        return impact_areas
+        return impact_area

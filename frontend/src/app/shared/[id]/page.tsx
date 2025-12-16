@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from "react"
 import { useParams } from "next/navigation"
 import Link from "next/link"
-import { MessageList } from "@/components/chat/MessageList"
+import { AmaniMessageList } from "@/components/chat/AmaniMessageList"
 import { Message } from "@/components/chat/types"
 import { Loader2 } from "lucide-react"
 import { toast } from "sonner"
@@ -94,12 +94,10 @@ export default function SharedChatPage() {
       </header>
       
       <div className="flex-1 flex flex-col relative z-10 min-h-0 overflow-hidden">
-         <div className="flex-1 flex flex-col max-w-5xl mx-auto w-full min-h-0">
-            <MessageList
+          <div className="flex-1 flex flex-col max-w-5xl mx-auto w-full min-h-0">
+            <AmaniMessageList
               messages={messages}
               isLoading={false}
-              isResearchMode={false}
-              useHybrid={false}
               onSendMessage={noOp}
               onRegenerate={noOp}
               onFeedback={noOp}
@@ -107,17 +105,13 @@ export default function SharedChatPage() {
               onShare={noOp}
               onGeneratePDF={noOp}
               onGenerateWord={noOp}
-              showSources={showSources}
-              onToggleSources={() => setShowSources(!showSources)}
-              messagesContainerRef={messagesContainerRef}
-              messagesEndRef={messagesEndRef}
+              showInlineSources={showSources}
               editingMessageId={null}
               editingContent=""
               setEditingContent={noOp}
               onSaveEdit={noOp}
               onCancelEdit={noOp}
               onStartEdit={noOp}
-              regeneratingMessageId={null}
               shareSheet={null}
               onCloseShareSheet={noOp}
               onChangeSharePlatform={noOp}
@@ -133,12 +127,16 @@ export default function SharedChatPage() {
                 whatsapp: null,
                 telegram: null,
                 email: null,
+                threads: null,
+                bluesky: null,
+                tiktok: null
               }}
               onCopyFailedQuery={noOp}
               onEditFailedQuery={noOp}
               onResendFailedQuery={noOp}
+              className="h-full"
             />
-         </div>
+          </div>
       </div>
     </div>
   )

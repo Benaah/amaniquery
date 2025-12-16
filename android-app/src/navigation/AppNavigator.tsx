@@ -4,11 +4,13 @@ import {NavigationContainer} from '@react-navigation/native';
 import {createBottomTabNavigator} from '@react-navigation/bottom-tabs';
 import {createStackNavigator} from '@react-navigation/stack';
 import {useAuth} from '../hooks/useAuth';
+import {useTheme} from '../hooks/useTheme';
 import {ActivityIndicator, View, StyleSheet} from 'react-native';
 import {HomeScreen} from '../screens/HomeScreen';
 import {ChatScreen} from '../screens/ChatScreen';
 import {VoiceScreen} from '../screens/VoiceScreen';
 import {NotificationsScreen} from '../screens/NotificationsScreen';
+import {SettingsScreen} from '../screens/SettingsScreen';
 import {SignInScreen} from '../screens/auth/SignInScreen';
 import {SignUpScreen} from '../screens/auth/SignUpScreen';
 import {ForgotPasswordScreen} from '../screens/auth/ForgotPasswordScreen';
@@ -18,16 +20,18 @@ const Stack = createStackNavigator();
 const AuthStack = createStackNavigator();
 
 const MainTabs = () => {
+  const {isDarkMode, colors} = useTheme();
+
   return (
     <Tab.Navigator
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: '#007AFF',
-        tabBarInactiveTintColor: '#6C757D',
+        tabBarActiveTintColor: colors.primary,
+        tabBarInactiveTintColor: colors.textSecondary,
         tabBarStyle: {
-          backgroundColor: '#FFFFFF',
+          backgroundColor: colors.background,
           borderTopWidth: 1,
-          borderTopColor: '#E9ECEF',
+          borderTopColor: colors.border,
         },
       }}>
       <Tab.Screen
@@ -35,7 +39,7 @@ const MainTabs = () => {
         component={HomeScreen}
         options={{
           tabBarLabel: 'Home',
-          tabBarIcon: ({color, size}) => (
+          tabBarIcon: ({color, size}: {color: string; size: number}) => (
             <Icon name="home" size={size || 24} color={color} />
           ),
         }}
@@ -45,7 +49,7 @@ const MainTabs = () => {
         component={ChatScreen}
         options={{
           tabBarLabel: 'Chat',
-          tabBarIcon: ({color, size}) => (
+          tabBarIcon: ({color, size}: {color: string; size: number}) => (
             <Icon name="chatbubbles" size={size || 24} color={color} />
           ),
         }}
@@ -55,7 +59,7 @@ const MainTabs = () => {
         component={VoiceScreen}
         options={{
           tabBarLabel: 'Voice',
-          tabBarIcon: ({color, size}) => (
+          tabBarIcon: ({color, size}: {color: string; size: number}) => (
             <Icon name="mic" size={size || 24} color={color} />
           ),
         }}
@@ -64,9 +68,19 @@ const MainTabs = () => {
         name="Notifications"
         component={NotificationsScreen}
         options={{
-          tabBarLabel: 'Notifications',
-          tabBarIcon: ({color, size}) => (
+          tabBarLabel: 'Alerts',
+          tabBarIcon: ({color, size}: {color: string; size: number}) => (
             <Icon name="notifications" size={size || 24} color={color} />
+          ),
+        }}
+      />
+      <Tab.Screen
+        name="Settings"
+        component={SettingsScreen}
+        options={{
+          tabBarLabel: 'Settings',
+          tabBarIcon: ({color, size}: {color: string; size: number}) => (
+            <Icon name="settings" size={size || 24} color={color} />
           ),
         }}
       />

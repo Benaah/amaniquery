@@ -1,5 +1,4 @@
 {
-  "extends": "@react-native/typescript-config/tsconfig.json",
   "compilerOptions": {
     "allowJs": true,
     "allowSyntheticDefaultImports": true,
@@ -7,6 +6,7 @@
     "isolatedModules": true,
     "jsx": "react-native",
     "lib": ["es2017"],
+    "module": "esnext",
     "moduleResolution": "node",
     "noEmit": true,
     "strict": true,
@@ -25,4 +25,5 @@
     "jest.config.js"
   ]
 }
+
 

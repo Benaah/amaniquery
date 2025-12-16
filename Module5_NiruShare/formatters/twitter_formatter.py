@@ -110,105 +110,100 @@ class TwitterFormatter(BaseFormatter):
         hashtags: List[str],
         query: Optional[str] = None
     ) -> List[str]:
-        """Format as Twitter thread"""
+        """Format as Twitter thread with better handling for long content"""
         tweets = []
         
-        # First tweet: Query + intro (more natural)
+        # First tweet: Query + hook
         if query:
             query_text = str(query).strip()
-            intro = f"{query_text}\n\nA thread:"
+            # If query is short, use it as hook
+            if len(query_text) < 100:
+                intro = f"🧵 {query_text}\n\nHere's what I found:"
+            else:
+                intro = "🧵 Here's a thread on this:"
         else:
-            intro = "Here's what I found:\n\n"
+            intro = "🧵 Here's what I found:"
         
-        # Ensure intro fits
-        if len(intro) > self.SINGLE_TWEET_LIMIT:
-            intro = intro[:self.SINGLE_TWEET_LIMIT - 3] + "..."
         tweets.append(intro)
         
-        # Split answer into tweet-sized chunks
-        key_points = self._extract_key_points(answer, max_points=5)
+        # Split answer into sentences first to avoid breaking mid-sentence
+        # This is a simple split, for production might want nltk or spacy but keeping dependencies low
+        sentences = answer.replace('!', '!<STOP>').replace('?', '?<STOP>').replace('.', '.<STOP>').split('<STOP>')
+        sentences = [s.strip() for s in sentences if s.strip()]
         
-        if not key_points:
-            # Fallback: split answer into chunks
-            chunk_size = self.SINGLE_TWEET_LIMIT - 30  # Reserve space for numbering
-            words = answer.split()
-            current_chunk = []
-            current_length = 0
-            
-            for word in words:
-                word_len = len(word) + 1  # +1 for space
-                if current_length + word_len > chunk_size and current_chunk:
-                    key_points.append(" ".join(current_chunk))
-                    current_chunk = [word]
-                    current_length = len(word)
-                else:
-                    current_chunk.append(word)
-                    current_length += word_len
-            
-            if current_chunk:
-                key_points.append(" ".join(current_chunk))
-        
-        # Format each point as a tweet
-        total_points = len(key_points)
-        for i, point in enumerate(key_points, 1):
-            # Reserve space for numbering (e.g., "1/5 ")
-            numbering = f"{i}/{total_points} "
-            available = self.SINGLE_TWEET_LIMIT - len(numbering)
-            
-            tweet_content = self._truncate_smart(point, available, suffix="")
-            tweet = f"{numbering}{tweet_content}".strip()
-            
-            # Ensure it fits
-            if len(tweet) > self.SINGLE_TWEET_LIMIT:
-                tweet = tweet[:self.SINGLE_TWEET_LIMIT - 3] + "..."
-            
-            tweets.append(tweet)
-        
-        # Last tweet: Sources and hashtags (more natural)
-        sources_parts = []
-        sources_parts.append("Sources:")
-        
-        for i, source in enumerate(sources[:2], 1):
-            if not isinstance(source, dict):
-                continue
-            
-            title = str(source.get('title', 'Untitled')).strip()
-            url = str(source.get('url', '')).strip()
-            
-            # Truncate title if needed
-            if len(title) > 40:
-                title = title[:37] + "..."
-            
-            if url:
-                # More natural format
-                sources_parts.append(f"{i}. {title} - {url}")
+        current_tweet = ""
+        # Reserve space for numbering like "1/xx " (approx 5-6 chars)
+        NUMBERING_RESERVE = 8 
+        limit_with_numbering = self.SINGLE_TWEET_LIMIT - NUMBERING_RESERVE
+
+        # Buffer tweets content first, then number them later
+        tweet_contents = []
+
+        for sentence in sentences:
+            # If sentence itself is longer than limit, we must force split it
+            # But usually sentences are shorter.
+            if len(sentence) > limit_with_numbering:
+                # If specific sentence is huge, chunk it by words
+                words = sentence.split()
+                for word in words:
+                    if len(current_tweet) + len(word) + 1 < limit_with_numbering:
+                        current_tweet += (word + " ")
+                    else:
+                        if current_tweet:
+                            tweet_contents.append(current_tweet.strip())
+                        current_tweet = word + " "
             else:
-                sources_parts.append(f"{i}. {title}")
+                # Normal sentence handling
+                if len(current_tweet) + len(sentence) + 1 < limit_with_numbering:
+                    current_tweet += (sentence + " ")
+                else:
+                    if current_tweet:
+                        tweet_contents.append(current_tweet.strip())
+                    current_tweet = sentence + " "
+        
+        if current_tweet:
+            tweet_contents.append(current_tweet.strip())
+            
+        # Add buffered contents to tweets with numbering
+        # Note: tweets[0] is the intro.
+        # The content tweets start from index 1.
+        
+        total_content_tweets = len(tweet_contents)
+        for i, content in enumerate(tweet_contents, 1):
+             tweets.append(f"{i}/{total_content_tweets} {content}")
+
+        # Last tweet: Sources and hashtags
+        sources_parts = []
+        if sources:
+             sources_parts.append("Sources:")
+             for i, source in enumerate(sources[:2], 1):
+                if isinstance(source, dict):
+                    title = str(source.get('title', 'Untitled')).strip()
+                    url = str(source.get('url', '')).strip()
+                    if len(title) > 40:
+                        title = title[:37] + "..."
+                    if url:
+                        sources_parts.append(f"• {title} - {url}")
+                    else:
+                        sources_parts.append(f"• {title}")
         
         sources_text = "\n".join(sources_parts)
-        
         hashtag_text = " ".join(hashtags[:5]) if hashtags else ""
         
-        # Combine sources and hashtags
+        final_footer = ""
+        if sources_text:
+            final_footer += f"\n\n{sources_text}"
         if hashtag_text:
-            last_tweet = f"{sources_text}\n\n{hashtag_text}".strip()
-        else:
-            last_tweet = sources_text.strip()
-        
-        # Check if it fits
-        if len(last_tweet) <= self.SINGLE_TWEET_LIMIT:
-            tweets.append(last_tweet)
-        else:
-            # Split sources and hashtags if needed
-            if len(sources_text) <= self.SINGLE_TWEET_LIMIT:
-                tweets.append(sources_text)
-            else:
-                # Truncate sources
-                truncated_sources = sources_text[:self.SINGLE_TWEET_LIMIT - 3] + "..."
-                tweets.append(truncated_sources)
+            final_footer += f"\n\n{hashtag_text}"
             
-            if hashtag_text and len(hashtag_text) <= self.SINGLE_TWEET_LIMIT:
-                tweets.append(hashtag_text)
+        final_footer = final_footer.strip()
+        
+        if final_footer:
+            # Check if footer fits in the very last tweet or needs a new one
+            if len(tweets[-1]) + len(final_footer) + 2 < self.SINGLE_TWEET_LIMIT:
+                tweets[-1] += f"\n\n{final_footer}"
+            else:
+                tweets.append(final_footer)
         
         return tweets
     

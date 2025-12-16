@@ -97,7 +97,7 @@ export interface StreamMetadata {
     sources?: Source[]
 }
 
-export type SharePlatform = "twitter" | "linkedin" | "facebook" | "whatsapp" | "telegram" | "email"
+export type SharePlatform = "twitter" | "linkedin" | "facebook" | "whatsapp" | "telegram" | "email" | "threads" | "bluesky" | "tiktok"
 
 export interface ShareFormatResponse {
     platform: SharePlatform

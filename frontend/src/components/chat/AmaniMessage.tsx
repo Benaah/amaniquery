@@ -1,0 +1,425 @@
+"use client"
+
+import { useState, useRef, useEffect } from "react"
+import { cn } from "@/lib/utils"
+import { Button } from "@/components/ui/button"
+import { 
+  Bot, 
+  User, 
+  Copy, 
+  RotateCw, 
+  ThumbsUp, 
+  ThumbsDown,
+  MoreVertical,
+  ExternalLink,
+  Check,
+  Pencil,
+  AlertTriangle,
+  RefreshCw
+} from "lucide-react"
+import { Textarea } from "@/components/ui/textarea"
+import ReactMarkdown from "react-markdown"
+import remarkGfm from "remark-gfm"
+import rehypeHighlight from "rehype-highlight"
+import type { Message, Source } from "./types"
+
+interface AmaniMessageProps {
+  message: Message
+  onCopy: (content: string) => void
+  onRegenerate: (messageId: string) => void
+  onFeedback: (messageId: string, type: "like" | "dislike") => void
+  isLoading?: boolean
+  showFeedback?: boolean
+  isEditing?: boolean
+  editingContent?: string
+  onEditChange?: (content: string) => void
+  onSaveEdit?: (messageId: string) => void
+  onCancelEdit?: () => void
+  onStartEdit?: (message: Message) => void
+  onCopyFailed?: (message: Message) => void
+  onEditFailed?: (message: Message) => void
+  onResendFailed?: (message: Message) => void
+}
+
+interface InlineCitationProps {
+  source: Source
+  index: number
+  onHover: (source: Source | null) => void
+}
+
+function InlineCitation({ source, index, onHover }: InlineCitationProps) {
+  return (
+    <sup
+      className="inline-flex items-center justify-center w-5 h-5 text-xs font-medium text-primary bg-primary/10 rounded-full cursor-pointer hover:bg-primary/20 transition-colors ml-1"
+      onMouseEnter={() => onHover(source)}
+      onMouseLeave={() => onHover(null)}
+      onClick={() => window.open(source.url, '_blank')}
+    >
+      {index}
+    </sup>
+  )
+}
+
+interface CitationTooltipProps {
+  source: Source | null
+  position: { x: number; y: number }
+}
+
+function CitationTooltip({ source, position }: CitationTooltipProps) {
+  if (!source) return null
+
+  return (
+    <div 
+      className="fixed z-50 bg-popover border rounded-lg shadow-lg p-3 max-w-sm"
+      style={{ left: position.x, top: position.y }}
+    >
+      <div className="space-y-2">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-medium text-muted-foreground">{source.source_name}</span>
+          <ExternalLink className="w-3 h-3 text-muted-foreground" />
+        </div>
+        <h4 className="text-sm font-medium leading-tight">{source.title}</h4>
+        <p className="text-xs text-muted-foreground line-clamp-3">{source.excerpt}</p>
+      </div>
+    </div>
+  )
+}
+
+function processContentWithCitations(content: string, sources?: Source[]) {
+  if (!sources || sources.length === 0) return content
+
+  let processedContent = content
+  sources.forEach((source, index) => {
+    const citationPattern = new RegExp(`\\[${index + 1}\\]`, 'g')
+    processedContent = processedContent.replace(citationPattern, `{{CITATION:${index}}}`)
+  })
+
+  return processedContent
+}
+
+export function AmaniMessage({ 
+  message, 
+  onCopy, 
+  onRegenerate, 
+  onFeedback, 
+  isLoading = false,
+  showFeedback = true,
+  isEditing = false,
+  editingContent = "",
+  onEditChange,
+  onSaveEdit,
+  onCancelEdit,
+  onStartEdit,
+  onCopyFailed,
+  onEditFailed,
+  onResendFailed
+}: AmaniMessageProps) {
+  const [hoveredSource, setHoveredSource] = useState<Source | null>(null)
+  const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 })
+  const [hasCopied, setHasCopied] = useState(false)
+  const [showActions, setShowActions] = useState(false)
+  const messageRef = useRef<HTMLDivElement>(null)
+
+  const isUser = message.role === "user"
+  const hasFeedback = message.feedback_type !== undefined
+
+  const handleCopy = async () => {
+    await onCopy(message.content)
+    setHasCopied(true)
+    setTimeout(() => setHasCopied(false), 2000)
+  }
+
+  const handleSourceHover = (source: Source | null, event?: React.MouseEvent) => {
+    setHoveredSource(source)
+    if (source && event) {
+      const rect = event.currentTarget.getBoundingClientRect()
+      setTooltipPosition({
+        x: rect.right + 10,
+        y: rect.top
+      })
+    }
+  }
+
+  const renderContent = () => {
+    const processedContent = processContentWithCitations(message.content, message.sources)
+    const parts = processedContent.split(/(\{\{CITATION:\d+\}\})/g)
+
+    return (
+    <div className="space-y-4">
+        {/* Failed Message State */}
+        {message.failed && (
+            <div className="flex flex-col gap-2 p-3 border border-red-200 bg-red-50 rounded-lg text-red-700 text-sm">
+                <div className="flex items-center gap-2 font-medium">
+                    <AlertTriangle className="w-4 h-4" />
+                    <span>Failed to send message</span>
+                </div>
+                <div className="flex items-center gap-2">
+                    {onResendFailed && (
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 border-red-200 hover:bg-red-100 hover:text-red-800"
+                            onClick={() => onResendFailed(message)}
+                        >
+                            <RefreshCw className="w-3 h-3 mr-1" />
+                            Retry
+                        </Button>
+                    )}
+                    {onEditFailed && (
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 hover:bg-red-100 hover:text-red-800"
+                            onClick={() => onEditFailed(message)}
+                        >
+                            <Pencil className="w-3 h-3 mr-1" />
+                            Edit
+                        </Button>
+                    )}
+                    {onCopyFailed && (
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 hover:bg-red-100 hover:text-red-800"
+                            onClick={() => onCopyFailed(message)}
+                        >
+                            <Copy className="w-3 h-3 mr-1" />
+                            Copy
+                        </Button>
+                    )}
+                </div>
+            </div>
+        )}
+
+      {!message.failed && (
+        <>
+            <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        rehypePlugins={[rehypeHighlight]}
+        components={{
+            p: ({ children }) => <p className="mb-4 last:mb-0">{children}</p>,
+            h1: ({ children }) => <h1 className="text-xl font-semibold mb-3 mt-4">{children}</h1>,
+            h2: ({ children }) => <h2 className="text-lg font-semibold mb-2 mt-3">{children}</h2>,
+            h3: ({ children }) => <h3 className="text-base font-semibold mb-2 mt-2">{children}</h3>,
+            ul: ({ children }) => <ul className="list-disc list-inside mb-4 space-y-1">{children}</ul>,
+            ol: ({ children }) => <ol className="list-decimal list-inside mb-4 space-y-1">{children}</ol>,
+            li: ({ children }) => <li className="mb-1">{children}</li>,
+            blockquote: ({ children }) => (
+            <blockquote className="border-l-4 border-primary/20 pl-4 my-4 italic text-muted-foreground">
+                {children}
+            </blockquote>
+            ),
+            code: ({ children, className, ...props }) => {
+            // Check if this is inline code by looking at the className
+            // Code blocks have a language class (e.g., "language-js"), inline code doesn't
+            const isInline = !className || !className.startsWith("language-")
+            return isInline ? (
+                <code className="bg-muted px-1.5 py-0.5 rounded text-sm font-mono" {...props}>
+                {children}
+                </code>
+            ) : (
+                <code className={`block bg-muted p-4 rounded-lg text-sm font-mono overflow-x-auto ${className || ""}`} {...props}>
+                {children}
+                </code>
+            )
+            },
+        }}
+        >
+        {processedContent.replace(/\{\{CITATION:(\d+)\}\}/g, (match, index) => {
+            const source = message.sources?.[parseInt(index)]
+            return source ? `[${parseInt(index) + 1}]` : match
+        })}
+        </ReactMarkdown>
+
+        {message.sources && message.sources.length > 0 && (
+        <div className="flex flex-wrap gap-2 pt-2">
+            {message.sources.map((source, index) => (
+            <InlineCitation
+                key={index}
+                source={source}
+                index={index + 1}
+                onHover={(source) => handleSourceHover(source)}
+            />
+            ))}
+        </div>
+        )}
+        </>
+      )}
+    </div>
+  )
+}
+
+  return (
+    <div 
+      ref={messageRef}
+      className={cn(
+        "group relative flex gap-4 p-4 rounded-2xl transition-all duration-200",
+        isUser ? "flex-row-reverse" : "flex-row",
+        isLoading && "opacity-75"
+      )}
+      onMouseEnter={() => setShowActions(true)}
+      onMouseLeave={() => {
+        setShowActions(false)
+        setHoveredSource(null)
+      }}
+    >
+      {/* Avatar */}
+      <div className={cn(
+        "flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center",
+        isUser ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
+      )}>
+        {isUser ? (
+          <User className="w-4 h-4" />
+        ) : (
+          <Bot className="w-4 h-4" />
+        )}
+      </div>
+
+      {/* Message Content */}
+      <div className={cn(
+        "flex-1 max-w-3xl space-y-3",
+        isUser ? "text-right" : "text-left"
+      )}>
+        <div className={cn(
+          "inline-block px-4 py-3 rounded-2xl",
+          isUser 
+            ? "bg-primary text-primary-foreground rounded-br-sm" 
+            : "bg-muted rounded-bl-sm"
+        )}>
+          {isEditing ? (
+            <div className="flex flex-col gap-3 min-w-[300px]">
+                <Textarea
+                    value={editingContent}
+                    onChange={(e) => onEditChange?.(e.target.value)}
+                    className="bg-transparent border-primary/20 focus:border-primary text-primary-foreground placeholder:text-primary-foreground/50 resize-none min-h-[100px]"
+                />
+                <div className="flex justify-end gap-2">
+                    <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-8 bg-transparent text-primary-foreground border-primary-foreground/20 hover:bg-primary-foreground/20 hover:text-primary-foreground"
+                        onClick={onCancelEdit}
+                    >
+                        Cancel
+                    </Button>
+                    <Button
+                        size="sm"
+                        variant="secondary"
+                        className="h-8 bg-white text-primary hover:bg-white/90"
+                        onClick={() => onSaveEdit?.(message.id)}
+                    >
+                        Save
+                    </Button>
+                </div>
+            </div>
+          ) : (
+            renderContent()
+          )}
+        </div>
+
+        {/* Message Actions */}
+        {showActions && !isEditing && (
+            <div className={cn(
+                "flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity",
+                isUser && "opacity-100" // Keep visible for user when hovering group
+            )}>
+
+          {!isUser && (
+            <>
+             <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-muted-foreground hover:text-foreground"
+              onClick={handleCopy}
+            >
+              {hasCopied ? (
+                <Check className="w-3 h-3" />
+              ) : (
+                <Copy className="w-3 h-3" />
+              )}
+            </Button>
+
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-muted-foreground hover:text-foreground"
+              onClick={() => onRegenerate(message.id)}
+            >
+              <RotateCw className="w-3 h-3" />
+            </Button>
+            
+             {showFeedback && (
+              <>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className={cn(
+                    "h-7 px-2",
+                    message.feedback_type === "like" 
+                      ? "text-green-600 bg-green-50" 
+                      : "text-muted-foreground hover:text-green-600"
+                  )}
+                  onClick={() => onFeedback(message.id, "like")}
+                >
+                  <ThumbsUp className="w-3 h-3" />
+                </Button>
+
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className={cn(
+                    "h-7 px-2",
+                    message.feedback_type === "dislike" 
+                      ? "text-red-600 bg-red-50" 
+                      : "text-muted-foreground hover:text-red-600"
+                  )}
+                  onClick={() => onFeedback(message.id, "dislike")}
+                >
+                  <ThumbsDown className="w-3 h-3" />
+                </Button>
+              </>
+            )}
+
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-muted-foreground hover:text-foreground"
+            >
+              <MoreVertical className="w-3 h-3" />
+            </Button>
+            </>
+          )}
+
+           {isUser && onStartEdit && (
+                <div className="flex items-center gap-1">
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-2 text-muted-foreground hover:text-foreground"
+                        onClick={() => onStartEdit(message)}
+                    >
+                        <Pencil className="w-3 h-3" />
+                    </Button>
+                     <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-2 text-muted-foreground hover:text-foreground"
+                        onClick={handleCopy}
+                        >
+                        {hasCopied ? (
+                            <Check className="w-3 h-3" />
+                        ) : (
+                            <Copy className="w-3 h-3" />
+                        )}
+                    </Button>
+                </div>
+           )}
+          </div>
+        )}
+      </div>
+
+      {/* Citation Tooltip */}
+      <CitationTooltip source={hoveredSource} position={tooltipPosition} />
+    </div>
+  )
+}

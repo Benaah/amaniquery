@@ -1,10 +1,53 @@
 {
-  "name": "AmaniQuery",
-  "displayName": "AmaniQuery",
-  "version": "1.0.0",
-  "extra": {
-    "eas": {
-      "projectId": "d85d2549-3dc1-423f-932e-2efe9aa27071"
+  "expo": {
+    "name": "AmaniQuery",
+    "slug": "amaniquery",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#007AFF"
+    },
+    "updates": {
+      "fallbackToCacheTimeout": 0
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.amaniquery.app",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "AmaniQuery needs microphone access for voice conversations with the AI assistant",
+        "NSSpeechRecognitionUsageDescription": "AmaniQuery uses speech recognition to transcribe your voice queries"
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#007AFF"
+      },
+      "package": "com.amaniquery",
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.INTERNET",
+        "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.VIBRATE",
+        "android.permission.USE_BIOMETRIC",
+        "android.permission.USE_FINGERPRINT"
+      ],
+      "versionCode": 1
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "0f69d084-8ee4-4d87-b79c-f2e532351b7e"
+      }
     }
   }
 }

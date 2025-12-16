@@ -1,16 +1,18 @@
 """
-Voice Router - REST API for Voice Agent with Kimi/LiveKit integration
-Provides endpoints for transcription, TTS, and full voice conversations
+Voice Router - Simplified REST API for Voice Agent with VibeVoice TTS
+
+Provides endpoints for text-to-speech and full voice conversations.
+Uses browser's Web Speech API for transcription (client-side).
 """
 import os
 import tempfile
 import asyncio
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 import time
 
-from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks, Request
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 from loguru import logger
 
@@ -21,52 +23,44 @@ router = APIRouter(prefix="/api/v1/voice", tags=["voice"])
 # REQUEST/RESPONSE MODELS
 # =============================================================================
 
-class TranscribeRequest(BaseModel):
-    language: str = "en"
-    provider: Optional[str] = None  # kimi, openai, auto
-
-
-class TranscribeResponse(BaseModel):
-    transcription: str
-    language: str
-    provider: str
-    duration_ms: float
-    confidence: Optional[float] = None
-
-
 class TTSRequest(BaseModel):
     text: str
-    voice: Optional[str] = "default"
-    provider: Optional[str] = None  # kimi, openai, auto
-    language: str = "en"
+    voice: Optional[str] = "Wayne"
+    cfg_scale: Optional[float] = 1.5
 
 
 class TTSResponse(BaseModel):
     audio_url: str
-    provider: str
     duration_ms: float
     text_length: int
+    voice: str
 
 
 class VoiceChatRequest(BaseModel):
+    """Request for voice chat - text input (transcription done client-side)"""
+    text: str
     category: str = "Kenyan Law"
-    language: str = "en"
-    session_id: Optional[str] = None
+    voice: Optional[str] = "Wayne"
 
 
 class VoiceChatResponse(BaseModel):
-    transcription: str
+    """Response with answer text and audio"""
     answer: str
-    sources: list
+    sources: List[Dict[str, Any]]
     audio_url: str
-    provider: Dict[str, str]  # {asr: "kimi", tts: "openai"}
     duration_ms: float
+
+
+class VoiceInfo(BaseModel):
+    name: str
+    language: str = "en"
 
 
 class HealthResponse(BaseModel):
     status: str
-    providers: Dict[str, Any]
-    uptime_seconds: float
+    tts_provider: str
+    voices: List[str]
+    device: str
 
 
 # =============================================================================
@@ -75,24 +69,26 @@ class HealthResponse(BaseModel):
 
 class _State:
     """Global state for voice module"""
-    kimi_provider = None
+    tts = None
     rag_integration = None
     start_time = time.time()
+    audio_files: Dict[str, float] = {}  # filename -> creation_time
 
 
 _state = _State()
 
 
-def get_kimi_provider():
-    """Get or create Kimi provider instance"""
-    if _state.kimi_provider is None:
+def get_tts():
+    """Get or create TTS instance"""
+    if _state.tts is None:
         try:
-            from Module6_NiruVoice.providers import get_kimi_provider as _get_kimi
-            _state.kimi_provider = _get_kimi()
-            logger.info("Kimi provider initialized")
+            from Module6_NiruVoice.vibevoice_tts import VibeVoiceTTS
+            _state.tts = VibeVoiceTTS()
+            logger.info("VibeVoice TTS initialized")
         except Exception as e:
-            logger.warning(f"Failed to initialize Kimi provider: {e}")
-    return _state.kimi_provider
+            logger.error(f"Failed to initialize VibeVoice TTS: {e}")
+            raise HTTPException(status_code=500, detail=f"TTS not available: {e}")
+    return _state.tts
 
 
 def get_rag_integration():
@@ -108,86 +104,26 @@ def get_rag_integration():
     return _state.rag_integration
 
 
+def cleanup_old_audio_files():
+    """Clean up audio files older than 5 minutes"""
+    now = time.time()
+    to_remove = []
+    
+    for filename, created_time in _state.audio_files.items():
+        if now - created_time > 300:  # 5 minutes
+            try:
+                Path(filename).unlink(missing_ok=True)
+                to_remove.append(filename)
+            except Exception:
+                pass
+    
+    for f in to_remove:
+        _state.audio_files.pop(f, None)
+
+
 # =============================================================================
 # ENDPOINTS
 # =============================================================================
-
-@router.post("/transcribe", response_model=TranscribeResponse)
-async def transcribe_audio(
-    file: UploadFile = File(..., description="Audio file (WAV, MP3, etc.)"),
-    language: str = "en",
-    provider: Optional[str] = None,
-):
-    """
-    Transcribe audio to text using Kimi (primary) or OpenAI (fallback)
-    
-    Error handling:
-    - Automatic retry with exponential backoff
-    - Provider failover (Kimi → OpenAI)
-    - Timeout protection
-    """
-    start_time = time.time()
-    temp_path = None
-    
-    try:
-        # Save uploaded file
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_file:
-            content = await file.read()
-            temp_file.write(content)
-            temp_path = temp_file.name
-        
-        # Determine provider (try Kimi first if not specified)
-        provider = provider or "kimi"
-        actual_provider = provider
-        transcription = None
-        
-        # Try Kimi first
-        if provider in ["auto", "kimi"]:
-            try:
-                kimi = get_kimi_provider()
-                if kimi:
-                    logger.info("[Voice API] Attempting Kimi ASR...")
-                    transcription = kimi.transcribe(temp_path, language=language)
-                    actual_provider = "kimi"
-                    logger.info(f"[Voice API] Kimi ASR success: {transcription[:50]}...")
-            except Exception as e:
-                logger.warning(f"[Voice API] Kimi ASR failed: {e}, falling back to OpenAI")
-                actual_provider = "openai"
-        
-        # Fallback to OpenAI Whisper
-        if not transcription and provider in ["auto", "openai"]:
-            try:
-                logger.info("[Voice API] Using OpenAI Whisper fallback...")
-                # TODO: Implement OpenAI Whisper API call
-                transcription = "[OpenAI Whisper transcription]"
-                actual_provider = "openai"
-            except Exception as e:
-                logger.error(f"[Voice API] OpenAI ASR also failed: {e}")
-                raise HTTPException(status_code=500, detail="All ASR providers failed")
-        
-        if not transcription:
-            raise HTTPException(status_code=400, detail="No speech detected")
-        
-        duration_ms = (time.time() - start_time) * 1000
-        
-        return TranscribeResponse(
-            transcription=transcription,
-            language=language,
-            provider=actual_provider,
-            duration_ms=duration_ms,
-            confidence=0.95
-        )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"[Voice API] Transcription failed: {e}")
-        raise HTTPException(status_code=500, detail=f"Transcription error: {str(e)}")
-    finally:
-        # Cleanup
-        if temp_path and Path(temp_path).exists():
-            Path(temp_path).unlink(missing_ok=True)
-
 
 @router.post("/speak", response_model=TTSResponse)
 async def text_to_speech(
@@ -195,285 +131,207 @@ async def text_to_speech(
     background_tasks: BackgroundTasks
 ):
     """
-    Convert text to speech using Kimi (primary) or OpenAI (fallback)
+    Convert text to speech using VibeVoice
     
-    Error handling:
-    - Automatic retry with exponential backoff
-    - Provider failover (Kimi → OpenAI → pico2wave)
-    - Graceful degradation
+    Returns audio URL that can be fetched separately.
     """
     start_time = time.time()
     
+    if not request.text or not request.text.strip():
+        raise HTTPException(status_code=400, detail="Text is required")
+    
+    if len(request.text) > 10000:
+        raise HTTPException(status_code=400, detail="Text too long (max 10000 chars)")
+    
     try:
-        provider = request.provider or "kimi"
-        actual_provider = provider
-        audio_path = None
+        tts = get_tts()
         
-        # Try Kimi TTS first
-        if provider in ["auto", "kimi"]:
-            try:
-                kimi = get_kimi_provider()
-                if kimi:
-                    logger.info("[Voice API] Attempting Kimi TTS...")
-                    output_path = f"temp_tts_{int(time.time())}.wav"
-                    audio_path = kimi.synthesize(
-                        request.text,
-                        output_path,
-                        voice=request.voice,
-                        language=request.language
-                    )
-                    actual_provider = "kimi"
-                    logger.info("[Voice API] Kimi TTS success")
-            except Exception as e:
-                logger.warning(f"[Voice API] Kimi TTS failed: {e}, falling back")
-                actual_provider = "openai"
+        # Generate audio
+        audio_bytes = await tts.synthesize(
+            text=request.text,
+            voice=request.voice,
+            cfg_scale=request.cfg_scale,
+        )
         
-        # Fallback to OpenAI TTS
-        if not audio_path and provider in ["auto", "openai"]:
-            try:
-                logger.info("[Voice API] Using OpenAI TTS fallback...")
-                # TODO: Implement OpenAI TTS API call
-                output_path = f"temp_tts_{int(time.time())}.wav"
-                # Placeholder
-                audio_path = output_path
-                actual_provider = "openai"
-            except Exception as e:
-                logger.error(f"[Voice API] OpenAI TTS also failed: {e}")
+        # Save to temp file
+        filename = f"tts_{int(time.time() * 1000)}.wav"
+        filepath = Path(tempfile.gettempdir()) / filename
+        filepath.write_bytes(audio_bytes)
         
-        # Last resort: pico2wave
-        if not audio_path:
-            logger.info("[Voice API] Using pico2wave fallback...")
-            output_path = f"temp_tts_{int(time.time())}.wav"
-            import subprocess
-            try:
-                subprocess.run([
-                    "pico2wave",
-                    "-w", output_path,
-                    "-l", "en-US",
-                    request.text
-                ], check=True, timeout=10)
-                audio_path = output_path
-                actual_provider = "pico2wave"
-            except Exception as e:
-                logger.error(f"[Voice API] Even pico2wave failed: {e}")
-                raise HTTPException(status_code=500, detail="All TTS providers failed")
-        
-        if not audio_path or not Path(audio_path).exists():
-            raise HTTPException(status_code=500, detail="TTS generation failed")
-        
-        # Schedule cleanup
-        def cleanup():
-            Path(audio_path).unlink(missing_ok=True)
-        background_tasks.add_task(cleanup)
+        # Track for cleanup
+        _state.audio_files[str(filepath)] = time.time()
+        background_tasks.add_task(cleanup_old_audio_files)
         
         duration_ms = (time.time() - start_time) * 1000
         
         return TTSResponse(
-            audio_url=f"/api/v1/voice/audio/{Path(audio_path).name}",
-            provider=actual_provider,
+            audio_url=f"/api/v1/voice/audio/{filename}",
             duration_ms=duration_ms,
-            text_length=len(request.text)
+            text_length=len(request.text),
+            voice=request.voice or "Wayne",
         )
         
-    except HTTPException:
-        raise
     except Exception as e:
-        logger.error(f"[Voice API] TTS failed: {e}")
+        logger.error(f"TTS failed: {e}")
+        raise HTTPException(status_code=500, detail=f"TTS error: {str(e)}")
+
+
+@router.post("/speak/stream")
+async def text_to_speech_stream(request: TTSRequest):
+    """
+    Convert text to speech and return audio directly (streaming response)
+    """
+    if not request.text or not request.text.strip():
+        raise HTTPException(status_code=400, detail="Text is required")
+    
+    try:
+        tts = get_tts()
+        audio_bytes = await tts.synthesize(
+            text=request.text,
+            voice=request.voice,
+            cfg_scale=request.cfg_scale,
+        )
+        
+        return Response(
+            content=audio_bytes,
+            media_type="audio/wav",
+            headers={
+                "Content-Disposition": f'attachment; filename="speech.wav"'
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"TTS stream failed: {e}")
         raise HTTPException(status_code=500, detail=f"TTS error: {str(e)}")
 
 
 @router.post("/chat", response_model=VoiceChatResponse)
 async def voice_chat(
-    file: UploadFile = File(..., description="Audio file with query"),
-    category: str = "Kenyan Law",
-    language: str = "en",
-    session_id: Optional[str] = None
+    request: VoiceChatRequest,
+    background_tasks: BackgroundTasks
 ):
     """
     Full voice conversation pipeline:
-    1. Transcribe audio (ASR)
-    2. Query RAG
-    3. Generate speech (TTS)
+    1. Receive transcribed text (client does STT via Web Speech API)
+    2. Query RAG for answer
+    3. Generate speech response (TTS)
     
-    Complete error handling with retry and fallback at each stage
+    Returns answer text and audio URL.
     """
     start_time = time.time()
-    temp_audio = None
-    response_audio = None
+    
+    if not request.text or not request.text.strip():
+        raise HTTPException(status_code=400, detail="Text is required")
     
     try:
-        # Save uploaded audio
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_file:
-            content = await file.read()
-            temp_file.write(content)
-            temp_audio = temp_file.name
-        
-        # Step 1: Transcribe (with retry and fallback)
-        logger.info("[Voice Chat] Step 1: Transcribing...")
-        transcription = None
-        asr_provider = "kimi"
-        
-        for attempt in range(3):  # 3 retry attempts
-            try:
-                kimi = get_kimi_provider()
-                if kimi:
-                    transcription = kimi.transcribe(temp_audio, language=language)
-                    break
-            except Exception as e:
-                logger.warning(f"[Voice Chat] ASR attempt {attempt+1} failed: {e}")
-                if attempt == 2:  # Last attempt
-                    asr_provider = "openai"
-                    transcription = "[OpenAI Whisper fallback]"
-                else:
-                    await asyncio.sleep(2 ** attempt)  # Exponential backoff
-        
-        if not transcription or transcription.strip() == "":
-            raise HTTPException(status_code=400, detail="No speech detected in audio")
-        
-        logger.info(f"[Voice Chat] Transcribed: {transcription[:50]}...")
-        
-        # Step 2: Query RAG
-        logger.info("[Voice Chat] Step 2: Querying RAG...")
+        # Step 1: Query RAG
+        logger.info(f"[Voice Chat] Query: {request.text[:50]}...")
         rag = get_rag_integration()
         
         rag_response = None
         for attempt in range(3):
             try:
-                rag_response = rag.query(transcription)
+                rag_response = rag.query(request.text)
                 break
             except Exception as e:
                 logger.warning(f"[Voice Chat] RAG attempt {attempt+1} failed: {e}")
                 if attempt == 2:
                     rag_response = {
-                        "text": "I apologize, but I'm having trouble processing your query right now.",
+                        "text": "I apologize, but I'm having trouble processing your query right now. Please try again.",
                         "sources": []
                     }
                 else:
-                    await asyncio.sleep(2 ** attempt)
+                    await asyncio.sleep(1)
         
         answer = rag_response.get("text", "No answer generated.")
         sources = rag_response.get("sources", [])
         
-        logger.info(f"[Voice Chat] Got answer: {len(answer)} chars")
+        logger.info(f"[Voice Chat] Answer: {len(answer)} chars")
         
-        # Step 3: Generate TTS
-        logger.info("[Voice Chat] Step 3: Generating speech...")
-        response_audio = None
-        tts_provider = "kimi"
+        # Step 2: Generate TTS
+        tts = get_tts()
+        audio_bytes = await tts.synthesize(
+            text=answer,
+            voice=request.voice,
+        )
         
-        for attempt in range(3):
-            try:
-                kimi = get_kimi_provider()
-                if kimi:
-                    output_path = f"temp_voice_response_{int(time.time())}.wav"
-                    response_audio = kimi.synthesize(answer, output_path, language=language)
-                    break
-            except Exception as e:
-                logger.warning(f"[Voice Chat] TTS attempt {attempt+1} failed: {e}")
-                if attempt == 2:
-                    tts_provider = "openai"
-                    response_audio = f"temp_fallback_{int(time.time())}.wav"
-                else:
-                    await asyncio.sleep(2 ** attempt)
+        # Save audio
+        filename = f"chat_{int(time.time() * 1000)}.wav"
+        filepath = Path(tempfile.gettempdir()) / filename
+        filepath.write_bytes(audio_bytes)
+        
+        _state.audio_files[str(filepath)] = time.time()
+        background_tasks.add_task(cleanup_old_audio_files)
         
         duration_ms = (time.time() - start_time) * 1000
         
         return VoiceChatResponse(
-            transcription=transcription,
             answer=answer,
             sources=sources,
-            audio_url=f"/api/v1/voice/audio/{Path(response_audio).name}" if response_audio else "",
-            provider={"asr": asr_provider, "tts": tts_provider},
-            duration_ms=duration_ms
+            audio_url=f"/api/v1/voice/audio/{filename}",
+            duration_ms=duration_ms,
         )
         
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"[Voice Chat] Pipeline failed: {e}")
+        logger.error(f"[Voice Chat] Failed: {e}")
         raise HTTPException(status_code=500, detail=f"Voice chat error: {str(e)}")
-    finally:
-        # Cleanup input audio
-        if temp_audio and Path(temp_audio).exists():
-            Path(temp_audio).unlink(missing_ok=True)
 
 
 @router.get("/audio/{filename}")
-async def serve_audio(filename: str, background_tasks: BackgroundTasks):
+async def serve_audio(filename: str):
     """Serve generated audio files"""
-    audio_path = Path(filename)
+    # Check temp directory
+    filepath = Path(tempfile.gettempdir()) / filename
     
-    if not audio_path.exists():
-        raise HTTPException(status_code=404, detail="Audio file not found")
-    
-    def cleanup():
-        audio_path.unlink(missing_ok=True)
-    
-    background_tasks.add_task(cleanup)
+    if not filepath.exists():
+        # Also check current directory (legacy)
+        filepath = Path(filename)
+        if not filepath.exists():
+            raise HTTPException(status_code=404, detail="Audio file not found")
     
     return FileResponse(
-        audio_path,
+        filepath,
         media_type="audio/wav",
         filename=filename
     )
 
 
+@router.get("/voices", response_model=List[VoiceInfo])
+async def list_voices():
+    """List available voice presets"""
+    try:
+        tts = get_tts()
+        voices = tts.get_available_voices()
+        
+        return [
+            VoiceInfo(name=v, language="en")
+            for v in voices
+        ]
+    except Exception as e:
+        logger.error(f"Failed to list voices: {e}")
+        # Return default voice on error
+        return [VoiceInfo(name="Wayne", language="en")]
+
+
 @router.get("/health", response_model=HealthResponse)
 async def health_check():
-    """
-    Voice agent health check
-    
-    Returns status of all providers (Kimi, OpenAI, pico2wave)
-    """
-    providers = {}
-    
-    # Check Kimi
+    """Voice module health check"""
     try:
-        kimi = get_kimi_provider()
-        if kimi:
-            kimi_health = kimi.health_check()
-            providers["kimi"] = kimi_health
-        else:
-            providers["kimi"] = {"status": "unavailable"}
+        tts = get_tts()
+        health = tts.health_check()
+        
+        return HealthResponse(
+            status=health.get("status", "unknown"),
+            tts_provider="vibevoice",
+            voices=health.get("voices", []),
+            device=health.get("device", "unknown"),
+        )
     except Exception as e:
-        providers["kimi"] = {"status": "error", "error": str(e)}
-    
-    # Check OpenAI
-    try:
-        # TODO: Check OpenAI API
-        providers["openai"] = {"status": "available"}
-    except Exception as e:
-        providers["openai"] = {"status": "error", "error": str(e)}
-    
-    # Check pico2wave
-    try:
-        import subprocess
-        subprocess.run(["pico2wave", "--help"], capture_output=True, timeout=1)
-        providers["pico2wave"] = {"status": "available"}
-    except Exception:
-        providers["pico2wave"] = {"status": "unavailable"}
-    
-    # Overall status
-    overall_status = "healthy" if any(
-        p.get("status") in ["healthy", "available"] for p in providers.values()
-    ) else "degraded"
-    
-    return HealthResponse(
-        status=overall_status,
-        providers=providers,
-        uptime_seconds=time.time() - _state.start_time
-    )
-
-
-@router.get("/livekit-config")
-async def get_livekit_config():
-    """Get LiveKit configuration for voice agent"""
-    return {
-        "livekit_url": os.getenv("LIVEKIT_URL"),
-        "has_api_key": bool(os.getenv("LIVEKIT_API_KEY")),
-        "voice_enabled": True,
-        "providers": {
-            "stt": os.getenv("VOICE_STT_PROVIDER", "kimi,openai").split(","),
-            "tts": os.getenv("VOICE_TTS_PROVIDER", "kimi,openai").split(",")
-        }
-    }
+        return HealthResponse(
+            status="error",
+            tts_provider="vibevoice",
+            voices=[],
+            device="unknown",
+        )

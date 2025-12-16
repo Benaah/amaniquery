@@ -10,6 +10,7 @@ interface FileUploadProps {
   maxFiles?: number
   maxSizeMB?: number
   enableMedia?: boolean // Enable audio/video support
+  enableDocuments?: boolean // Enable large document support
 }
 
 const ALLOWED_TYPES = {
@@ -22,6 +23,18 @@ const ALLOWED_TYPES = {
   "image/jpeg": [".jpg", ".jpeg"],
   "image/gif": [".gif"],
   "image/webp": [".webp"],
+}
+
+// Extended document types for WeKnora knowledge base ingestion
+const DOCUMENT_TYPES = {
+  "application/msword": [".doc"],
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [".docx"],
+  "application/vnd.ms-excel": [".xls"],
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"],
+  "text/csv": [".csv"],
+  "application/json": [".json"],
+  "application/rtf": [".rtf"],
+  "text/html": [".html", ".htm"],
 }
 
 const MEDIA_TYPES = {
@@ -44,20 +57,25 @@ const MEDIA_TYPES = {
 export function FileUpload({
   files,
   onFilesChange,
-  maxFiles = 5,
-  maxSizeMB = 10,
+  maxFiles = 10,
+  maxSizeMB = 50, // Increased for larger documents
   enableMedia = true,
+  enableDocuments = true, // Enable extended document types by default
 }: FileUploadProps) {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [dragActive, setDragActive] = useState(false)
   const [imagePreviews, setImagePreviews] = useState<Map<string, string>>(new Map())
 
-  // Combine allowed types based on enableMedia flag
+  // Combine allowed types based on flags
   const getAllowedTypes = () => {
-    if (enableMedia) {
-      return { ...ALLOWED_TYPES, ...MEDIA_TYPES }
+    let types = { ...ALLOWED_TYPES }
+    if (enableDocuments) {
+      types = { ...types, ...DOCUMENT_TYPES }
     }
-    return ALLOWED_TYPES
+    if (enableMedia) {
+      types = { ...types, ...MEDIA_TYPES }
+    }
+    return types
   }
 
   const handleFiles = (fileList: FileList | null) => {
@@ -173,15 +191,22 @@ export function FileUpload({
 
   // Build accept string based on enableMedia
   const getAcceptString = () => {
-    const base = ".pdf,.png,.jpg,.jpeg,.gif,.webp,.txt,.md"
+    let base = ".pdf,.png,.jpg,.jpeg,.gif,.webp,.txt,.md"
+    if (enableDocuments) {
+      base += ",.doc,.docx,.xls,.xlsx,.csv,.json,.rtf,.html,.htm"
+    }
     if (enableMedia) {
-      return `${base},.mp3,.wav,.m4a,.ogg,.flac,.aac,.mp4,.mov,.avi,.mkv,.webm,.m4v`
+      base += ",.mp3,.wav,.m4a,.ogg,.flac,.aac,.mp4,.mov,.avi,.mkv,.webm,.m4v"
     }
     return base
   }
 
   const getDescriptionText = () => {
-    if (enableMedia) {
+    if (enableDocuments && enableMedia) {
+      return `Documents, Images, Audio, Video (max ${maxSizeMB}MB, up to ${maxFiles} files)`
+    } else if (enableDocuments) {
+      return `PDF, DOC, Excel, CSV, Images (max ${maxSizeMB}MB, up to ${maxFiles} files)`
+    } else if (enableMedia) {
       return `PDF, Images, Audio, Video (max ${maxSizeMB}MB, up to ${maxFiles} files)`
     }
     return `PDF, Images, Text files (max ${maxSizeMB}MB, up to ${maxFiles} files)`

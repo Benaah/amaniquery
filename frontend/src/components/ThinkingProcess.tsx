@@ -1,8 +1,12 @@
 /**
  * Thinking Process Component
  * 
- * Displays the agent's reasoning path in a step-by-step expandable format
- * Similar to prominent LLM providers (Claude, o1, etc.)
+ * Displays the agent's reasoning path including:
+ * - Step-by-step reasoning (Claude, o1 style)
+ * - Tool execution visualization
+ * - Re-ranking progress
+ * - HyDE query expansion
+ * - Knowledge base indicators
  */
 
 "use client"
@@ -11,6 +15,7 @@ import { useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { Progress } from "@/components/ui/progress"
 import { 
   ChevronDown, 
   ChevronRight,
@@ -22,11 +27,35 @@ import {
   AlertCircle,
   TrendingUp,
   Eye,
-  Layers
+  Layers,
+  Zap,
+  Database,
+  RefreshCw,
+  Filter,
+  Sparkles,
+  FileText,
+  Scale,
+  Newspaper
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
-// Types
+// Enhanced Types
+interface ToolExecution {
+  name: string
+  status: 'pending' | 'running' | 'completed' | 'error'
+  input?: Record<string, unknown>
+  output?: unknown
+  duration_ms?: number
+}
+
+interface RetrievalStep {
+  namespace: string
+  docs_retrieved: number
+  docs_after_rerank?: number
+  used_hyde?: boolean
+  query_expanded?: string
+}
+
 interface ThoughtStep {
   step: number
   action: string
@@ -34,6 +63,8 @@ interface ThoughtStep {
   reasoning: string
   duration_ms?: number
   confidence?: number
+  tool_executions?: ToolExecution[]
+  retrieval?: RetrievalStep
 }
 
 interface ReasoningPath {
@@ -41,12 +72,17 @@ interface ReasoningPath {
   thoughts: ThoughtStep[]
   total_duration_ms: number
   final_conclusion: string
+  knowledge_bases_used?: string[]
+  used_reranking?: boolean
+  used_hyde?: boolean
+  model_used?: string
 }
 
 interface ThinkingProcessProps {
   reasoning: ReasoningPath | string
   className?: string
   defaultExpanded?: boolean
+  showEnhancements?: boolean
 }
 
 export function ThinkingProcess({ 

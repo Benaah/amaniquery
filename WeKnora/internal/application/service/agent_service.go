@@ -1,0 +1,374 @@
+package service
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/Tencent/WeKnora/internal/agent"
+	"github.com/Tencent/WeKnora/internal/agent/tools"
+	"github.com/Tencent/WeKnora/internal/config"
+	"github.com/Tencent/WeKnora/internal/event"
+	"github.com/Tencent/WeKnora/internal/logger"
+	"github.com/Tencent/WeKnora/internal/mcp"
+	"github.com/Tencent/WeKnora/internal/models/chat"
+	"github.com/Tencent/WeKnora/internal/models/rerank"
+	"github.com/Tencent/WeKnora/internal/types"
+	"github.com/Tencent/WeKnora/internal/types/interfaces"
+	secutils "github.com/Tencent/WeKnora/internal/utils"
+	"gorm.io/gorm"
+)
+
+const MAX_ITERATIONS = 30 // Max iterations for agent execution
+
+// agentService implements agent-related business logic
+type agentService struct {
+	cfg                  *config.Config
+	modelService         interfaces.ModelService
+	mcpServiceService    interfaces.MCPServiceService
+	mcpManager           *mcp.MCPManager
+	eventBus             *event.EventBus
+	db                   *gorm.DB
+	webSearchService     interfaces.WebSearchService
+	knowledgeBaseService interfaces.KnowledgeBaseService
+	knowledgeService     interfaces.KnowledgeService
+	chunkService         interfaces.ChunkService
+}
+
+// NewAgentService creates a new agent service
+func NewAgentService(
+	cfg *config.Config,
+	modelService interfaces.ModelService,
+	knowledgeBaseService interfaces.KnowledgeBaseService,
+	knowledgeService interfaces.KnowledgeService,
+	chunkService interfaces.ChunkService,
+	mcpServiceService interfaces.MCPServiceService,
+	mcpManager *mcp.MCPManager,
+	eventBus *event.EventBus,
+	db *gorm.DB,
+	webSearchService interfaces.WebSearchService,
+) interfaces.AgentService {
+	return &agentService{
+		cfg:                  cfg,
+		modelService:         modelService,
+		knowledgeBaseService: knowledgeBaseService,
+		knowledgeService:     knowledgeService,
+		chunkService:         chunkService,
+		mcpServiceService:    mcpServiceService,
+		mcpManager:           mcpManager,
+		eventBus:             eventBus,
+		db:                   db,
+		webSearchService:     webSearchService,
+	}
+}
+
+// CreateAgentEngineWithEventBus creates an agent engine with the given configuration and EventBus
+func (s *agentService) CreateAgentEngine(
+	ctx context.Context,
+	config *types.AgentConfig,
+	chatModel chat.Chat,
+	rerankModel rerank.Reranker,
+	eventBus *event.EventBus,
+	contextManager interfaces.ContextManager,
+	sessionID string,
+	sessionService interfaces.SessionService,
+) (interfaces.AgentEngine, error) {
+	logger.Infof(ctx, "Creating agent engine with custom EventBus")
+
+	// Validate config
+	if err := s.ValidateConfig(config); err != nil {
+		return nil, fmt.Errorf("invalid agent config: %w", err)
+	}
+
+	if chatModel == nil {
+		return nil, fmt.Errorf("chat model is nil after initialization")
+	}
+
+	if rerankModel == nil {
+		return nil, fmt.Errorf("rerank model is nil after initialization")
+	}
+
+	// Create tool registry
+	toolRegistry := tools.NewToolRegistry(s.knowledgeService, s.chunkService, s.db)
+
+	// Register tools
+	if err := s.registerTools(ctx, toolRegistry, config, rerankModel, chatModel, sessionID, sessionService); err != nil {
+		return nil, fmt.Errorf("failed to register tools: %w", err)
+	}
+
+	// Register MCP tools from enabled services for this tenant
+	tenantID := uint64(0)
+	if tid, ok := ctx.Value(types.TenantIDContextKey).(uint64); ok {
+		tenantID = tid
+	}
+	if tenantID > 0 && s.mcpServiceService != nil && s.mcpManager != nil {
+		// Get enabled MCP services for this tenant
+		mcpServices, err := s.mcpServiceService.ListMCPServices(ctx, tenantID)
+		if err != nil {
+			logger.Warnf(ctx, "Failed to list MCP services: %v", err)
+		} else {
+			// Filter enabled services
+			enabledServices := make([]*types.MCPService, 0)
+			for _, svc := range mcpServices {
+				if svc != nil && svc.Enabled {
+					enabledServices = append(enabledServices, svc)
+				}
+			}
+
+			// Register MCP tools
+			if len(enabledServices) > 0 {
+				if err := tools.RegisterMCPTools(ctx, toolRegistry, enabledServices, s.mcpManager); err != nil {
+					logger.Warnf(ctx, "Failed to register MCP tools: %v", err)
+				} else {
+					logger.Infof(ctx, "Registered MCP tools from %d enabled services", len(enabledServices))
+				}
+			}
+		}
+	}
+
+	// Get knowledge base detailed information for prompt
+	kbInfos, err := s.getKnowledgeBaseInfos(ctx, config.KnowledgeBases)
+	if err != nil {
+		logger.Warnf(ctx, "Failed to get knowledge base details, using IDs only: %v", err)
+		// Create fallback info with IDs only
+		kbInfos = make([]*agent.KnowledgeBaseInfo, 0, len(config.KnowledgeBases))
+		for _, kbID := range config.KnowledgeBases {
+			kbInfos = append(kbInfos, &agent.KnowledgeBaseInfo{
+				ID:          kbID,
+				Name:        kbID, // Use ID as name when details unavailable
+				Description: "",
+				DocCount:    0,
+			})
+		}
+	}
+
+	systemPromptTemplate := ""
+	if config.UseCustomSystemPrompt {
+		systemPromptTemplate = config.ResolveSystemPrompt(config.WebSearchEnabled)
+	}
+
+	// Create engine with provided EventBus and contextManager
+	engine := agent.NewAgentEngine(
+		config,
+		chatModel,
+		toolRegistry,
+		eventBus,
+		kbInfos,
+		contextManager,
+		sessionID,
+		systemPromptTemplate,
+	)
+
+	return engine, nil
+}
+
+// registerTools registers tools based on the agent configuration
+func (s *agentService) registerTools(
+	ctx context.Context,
+	registry *tools.ToolRegistry,
+	config *types.AgentConfig,
+	rerankModel rerank.Reranker,
+	chatModel chat.Chat,
+	sessionID string,
+	sessionService interfaces.SessionService,
+) error {
+	// If no specific tools allowed, register default tools
+	allowedTools := tools.DefaultAllowedTools()
+	// If web search is enabled, add web_search to allowedTools
+	if config.WebSearchEnabled {
+		allowedTools = append(allowedTools, "web_search")
+		allowedTools = append(allowedTools, "web_fetch")
+	}
+
+	// Get tenant ID from context
+	tenantID := uint64(0)
+	if tid, ok := ctx.Value(types.TenantIDContextKey).(uint64); ok {
+		tenantID = tid
+	}
+	logger.Infof(
+		ctx,
+		"Registering tools: %v, tenant ID: %d, webSearchEnabled: %v",
+		allowedTools,
+		tenantID,
+		config.WebSearchEnabled,
+	)
+
+	// Register each allowed tool
+	for _, toolName := range allowedTools {
+		switch toolName {
+		case "thinking":
+			registry.RegisterTool(tools.NewSequentialThinkingTool())
+		case "todo_write":
+			registry.RegisterTool(tools.NewTodoWriteTool())
+		case "knowledge_search":
+			registry.RegisterTool(
+				tools.NewKnowledgeSearchTool(
+					s.knowledgeBaseService,
+					s.chunkService,
+					tenantID,
+					config.KnowledgeBases,
+					rerankModel,
+					chatModel,
+					s.cfg,
+				))
+		case "grep_chunks":
+			registry.RegisterTool(tools.NewGrepChunksTool(s.db, tenantID, config.KnowledgeBases))
+			logger.Infof(ctx, "Registered grep_chunks tool for tenant: %d", tenantID)
+		case "list_knowledge_chunks":
+			registry.RegisterTool(tools.NewListKnowledgeChunksTool(tenantID, s.knowledgeService, s.chunkService))
+		case "query_knowledge_graph":
+			registry.RegisterTool(tools.NewQueryKnowledgeGraphTool(s.knowledgeBaseService))
+		case "get_document_info":
+			registry.RegisterTool(tools.NewGetDocumentInfoTool(tenantID, s.knowledgeService, s.chunkService))
+		case "database_query":
+			registry.RegisterTool(tools.NewDatabaseQueryTool(s.db, tenantID))
+		case "web_search":
+			registry.RegisterTool(tools.NewWebSearchTool(
+				s.webSearchService,
+				s.knowledgeBaseService,
+				s.knowledgeService,
+				sessionService,
+				sessionID,
+				config.WebSearchMaxResults,
+			))
+			logger.Infof(
+				ctx,
+				"Registered web_search tool for session: %s, maxResults: %d",
+				sessionID,
+				config.WebSearchMaxResults,
+			)
+
+		case "web_fetch":
+			registry.RegisterTool(tools.NewWebFetchTool(chatModel))
+			logger.Infof(ctx, "Registered web_fetch tool for session: %s", sessionID)
+
+		default:
+			logger.Warnf(ctx, "Unknown tool: %s", toolName)
+		}
+	}
+
+	logger.Infof(ctx, "Registered %d tools", len(registry.ListTools()))
+	return nil
+}
+
+// ValidateConfig validates the agent configuration
+func (s *agentService) ValidateConfig(config *types.AgentConfig) error {
+	if config == nil {
+		return fmt.Errorf("config cannot be nil")
+	}
+
+	if config.MaxIterations <= 0 {
+		config.MaxIterations = 5 // Default
+	}
+
+	if config.MaxIterations > MAX_ITERATIONS {
+		return fmt.Errorf("max iterations too high: %d (max %d)", config.MaxIterations, MAX_ITERATIONS)
+	}
+
+	return nil
+}
+
+// getKnowledgeBaseInfos retrieves detailed information for knowledge bases
+func (s *agentService) getKnowledgeBaseInfos(ctx context.Context, kbIDs []string) ([]*agent.KnowledgeBaseInfo, error) {
+	if len(kbIDs) == 0 {
+		return []*agent.KnowledgeBaseInfo{}, nil
+	}
+
+	kbInfos := make([]*agent.KnowledgeBaseInfo, 0, len(kbIDs))
+
+	for _, kbID := range kbIDs {
+		// Get knowledge base details
+		kb, err := s.knowledgeBaseService.GetKnowledgeBaseByID(ctx, kbID)
+		if err != nil {
+			logger.Warnf(ctx, "Failed to get knowledge base %s: %v", secutils.SanitizeForLog(kbID), err)
+			// Add fallback info
+			kbInfos = append(kbInfos, &agent.KnowledgeBaseInfo{
+				ID:          kbID,
+				Name:        kbID,
+				Type:        "document", // Default type
+				Description: "",
+				DocCount:    0,
+				RecentDocs:  []agent.RecentDocInfo{},
+			})
+			continue
+		}
+
+		// Get document count and recent documents
+		docCount := 0
+		recentDocs := []agent.RecentDocInfo{}
+
+		if kb.Type == types.KnowledgeBaseTypeFAQ {
+			pageResult, err := s.knowledgeService.ListFAQEntries(ctx, kbID, &types.Pagination{
+				Page:     1,
+				PageSize: 10,
+			}, "", "")
+			if err == nil && pageResult != nil {
+				docCount = int(pageResult.Total)
+				if entries, ok := pageResult.Data.([]*types.FAQEntry); ok {
+					for _, entry := range entries {
+						if len(recentDocs) >= 10 {
+							break
+						}
+						recentDocs = append(recentDocs, agent.RecentDocInfo{
+							ChunkID:             entry.ChunkID,
+							KnowledgeID:         entry.KnowledgeID,
+							KnowledgeBaseID:     entry.KnowledgeBaseID,
+							Title:               entry.StandardQuestion,
+							Type:                string(types.ChunkTypeFAQ),
+							CreatedAt:           entry.CreatedAt.Format("2006-01-02"),
+							FAQStandardQuestion: entry.StandardQuestion,
+							FAQSimilarQuestions: entry.SimilarQuestions,
+							FAQAnswers:          entry.Answers,
+						})
+					}
+				}
+			} else if err != nil {
+				logger.Warnf(ctx, "Failed to list FAQ entries for %s: %v", kbID, err)
+			}
+		}
+
+		// Fallback to generic knowledge listing when not FAQ or FAQ retrieval failed
+		if kb.Type != types.KnowledgeBaseTypeFAQ || len(recentDocs) == 0 {
+			pageResult, err := s.knowledgeService.ListPagedKnowledgeByKnowledgeBaseID(ctx, kbID, &types.Pagination{
+				Page:     1,
+				PageSize: 10,
+			}, "", "", "")
+
+			if err == nil && pageResult != nil {
+				docCount = int(pageResult.Total)
+
+				// Convert to Knowledge slice
+				if knowledges, ok := pageResult.Data.([]*types.Knowledge); ok {
+					for _, k := range knowledges {
+						if len(recentDocs) >= 10 {
+							break
+						}
+						recentDocs = append(recentDocs, agent.RecentDocInfo{
+							KnowledgeID: k.ID,
+							Title:       k.Title,
+							Description: k.Description,
+							FileName:    k.FileName,
+							Type:        k.FileType,
+							CreatedAt:   k.CreatedAt.Format("2006-01-02"),
+							FileSize:    k.FileSize,
+						})
+					}
+				}
+			}
+		}
+
+		kbType := kb.Type
+		if kbType == "" {
+			kbType = "document" // Default type
+		}
+		kbInfos = append(kbInfos, &agent.KnowledgeBaseInfo{
+			ID:          kb.ID,
+			Name:        kb.Name,
+			Type:        kbType,
+			Description: kb.Description,
+			DocCount:    docCount,
+			RecentDocs:  recentDocs,
+		})
+	}
+
+	return kbInfos, nil
+}

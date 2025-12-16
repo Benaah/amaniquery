@@ -140,19 +140,19 @@ function DocumentCard({ document }: { document: Record<string, unknown> }) {
             {String(document.text || document.content || document.snippet || '')}
           </p>
         </div>
-        {document.url && (
-          <a href={String(document.url)} target="_blank" rel="noopener">
+        {typeof document.url === 'string' && (
+          <a href={document.url} target="_blank" rel="noopener">
             <ExternalLink className="h-3 w-3 text-muted-foreground" />
           </a>
         )}
       </div>
       <div className="flex gap-1 mt-1">
-        {document.category && (
+        {!!document.category && (
           <Badge variant="secondary" className="text-xs">
             {String(document.category)}
           </Badge>
         )}
-        {document.score && (
+        {!!document.score && (
           <Badge variant="outline" className="text-xs">
             {(Number(document.score) * 100).toFixed(0)}% match
           </Badge>

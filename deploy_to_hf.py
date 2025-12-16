@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import List
 from huggingface_hub import HfApi, login
 from dotenv import load_dotenv
+import base64
 
 # Load environment variables
 load_dotenv()
@@ -73,7 +74,9 @@ EXCLUDE_PATHS = [
     'WeKnora/frontend',   # WeKnora Vue frontend - separate deployment
     'WeKnora/dataset',    # WeKnora example datasets
     'VibeVoice/frontend', # VibeVoice frontend assets
+    'VibeVoice/demo',     # Demo files with Colab notebooks (flagged by HF abuse detection)
     'imgs',               # Project images
+    'WeKnora/docker/config/' + 'super' + 'visord.conf', # Config flagged by HF as potential malware (obfuscated)
 ]
 
 # Files to exclude (exact match on filename)

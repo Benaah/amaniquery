@@ -3,7 +3,7 @@
 # VibeVoice TTS Dependencies
 torch>=2.0.0
 transformers==4.51.3
-accelerate==1.6.0
+accelerate==1.12.0
 diffusers
 scipy
 numpy

@@ -82,7 +82,7 @@ python-docx
 
 # Module 6: NiruVoice (Real-time Communication)
 livekit-agents[openai,assemblyai,silero]==1.2.18
-livekit==1.0.20
+livekit==1.0.23
 livekit-plugins-noise-cancellation==0.2.5
 tenacity>=8.2.0  # Retry logic with exponential backoff
 circuitbreaker>=1.4.0  # Circuit breaker pattern

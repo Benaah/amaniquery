@@ -1,7 +1,7 @@
 "use client"
 
 /**
- * Tool Result Renderer - WeKnora Integration
+ * Tool Result Renderer
  * 
  * Renders tool execution results with rich formatting
  */

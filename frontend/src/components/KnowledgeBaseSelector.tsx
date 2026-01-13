@@ -1,7 +1,7 @@
 "use client"
 
 /**
- * Knowledge Base Selector - WeKnora Integration
+ * Knowledge Base Selector
  * 
  * Allows users to select which knowledge bases to query
  */

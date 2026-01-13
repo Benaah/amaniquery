@@ -14,12 +14,7 @@ from .file_writer import FileWriterTool
 from .email_drafter import EmailDrafterTool
 from .kb_search import KnowledgeBaseSearchTool
 
-# WeKnora integration (optional)
-try:
-    from .weknora_search import WeKnoraSearchTool
-    WEKNORA_AVAILABLE = True
-except ImportError:
-    WEKNORA_AVAILABLE = False
+
 
 
 
@@ -81,13 +76,7 @@ class ToolRegistry:
         except Exception as e:
             logger.warning(f"Failed to register kb_search tool: {e}")
         
-        # WeKnora hybrid search (optional - requires WeKnora service)
-        if WEKNORA_AVAILABLE:
-            try:
-                self.register_tool("weknora_search", WeKnoraSearchTool())
-                logger.info("WeKnora search tool registered")
-            except Exception as e:
-                logger.warning(f"Failed to register weknora_search tool: {e}")
+
         
         logger.info(f"Registered {len(self.tools)} tools")
     

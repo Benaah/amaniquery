@@ -1,5 +1,5 @@
 # Dockerfile for AmaniQuery Full Stack Deployment
-# Includes: FastAPI API, WeKnora backend, VibeVoice voice services
+# Includes: FastAPI API, VibeVoice voice services
 # Optimized for HuggingFace Spaces deployment
 
 FROM python:3.11-slim AS base
@@ -12,8 +12,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     ENABLE_SCHEDULER=true \
     SCHEDULER_BACKEND=apscheduler \
     HF_HOME=/app/models \
-    # WeKnora/VibeVoice settings
-    ENABLE_WEKNORA=true \
+    # VibeVoice settings
     ENABLE_VIBEVOICE=true \
     MAX_UPLOAD_SIZE=52428800
 
@@ -26,11 +25,6 @@ RUN apt-get update && \
     gcc \
     build-essential \
     redis-server \
-    # WeKnora document processing dependencies
-    poppler-utils \
-    tesseract-ocr \
-    libreoffice-writer-nogui \
-    pandoc \
     # Audio/voice dependencies for VibeVoice
     ffmpeg \
     libsndfile1 && \
@@ -42,19 +36,6 @@ WORKDIR /app
 COPY requirements.txt ./
 RUN pip install --no-cache-dir torch
 RUN pip install --no-cache-dir -r requirements.txt
-
-# Install WeKnora document processing dependencies
-RUN pip install --no-cache-dir \
-    python-docx \
-    openpyxl \
-    python-pptx \
-    pypdf2 \
-    pdf2image \
-    pytesseract \
-    mammoth \
-    html2text \
-    chardet \
-    python-magic
 
 # Install VibeVoice dependencies
 RUN pip install --no-cache-dir \
@@ -68,7 +49,7 @@ RUN pip install --no-cache-dir \
 COPY download_model.py .
 RUN python download_model.py
 
-# Copy all source code (including WeKnora and VibeVoice)
+# Copy all source code (including VibeVoice)
 COPY . .
 
 # Create required directories

@@ -180,44 +180,7 @@ services:
     profiles:
       - celery  # Only starts with: docker-compose --profile celery up
 
-  # WeKnora - Tencent RAG Framework (optional, for enhanced document understanding)
-  weknora:
-    build:
-      context: ./WeKnora
-      dockerfile: docker/Dockerfile.app
-    container_name: amaniquery_weknora
-    ports:
-      - "8081:8080"  # WeKnora API
-    environment:
-      # Use Moonshot as default LLM (same as AmaniQuery)
-      - LLM_TYPE=openai  # OpenAI-compatible API format
-      - LLM_MODEL=${DEFAULT_MODEL:-moonshot-v1-8k}
-      - LLM_API_KEY=${MOONSHOT_API_KEY}
-      - LLM_BASE_URL=${MOONSHOT_BASE_URL:-https://api.moonshot.cn/v1}
-      - EMBEDDING_TYPE=local
-      - EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2
-      # Use shared AmaniQuery PostgreSQL database
-      - DATABASE_URL=${DATABASE_URL:-postgresql://amaniquery:amaniquery_password@postgres:5432/amaniquery}
-      - POSTGRES_HOST=postgres
-      - POSTGRES_PORT=5432
-      - POSTGRES_USER=${POSTGRES_USER:-amaniquery}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-amaniquery_password}
-      - POSTGRES_DB=${POSTGRES_DB:-amaniquery}
-      # Use shared Redis
-      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
-      # Note: WeKnora API key is auto-generated after first registration in Web UI
-    depends_on:
-      postgres:
-        condition: service_started
-      redis:
-        condition: service_healthy
-    volumes:
-      - ./WeKnora/data:/app/data
-    networks:
-      - amaniquery_network
-    restart: unless-stopped
-    profiles:
-      - weknora  # Only starts with: docker-compose --profile weknora up
+
 
 volumes:
   chroma_data:

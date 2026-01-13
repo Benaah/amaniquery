@@ -71,12 +71,9 @@ EXCLUDE_DIRS = {
 
 # Path prefixes to exclude (for nested directories)
 EXCLUDE_PATHS = [
-    'WeKnora/frontend',   # WeKnora Vue frontend - separate deployment
-    'WeKnora/dataset',    # WeKnora example datasets
     'VibeVoice/frontend', # VibeVoice frontend assets
     'VibeVoice/demo',     # Demo files with Colab notebooks (flagged by HF abuse detection)
     'imgs',               # Project images
-    'WeKnora/docker/config/' + 'super' + 'visord.conf', # Config flagged by HF as potential malware (obfuscated)
 ]
 
 # Files to exclude (exact match on filename)
@@ -105,7 +102,7 @@ def should_exclude(path: Path, source_dir: Path) -> bool:
     except ValueError:
         rel_str = str(path).replace('\\', '/')
     
-    # Check path prefixes (for nested exclusions like WeKnora/frontend)
+    # Check path prefixes (for nested exclusions)
     for prefix in EXCLUDE_PATHS:
         if rel_str.startswith(prefix + '/') or rel_str == prefix:
             return True

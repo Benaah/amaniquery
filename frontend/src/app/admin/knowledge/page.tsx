@@ -3,7 +3,7 @@
 /**
  * Knowledge Base Settings - Admin Page
  * 
- * WeKnora-style knowledge base management for admins
+ * Knowledge base management for admins
  */
 
 import { useState } from "react"

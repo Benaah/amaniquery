@@ -25,7 +25,7 @@ const ALLOWED_TYPES = {
   "image/webp": [".webp"],
 }
 
-// Extended document types for WeKnora knowledge base ingestion
+// Extended document types for knowledge base ingestion
 const DOCUMENT_TYPES = {
   "application/msword": [".doc"],
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [".docx"],

@@ -140,12 +140,7 @@ from .tools.tool_registry import ToolRegistry
 from .nodes.react_node import react_agent_node
 from .tools.agentic_tools import initialize_agentic_tools, get_agentic_tools
 
-# WeKnora Integration
-from .nodes.weknora_node import (
-    weknora_retrieval_node,
-    should_use_weknora,
-    WEKNORA_ENABLED as WEKNORA_NODE_ENABLED,
-)
+
 
 
 # =============================================================================
@@ -260,12 +255,7 @@ class AmaniQState(TypedDict, total=False):
     react_failed: bool  # Whether ReAct failed
     react_max_iterations_reached: bool  # Max iterations hit
     
-    # WeKnora Integration
-    weknora_results: List[Dict[str, Any]]  # Results from WeKnora hybrid search
-    weknora_kb_id: Optional[str]  # Knowledge base ID used
-    weknora_used: bool  # Whether WeKnora was used
-    weknora_graph_data: Optional[Dict]  # Knowledge graph relationships
-    weknora_latency_ms: float  # WeKnora search latency
+
     
     # Timestamps
     started_at: str
@@ -812,12 +802,11 @@ def route_from_entry(state: AmaniQState) -> Literal["supervisor", "respond"]:
     return "supervisor"
 
 
-def route_from_supervisor(state: AmaniQState) -> Literal["clarify", "tools", "react", "weknora", "respond", "escalate"]:
+def route_from_supervisor(state: AmaniQState) -> Literal["clarify", "tools", "react", "respond", "escalate"]:
     """
     Route based on supervisor intent and LLM-detected multi-hop requirement.
     
     Uses requires_multi_hop field from SupervisorDecision instead of regex heuristics.
-    Now includes WeKnora routing for enhanced legal search.
     """
     intent = state.get("intent", "")
     
@@ -831,11 +820,6 @@ def route_from_supervisor(state: AmaniQState) -> Literal["clarify", "tools", "re
         if requires_multi_hop:
             logger.info(f"[Router] Multi-hop query detected (LLM) - routing to ReAct agent")
             return "react"
-        
-        # Route legal queries through WeKnora first (if enabled)
-        if WEKNORA_NODE_ENABLED and should_use_weknora(state):
-            logger.info("[Router] Legal query detected - routing through WeKnora")
-            return "weknora"
         
         return "tools"
     elif intent == "GENERAL_CHAT":
@@ -908,10 +892,7 @@ def create_amaniq_v2_graph(
     # ReAct Agent Node
     workflow.add_node("react_agent", react_agent_node)
     
-    # WeKnora Retrieval Node (optional - for enhanced legal search)
-    if WEKNORA_NODE_ENABLED:
-        workflow.add_node("weknora", weknora_retrieval_node)
-        logger.info("WeKnora node added to graph")
+
     
     # Clarification nodes
     workflow.add_node("clarification_entry", clarification_entry_wrapper)
@@ -931,7 +912,7 @@ def create_amaniq_v2_graph(
         }
     )
     
-    # Supervisor routing (with WeKnora support)
+    # Supervisor routing
     supervisor_routes = {
         "clarify": "clarification_entry",
         "tools": "tool_executor",
@@ -940,9 +921,7 @@ def create_amaniq_v2_graph(
         "escalate": "responder",
     }
     
-    # Add WeKnora route if enabled
-    if WEKNORA_NODE_ENABLED:
-        supervisor_routes["weknora"] = "weknora"
+
     
     workflow.add_conditional_edges(
         "supervisor",
@@ -953,9 +932,7 @@ def create_amaniq_v2_graph(
     # Tool executor → Responder
     workflow.add_edge("tool_executor", "responder")
     
-    # WeKnora → Tool executor (merge WeKnora results then continue with other tools)
-    if WEKNORA_NODE_ENABLED:
-        workflow.add_edge("weknora", "tool_executor")
+
     
     # ReAct agent → conditional routing (success → respond, failure → fallback)
     workflow.add_conditional_edges(

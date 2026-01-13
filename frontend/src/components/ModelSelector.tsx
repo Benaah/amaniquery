@@ -1,7 +1,7 @@
 "use client"
 
 /**
- * Model Selector - WeKnora Integration
+ * Model Selector
  * 
  * Allows users to switch between AI models dynamically
  */

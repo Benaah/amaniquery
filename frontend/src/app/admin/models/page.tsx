@@ -3,7 +3,7 @@
 /**
  * Model Settings - Admin Page
  * 
- * WeKnora-style AI model configuration for admins
+ * AI model configuration for admins
  */
 
 import { useState, useEffect, ReactNode } from "react"

@@ -1,5 +1,5 @@
 import os
-from typing import Optional
+from typing import Optional, List
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field, validator
 
@@ -32,19 +32,19 @@ class Settings(BaseSettings):
     QDRANT_COLLECTION: str = Field(default="amaniquery_sense", description="Qdrant collection name")
     QDRANT_BATCH_SIZE: int = Field(default=100, description="Batch size for Qdrant upserts")
     
-    # Elasticsearch Configuration (replaces MinIO for document storage)
+    # MinIO/S3 Configuration (Required for Raw Data)
+    MINIO_ENDPOINT: str = Field(default="localhost:9000", description="MinIO endpoint")
+    MINIO_ACCESS_KEY: str = Field(default="admin", description="MinIO access key")
+    MINIO_SECRET_KEY: str = Field(default="miniopassword123", description="MinIO secret key")
+    MINIO_SECURE: bool = Field(default=False, description="Use HTTPS for MinIO")
+    MINIO_BUCKET: str = Field(default="bronze-raw", description="MinIO bucket name")
+
+    # Elasticsearch Configuration (Optional - for full text search)
     ELASTICSEARCH_URL: Optional[str] = Field(default=None, description="Elasticsearch URL")
     ELASTICSEARCH_API_KEY: Optional[str] = Field(default=None, description="Elasticsearch API key")
     ELASTICSEARCH_USERNAME: Optional[str] = Field(default=None, description="Elasticsearch username")
     ELASTICSEARCH_PASSWORD: Optional[str] = Field(default=None, description="Elasticsearch password")
     ELASTICSEARCH_INDEX: str = Field(default="amani_query", description="Elasticsearch index name")
-
-    # MinIO/S3 Configuration (DEPRECATED - using Elasticsearch instead)
-    MINIO_ENDPOINT: Optional[str] = Field(default="localhost:9000", description="MinIO endpoint (deprecated)")
-    MINIO_ACCESS_KEY: Optional[str] = Field(default="admin", description="MinIO access key (deprecated)")
-    MINIO_SECRET_KEY: Optional[str] = Field(default="miniopassword123", description="MinIO secret key (deprecated)")
-    MINIO_SECURE: bool = Field(default=False, description="Use HTTPS for MinIO (deprecated)")
-    MINIO_BUCKET: Optional[str] = Field(default="bronze-raw", description="MinIO bucket name (deprecated)")
 
     # Model IDs (HuggingFace)
     MODEL_EMBEDDING: str = Field(
@@ -92,7 +92,7 @@ class Settings(BaseSettings):
     BIAS_THRESHOLD: float = Field(default=0.5, description="Threshold for bias detection")
 
     # Kenyan-Specific Topics
-    KENYAN_TOPICS: list = Field(
+    KENYAN_TOPICS: List[str] = Field(
         default=[
             "Politics", "Economy", "Sports", "Social Issues", "Technology",
             "Entertainment", "Security", "Education", "Health", "Agriculture",

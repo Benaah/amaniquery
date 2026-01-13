@@ -254,7 +254,7 @@ async def post_to_platform(request: PostRequest, req: Request):
         if isinstance(content, list):
             content = content[0]
 
-        result = share_service.post_to_platform(
+        result = await share_service.post_to_platform(
             platform=request.platform,
             content=content,
             access_token=access_token,

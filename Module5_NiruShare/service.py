@@ -1,11 +1,13 @@
 """
 Social Media Sharing Service
+Updated with robust rate limiting and error handling (2026)
 """
 from typing import Dict, List, Optional, Union
 import os
-from datetime import datetime
-from functools import lru_cache
+import asyncio
 import logging
+from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 
 from .platforms import (
     PlatformRegistry,
@@ -22,8 +24,8 @@ from .platforms import (
     TikTokPlatform,
 )
 from .image_generator import ImageGenerator
-from .formatters.natural_formatter import NaturalFormatter
 from .utils.cache import SimpleCache
+from .utils.rate_limiter import _limiter, robust_api_call
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +53,9 @@ class ShareService:
         except ImportError:
             logger.warning("Pillow not available, image generation disabled")
             self.image_generator = None
+            
+        # Thread pool for sync operations
+        self._executor = ThreadPoolExecutor(max_workers=4)
     
     def _register_default_platforms(self):
         """Register all default platforms"""
@@ -87,17 +92,6 @@ class ShareService:
     ) -> Dict:
         """
         Format response for specific platform
-        
-        Args:
-            answer: The RAG answer
-            sources: List of source dictionaries
-            platform: Platform name
-            query: Original query
-            include_hashtags: Whether to include hashtags
-            style: Formatting style (professional, casual, engaging)
-        
-        Returns:
-            Formatted post with metadata
         """
         # Validate inputs
         if not answer or not isinstance(answer, str):
@@ -158,17 +152,7 @@ class ShareService:
         formatted_content: Union[str, List[str]],
         url: Optional[str] = None,
     ) -> str:
-        """
-        Generate platform-specific share link
-        
-        Args:
-            platform: Platform name
-            formatted_content: Pre-formatted content
-            url: Optional URL to share
-        
-        Returns:
-            Share URL
-        """
+        """Generate platform-specific share link"""
         if not platform or not isinstance(platform, str):
             raise ValueError("Platform must be a non-empty string")
         
@@ -198,13 +182,7 @@ class ShareService:
         query: Optional[str] = None,
         style: Optional[str] = None,
     ) -> Dict[str, Dict]:
-        """
-        Preview formatted posts for all platforms
-        
-        Returns:
-            Dictionary with platform names as keys and formatted posts as values
-        """
-        # Validate inputs
+        """Preview formatted posts for all platforms"""
         if not answer or not isinstance(answer, str):
             raise ValueError("Answer must be a non-empty string")
         if not isinstance(sources, list):
@@ -236,7 +214,6 @@ class ShareService:
         content = formatted_post.get("content")
         
         if isinstance(content, list):
-            # Thread
             total_chars = sum(len(str(tweet)) for tweet in content if tweet)
             return {
                 "platform": platform,
@@ -246,7 +223,6 @@ class ShareService:
                 "avg_chars_per_tweet": total_chars // len(content) if content else 0,
             }
         else:
-            # Single post
             content_str = str(content) if content else ""
             return {
                 "platform": platform,
@@ -256,7 +232,7 @@ class ShareService:
                 "hashtag_count": len(formatted_post.get("hashtags", [])),
             }
     
-    def post_to_platform(
+    async def post_to_platform(
         self,
         platform: str,
         content: Union[str, List[str]],
@@ -264,16 +240,7 @@ class ShareService:
         message_id: Optional[str] = None,
     ) -> Dict:
         """
-        Post content to a social media platform
-        
-        Args:
-            platform: Platform name
-            content: Content to post
-            access_token: OAuth access token
-            message_id: Optional chat message ID for tracking
-        
-        Returns:
-            Post result with ID and metadata
+        Post content to a social media platform (Async with Rate Limiting)
         """
         platform = platform.lower().strip()
         
@@ -284,11 +251,23 @@ class ShareService:
             raise ValueError(f"Unsupported platform: {platform}. Available: {available}")
         
         try:
-            return platform_handler.post_to_platform(
-                content=content,
-                access_token=access_token,
-                message_id=message_id,
-            )
+            # 1. Rate Limiting Check
+            await _limiter.wait_for_token(platform)
+            
+            # 2. Execute with Retry Logic in ThreadPool
+            # We use a helper function to wrap the sync call with tenacity retry
+            @robust_api_call(max_retries=3)
+            def _execute_post():
+                return platform_handler.post_to_platform(
+                    content=content,
+                    access_token=access_token,
+                    message_id=message_id,
+                )
+            
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(self._executor, _execute_post)
+            return result
+            
         except NotImplementedError as e:
             return {
                 "platform": platform,
@@ -297,6 +276,7 @@ class ShareService:
                 "metadata": {"message_id": message_id}
             }
         except Exception as e:
+            logger.error(f"Failed to post to {platform}: {e}")
             return {
                 "platform": platform,
                 "status": "error",
@@ -305,19 +285,9 @@ class ShareService:
             }
     
     def get_auth_url(self, platform: str, redirect_uri: Optional[str] = None) -> Dict:
-        """
-        Get OAuth authorization URL for a platform
-        
-        Args:
-            platform: Platform name
-            redirect_uri: Optional redirect URI
-        
-        Returns:
-            Dictionary with auth_url and metadata
-        """
+        """Get OAuth authorization URL for a platform"""
         platform = platform.lower().strip()
         
-        # Get platform from registry
         platform_handler = self.registry.get(platform)
         if not platform_handler:
             available = ", ".join(self.registry.list_platforms())
@@ -334,20 +304,7 @@ class ShareService:
         height: Optional[int] = None,
         format: str = "PNG",
     ) -> Dict:
-        """
-        Generate image from text content
-        
-        Args:
-            text: Main text content
-            title: Optional title text
-            color_scheme: Color scheme name
-            width: Image width in pixels
-            height: Image height in pixels
-            format: Image format (PNG, JPEG)
-        
-        Returns:
-            Dictionary with image data (base64 or bytes)
-        """
+        """Generate image from text content"""
         if not self.image_generator:
             raise ValueError(
                 "Image generation not available. Install Pillow: pip install Pillow"
@@ -381,19 +338,7 @@ class ShareService:
         format: str = "PNG",
         **kwargs
     ) -> Dict:
-        """
-        Generate image from formatted post content
-        
-        Args:
-            post_content: Formatted post content
-            query: Original query (used as title)
-            color_scheme: Color scheme name
-            format: Image format (PNG, JPEG)
-            **kwargs: Additional arguments for image generation
-        
-        Returns:
-            Dictionary with image data
-        """
+        """Generate image from formatted post content"""
         if not self.image_generator:
             raise ValueError(
                 "Image generation not available. Install Pillow: pip install Pillow"
@@ -419,12 +364,7 @@ class ShareService:
             raise ValueError(f"Error generating image from post: {str(e)}") from e
     
     def get_supported_platforms(self) -> List[Dict]:
-        """
-        Get list of all supported platforms with metadata
-        
-        Returns:
-            List of platform metadata dictionaries
-        """
+        """Get list of all supported platforms with metadata"""
         platforms = []
         for metadata in self.registry.list_metadata():
             platforms.append({

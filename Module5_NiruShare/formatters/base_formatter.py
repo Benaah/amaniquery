@@ -6,6 +6,8 @@ from abc import ABC, abstractmethod
 import re
 
 
+from ..utils.text_processor import TextProcessor
+
 class BaseFormatter(ABC):
     """Base class for social media formatters"""
     
@@ -36,33 +38,8 @@ class BaseFormatter(ABC):
             raise ValueError("Sources must be a list")
     
     def _extract_key_points(self, text: str, max_points: int = 3) -> List[str]:
-        """Extract key points from text"""
-        if not text or not isinstance(text, str):
-            return []
-        
-        # Improved sentence splitting - handle multiple delimiters properly
-        # Split on sentence boundaries while preserving the delimiter
-        sentences = re.split(r'([.!?]+[\s\n]+)', text)
-        
-        # Reconstruct sentences with their delimiters
-        reconstructed = []
-        for i in range(0, len(sentences) - 1, 2):
-            if i + 1 < len(sentences):
-                sentence = (sentences[i] + sentences[i + 1]).strip()
-            else:
-                sentence = sentences[i].strip()
-            
-            # Filter out very short sentences and empty strings
-            if len(sentence) > 20:
-                reconstructed.append(sentence)
-        
-        # If reconstruction didn't work well, fall back to simpler method
-        if not reconstructed:
-            sentences = re.split(r'[.!?]+\s+', text)
-            reconstructed = [s.strip() for s in sentences if len(s.strip()) > 20]
-        
-        # Return first N sentences as key points
-        return reconstructed[:max_points] if reconstructed else [text[:200] + "..." if len(text) > 200 else text]
+        """Extract key points from text using robust processor"""
+        return TextProcessor.extract_key_points(text, max_points)
     
     def _generate_hashtags(self, text: str, sources: List[Dict], max_tags: int = 5) -> List[str]:
         """Generate relevant hashtags"""
@@ -110,37 +87,8 @@ class BaseFormatter(ABC):
         return [f"#{tag}" if not tag.startswith('#') else tag for tag in hashtags_list]
     
     def _truncate_smart(self, text: str, max_length: int, suffix: str = "...") -> str:
-        """Truncate text at sentence boundary if possible"""
-        if not text:
-            return ""
-        
-        if not isinstance(text, str):
-            text = str(text)
-        
-        if len(text) <= max_length:
-            return text
-        
-        # Ensure suffix fits within max_length
-        suffix_len = len(suffix)
-        if max_length < suffix_len:
-            return text[:max_length]
-        
-        available_length = max_length - suffix_len
-        
-        # Try to cut at sentence boundary
-        for punct in ['. ', '! ', '? ', '.\n', '!\n', '?\n']:
-            last_punct = text.rfind(punct, 0, available_length + len(punct))
-            if last_punct > available_length * 0.6:  # At least 60% of max length
-                return text[:last_punct + 1].strip() + suffix
-        
-        # Fall back to word boundary
-        truncated = text[:available_length]
-        last_space = truncated.rfind(' ')
-        if last_space > available_length * 0.5:  # At least 50% of max length
-            return truncated[:last_space].strip() + suffix
-        
-        # Last resort: hard truncate
-        return truncated.strip() + suffix
+        """Truncate text intelligently"""
+        return TextProcessor.smart_truncate(text, max_length, suffix)
     
     def _format_sources(self, sources: List[Dict], max_sources: int = 3) -> str:
         """Format source citations"""

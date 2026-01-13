@@ -16,7 +16,7 @@ from Module2_NiruParser.config import Config
 def main():
     """Process all raw data files"""
     print("=" * 60)
-    print("🔄 Starting Data Processing Pipeline")
+    print("[START] Starting Data Processing Pipeline")
     print("=" * 60)
     
     # Initialize pipeline
@@ -35,7 +35,7 @@ def main():
     
     if not raw_data_path.exists():
         logger.error(f"Raw data path does not exist: {raw_data_path}")
-        print(f"✗ Error: Raw data directory not found")
+        print(f"[ERROR] Error: Raw data directory not found")
         print(f"   Please run Module 1 (NiruSpider) first")
         return
     
@@ -44,18 +44,18 @@ def main():
     
     if not jsonl_files:
         logger.warning("No JSONL files found in raw data directory")
-        print(f"⚠️  No data files found in {raw_data_path}")
+        print(f"[WARN] No data files found in {raw_data_path}")
         print(f"   Please run Module 1 (NiruSpider) first")
         return
     
-    print(f"\n📂 Found {len(jsonl_files)} data files to process\n")
+    print(f"\n[INFO] Found {len(jsonl_files)} data files to process\n")
     
     # Process each file
     total_chunks = 0
     
     for jsonl_file in tqdm(jsonl_files, desc="Processing files"):
         logger.info(f"Processing file: {jsonl_file.name}")
-        print(f"\n📄 Processing: {jsonl_file.name}")
+        print(f"\n[FILE] Processing: {jsonl_file.name}")
         
         # Load raw documents
         raw_docs = pipeline.load_raw_documents(jsonl_file)
@@ -70,10 +70,10 @@ def main():
         if pipeline.db_storage:
             try:
                 saved_raw = pipeline.db_storage.save_raw_documents(raw_docs)
-                print(f"   💾 Saved {saved_raw} raw documents to database")
+                print(f"   [SAVE] Saved {saved_raw} raw documents to database")
             except Exception as e:
                 logger.error(f"Failed to save raw documents to database: {e}")
-                print(f"   ✗ Failed to save raw documents to database")
+                print(f"   [ERROR] Failed to save raw documents to database")
         
         # Process documents
         all_chunks = []
@@ -96,27 +96,27 @@ def main():
             if pipeline.db_storage:
                 try:
                     saved_chunks = pipeline.db_storage.save_processed_chunks(all_chunks)
-                    print(f"   🗄️  Saved {saved_chunks} processed chunks to database")
+                    print(f"   [SAVE] Saved {saved_chunks} processed chunks to database")
                     
                     # Mark raw documents as processed
                     urls = [doc.get("url") for doc in raw_docs if doc.get("url")]
                     if urls:
                         pipeline.db_storage.mark_raw_documents_processed(urls)
-                        print(f"   ✅ Marked {len(urls)} raw documents as processed")
+                        print(f"   [OK] Marked {len(urls)} raw documents as processed")
                         
                 except Exception as e:
                     logger.error(f"Failed to save processed chunks to database: {e}")
-                    print(f"   ✗ Failed to save processed chunks to database")
+                    print(f"   [ERROR] Failed to save processed chunks to database")
             
             total_chunks += len(all_chunks)
-            print(f"   ✅ Created {len(all_chunks)} chunks")
+            print(f"   [OK] Created {len(all_chunks)} chunks")
         else:
-            print(f"   ⚠️  No chunks created")
+            print(f"   [WARN] No chunks created")
     
     print("\n" + "=" * 60)
-    print(f"✅ Processing Complete!")
-    print(f"📊 Total chunks created: {total_chunks}")
-    print(f"📁 Processed data saved to: {config.PROCESSED_DATA_PATH}")
+    print(f"[OK] Processing Complete!")
+    print(f"[INFO] Total chunks created: {total_chunks}")
+    print(f"[INFO] Processed data saved to: {config.PROCESSED_DATA_PATH}")
     print("=" * 60)
 
 

@@ -31,7 +31,7 @@ def start_scheduler():
     global _scheduler_instance
     
     try:
-        logger.info("📅 Initializing Crawler Scheduler...")
+        logger.info("[SCHEDULE] Initializing Crawler Scheduler...")
         from Module1_NiruSpider.scheduler.scheduler_service import SchedulerService
         
         # Create scheduler instance
@@ -40,7 +40,7 @@ def start_scheduler():
         # Register cleanup on exit
         def cleanup_scheduler():
             if _scheduler_instance:
-                logger.info("🛑 Stopping scheduler...")
+                logger.info("[STOP] Stopping scheduler...")
                 _scheduler_instance.stop()
         
         atexit.register(cleanup_scheduler)
@@ -48,17 +48,17 @@ def start_scheduler():
         # Start the scheduler (this runs in the background)
         _scheduler_instance.start()
         
-        logger.info("✔ Crawler scheduler started successfully")
+        logger.info("[OK] Crawler scheduler started successfully")
         logger.info("   Crawlers will run automatically on schedule")
         
         return True
         
     except ImportError as e:
-        logger.warning(f"⚠️  Scheduler dependencies not available: {e}")
+        logger.warning(f"[WARN] Scheduler dependencies not available: {e}")
         logger.warning("   Install APScheduler: pip install apscheduler")
         return False
     except Exception as e:
-        logger.error(f"✗ Failed to start scheduler: {e}")
+        logger.error(f"[ERROR] Failed to start scheduler: {e}")
         import traceback
         logger.debug(traceback.format_exc())
         return False
@@ -77,7 +77,7 @@ def start_api():
     try:
         import uvicorn
     except ImportError:
-        logger.error("✗ uvicorn not found. Please install it with: pip install uvicorn")
+        logger.error("[ERROR] uvicorn not found. Please install it with: pip install uvicorn")
         return False
 
     # Get configuration
@@ -88,11 +88,11 @@ def start_api():
     
     # Log port source for debugging
     if os.getenv("PORT"):
-        logger.info(f"🔌 Using PORT from environment: {port}")
+        logger.info(f"[PORT] Using PORT from environment: {port}")
     elif os.getenv("API_PORT"):
-        logger.info(f"🔌 Using API_PORT from environment: {port}")
+        logger.info(f"[PORT] Using API_PORT from environment: {port}")
     else:
-        logger.info(f"🔌 Using default port: {port}")
+        logger.info(f"[PORT] Using default port: {port}")
 
     # Disable reload on production platforms (Render) and Windows to avoid issues
     is_render = os.getenv("RENDER") is not None
@@ -102,11 +102,11 @@ def start_api():
     if is_render or is_huggingface:
         # Always disable reload on cloud platforms for reliable port binding
         reload_enabled = False
-        logger.info("🔧 Running on cloud platform - reload disabled for reliability")
+        logger.info("[CONFIG] Running on cloud platform - reload disabled for reliability")
     elif is_windows:
         reload_enabled = os.getenv("API_RELOAD", "False").lower() == "true"
         if reload_enabled:
-            logger.warning("⚠️  Reload enabled on Windows may cause import issues")
+            logger.warning("[WARN] Reload enabled on Windows may cause import issues")
             logger.warning("   Consider setting API_RELOAD=False")
     else:
         reload_enabled = os.getenv("API_RELOAD", "True").lower() == "true"
@@ -117,12 +117,12 @@ def start_api():
     # Check voice configuration
     vibevoice_enabled = os.getenv("VIBEVOICE_MODEL_PATH", "") != "" or True  # Always enabled
     
-    logger.info(f"📍 API Server: http://{host}:{port}")
-    logger.info(f"📚 API Docs: http://{host}:{port}/docs")
-    logger.info(f"🔧 Provider: {os.getenv('LLM_PROVIDER', 'moonshot')}")
-    logger.info(f"🔄 Reload: {'Enabled' if reload_enabled else 'Disabled'}")
-    logger.info(f"🔐 Auth Module: {'Enabled' if auth_enabled else 'Disabled'}")
-    logger.info(f"🎤 Voice (VibeVoice): {'Enabled' if vibevoice_enabled else 'Disabled'}")
+    logger.info(f"[URL] API Server: http://{host}:{port}")
+    logger.info(f"[DOCS] API Docs: http://{host}:{port}/docs")
+    logger.info(f"[CONFIG] Provider: {os.getenv('LLM_PROVIDER', 'moonshot')}")
+    logger.info(f"[RELOAD] Reload: {'Enabled' if reload_enabled else 'Disabled'}")
+    logger.info(f"[AUTH] Auth Module: {'Enabled' if auth_enabled else 'Disabled'}")
+    logger.info(f"[VOICE] Voice (VibeVoice): {'Enabled' if vibevoice_enabled else 'Disabled'}")
     
 
     
@@ -141,7 +141,7 @@ def start_api():
             "node_modules/**",
         ] if reload_enabled else None
         
-        logger.info(f"🚀 Starting uvicorn server on {host}:{port}")
+        logger.info(f"[START] Starting uvicorn server on {host}:{port}")
         uvicorn.run(
             "Module4_NiruAPI.api:app",
             host=host,
@@ -152,17 +152,17 @@ def start_api():
             access_log=True,
         )
     except KeyboardInterrupt:
-        logger.info("\n👋 API server stopped")
+        logger.info("\n[EXIT] API server stopped")
         return True
     except Exception as e:
-        logger.error(f"✗ Failed to start API server: {e}")
+        logger.error(f"[ERROR] Failed to start API server: {e}")
         return False
 
 
 def main():
     """Start API and Scheduler"""
     print("=" * 60)
-    print("🚀 Starting AmaniQuery Services")
+    print("[START] Starting AmaniQuery Services")
     print("=" * 60)
     
     # Check if scheduler should be started
@@ -170,7 +170,7 @@ def main():
     scheduler_backend = os.getenv("SCHEDULER_BACKEND", "apscheduler")
     
     # Log scheduler configuration status
-    print("\n📅 Crawler Scheduler Configuration:")
+    print("\n[SCHEDULE] Crawler Scheduler Configuration:")
     print(f"   Enabled: {enable_scheduler}")
     print(f"   Backend: {scheduler_backend}")
     if enable_scheduler:
@@ -185,16 +185,16 @@ def main():
     database_url = os.getenv("DATABASE_URL", "").strip()
     
     # Log auth module configuration status
-    print("\n🔐 Authentication Module Configuration:")
+    print("\n[AUTH] Authentication Module Configuration:")
     print(f"   Enabled: {auth_enabled}")
-    print(f"   DATABASE_URL: {'✔ Set' if database_url else '✗ Not set'}")
+    print(f"   DATABASE_URL: {'[OK] Set' if database_url else '[X] Not set'}")
     if auth_enabled and not database_url:
-        print("   ⚠️  Warning: DATABASE_URL required for auth module")
+        print("   [WARN] Warning: DATABASE_URL required for auth module")
     if auth_enabled:
-        print("   💡 Tip: Run 'python migrate_auth_db.py' to create auth tables")
+        print("   [INFO] Tip: Run 'python migrate_auth_db.py' to create auth tables")
     
     # Log voice configuration
-    print("\n🎤 Voice Module Configuration:")
+    print("\n[VOICE] Voice Module Configuration:")
     print("   Provider: VibeVoice (microsoft/VibeVoice-Realtime-0.5B)")
     print(f"   Device: {os.getenv('VIBEVOICE_DEVICE', 'auto')}")
     print(f"   Default Voice: {os.getenv('VIBEVOICE_VOICE', 'Wayne')}")
@@ -202,20 +202,20 @@ def main():
     
     # Start the scheduler if enabled
     if enable_scheduler:
-        print("\n📅 Starting Crawler Scheduler...")
+        print("\n[SCHEDULE] Starting Crawler Scheduler...")
         scheduler_started = start_scheduler()
         if scheduler_started:
-            print("✔ Scheduler is running in background")
+            print("[OK] Scheduler is running in background")
         else:
-            print("⚠️  Scheduler failed to start - crawlers won't run automatically")
+            print("[WARN] Scheduler failed to start - crawlers won't run automatically")
             print("   You can still trigger crawlers manually via the admin API")
     else:
-        print("\nℹ️  Scheduler disabled (set ENABLE_SCHEDULER=true to enable)")
+        print("\n[INFO] Scheduler disabled (set ENABLE_SCHEDULER=true to enable)")
 
     # Start NiruSense Orchestrator (Background Service)
     enable_nirusense = os.getenv("ENABLE_NIRUSENSE", "false").lower() == "true"
     if enable_nirusense:
-        print("\n🧠 Starting NiruSense Orchestrator...")
+        print("\n[AI] Starting NiruSense Orchestrator...")
         try:
             from Module9_NiruSense.nirusense_service import start_nirusense_thread
             
@@ -226,22 +226,22 @@ def main():
                 name="NiruSenseOrchestrator"
             )
             nirusense_thread.start()
-            logger.info("✔ NiruSense orchestrator thread started")
+            logger.info("[OK] NiruSense orchestrator thread started")
             
             # Check if it's running
             import time
             time.sleep(1.0)
             if nirusense_thread.is_alive():
-                logger.info("✔ NiruSense orchestrator is running")
+                logger.info("[OK] NiruSense orchestrator is running")
             else:
-                logger.error("✗ NiruSense thread died immediately - check logs")
+                logger.error("[ERROR] NiruSense thread died immediately - check logs")
                 
         except ImportError as e:
-            logger.error(f"✗ Failed to import NiruSense: {e}")
+            logger.error(f"[ERROR] Failed to import NiruSense: {e}")
         except Exception as e:
-            logger.error(f"✗ Failed to start NiruSense: {e}")
+            logger.error(f"[ERROR] Failed to start NiruSense: {e}")
     else:
-        logger.info("ℹ️  NiruSense disabled (set ENABLE_NIRUSENSE=true to enable)")
+        logger.info("[INFO] NiruSense disabled (set ENABLE_NIRUSENSE=true to enable)")
 
     
     print("=" * 60)
@@ -250,10 +250,10 @@ def main():
     try:
         start_api()
     except KeyboardInterrupt:
-        logger.info("\n👋 Shutting down services...")
+        logger.info("\n[EXIT] Shutting down services...")
         return 0
     except Exception as e:
-        logger.error(f"✗ Failed to start services: {e}")
+        logger.error(f"[ERROR] Failed to start services: {e}")
         return 1
 
 

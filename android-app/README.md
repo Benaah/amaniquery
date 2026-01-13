@@ -5,7 +5,7 @@ React Native Android application for AmaniQuery - Kenya's AI Legal Assistant.
 ## Features
 
 - **Chat Interface**: Query the legal knowledge base with streaming responses
-- **Voice Agent**: Real-time voice conversations with LiveKit integration
+- **Voice Agent**: Real-time voice conversations with VibeVoice integration
 - **Notifications**: Subscribe to news updates via SMS/WhatsApp
 
 ## Prerequisites
@@ -36,7 +36,6 @@ npm run android
 ## Environment Variables
 
 - `API_BASE_URL`: Backend API URL (default: http://localhost:8000)
-- `LIVEKIT_URL`: LiveKit WebSocket URL (optional, for voice)
 - `ENABLE_NOTIFICATIONS`: Enable/disable push notifications
 
 ## Build

@@ -14,6 +14,6 @@ const getDefaultApiUrl = () => {
 };
 
 export const API_BASE_URL = getDefaultApiUrl();
-export const LIVEKIT_URL = process.env.LIVEKIT_URL || '';
+
 export const ENABLE_NOTIFICATIONS =
   process.env.ENABLE_NOTIFICATIONS !== 'false';

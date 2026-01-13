@@ -2,18 +2,17 @@
 
 ![NiruVoice](../imgs/voice_module.png)
 
-This module provides a professional voice agent using LiveKit Agents framework that integrates with AmaniQuery's RAG pipeline to answer voice queries about Kenyan legal, parliamentary, and news intelligence.
+This module provides a professional voice agent that integrates with AmaniQuery's RAG pipeline to answer voice queries about Kenyan legal, parliamentary, and news intelligence.
 
 ## Features
 
 - **Professional Voice Interface**: Clear, authoritative voice responses suitable for legal and policy queries
 - **RAG Integration**: Leverages AmaniQuery's existing RAG pipeline for accurate, sourced responses
 - **Conversation Context**: Maintains conversation history for multi-turn queries
-- **Kimi Voice Integration**: Uses Kimi Voice for high-quality ASR and TTS, with LiveKit as fallback framework
+- **VibeVoice Integration**: Uses Google's VibeVoice for high-quality ASR and TTS
 - **Session Management**: Tracks voice sessions with automatic timeout and cleanup (optional Redis persistence)
 - **Concise Responses**: Optimized for voice (2-3 minute max response length)
 - **Resilience & Error Handling**: Retry logic with exponential backoff, circuit breakers, and graceful error recovery
-- **Provider Failover**: Automatic failover between Kimi Voice and LiveKit with health monitoring
 - **Performance Optimizations**: Response caching, rate limiting, and connection pooling
 - **Monitoring & Observability**: Metrics collection, health checks, and Prometheus integration
 - **Scalable Architecture**: Designed for horizontal scaling with distributed session storage
@@ -23,7 +22,6 @@ This module provides a professional voice agent using LiveKit Agents framework t
 ```
 Module6_NiruVoice/
 ├── __init__.py              # Module exports
-├── voice_agent.py           # Main LiveKit agent implementation
 ├── agent_config.py          # Configuration management (with Pydantic validation)
 ├── stt_tts_handlers.py      # Speech-to-text and text-to-speech handlers
 ├── rag_integration.py       # Integration with RAG pipeline
@@ -108,24 +106,19 @@ Reverse of ASR flow: Clean text → Kimi-Audio core → Natural African female v
 
 ## Prerequisites
 
-1. **LiveKit Server**: You need a LiveKit server instance
-   - Cloud: Sign up at https://cloud.livekit.io
-   - Self-hosted: Follow https://docs.livekit.io/self-hosting/deployment/
-
-2. **API Keys**:
-   - LiveKit API credentials (URL, API key, API secret)
+1. **API Keys**:
    - OpenAI API key (for STT/TTS, if using OpenAI)
    - AssemblyAI API key (optional, if using AssemblyAI for STT)
    - Moonshot/OpenAI/Anthropic API key (for RAG pipeline LLM)
 
-3. **Python Environment**: Python 3.9 or higher
+2. **Python Environment**: Python 3.9 or higher
 
 ## Installation
 
 1. **Install Dependencies**:
 
 ```bash
-# Install LiveKit voice agent dependencies
+# Install voice agent dependencies
 pip install -r Module6_NiruVoice/requirements.txt
 
 # Ensure main project dependencies are installed
@@ -137,14 +130,9 @@ pip install -r requirements.txt
 Create or update your `.env` file with the following:
 
 ```bash
-# LiveKit Configuration (Required)
-LIVEKIT_URL=wss://your-livekit-server.com
-LIVEKIT_API_KEY=your_api_key
-LIVEKIT_API_SECRET=your_api_secret
-
 # Voice Agent Configuration (Optional - defaults shown)
-VOICE_STT_PROVIDER=kimi          # kimi,livekit (comma-separated for multiple)
-VOICE_TTS_PROVIDER=kimi          # kimi,livekit (comma-separated for multiple)
+VOICE_STT_PROVIDER=openai          # openai, assemblyai, vibe
+VOICE_TTS_PROVIDER=openai          # openai, silero, vibe
 VOICE_LANGUAGE=en                  # en or sw (Swahili)
 VOICE_MAX_RESPONSE_LENGTH=500      # Maximum words in response
 VOICE_ENABLE_FOLLOW_UPS=true      # Enable conversation context
@@ -194,71 +182,25 @@ ASSEMBLYAI_API_KEY=your_assemblyai_key
 Run the agent in development mode for testing:
 
 ```bash
-# From project root
-python -m Module6_NiruVoice.voice_agent dev
-
-# Or using the CLI directly
-cd Module6_NiruVoice
-python voice_agent.py dev
-```
-
-This will:
-- Start the agent in development mode
-- Connect to LiveKit server
-- Wait for voice sessions to join
-
-### Production Mode
-
-For production deployment:
-
-```bash
-python -m Module6_NiruVoice.voice_agent start
+# Start the API which includes voice endpoints
+python start_api.py
 ```
 
 ### Integration with Frontend
 
-To connect users to the voice agent, you need a frontend that:
-
-1. Connects to the same LiveKit server
-2. Joins a room (the agent will automatically join)
-3. Handles audio input/output
-
-Example using LiveKit JavaScript SDK:
-
-```javascript
-import { Room, RoomEvent } from 'livekit-client';
-
-const room = new Room();
-await room.connect(LIVEKIT_URL, token);
-
-// Agent will automatically join and start listening
-room.on(RoomEvent.TrackSubscribed, (track, publication, participant) => {
-  if (track.kind === 'audio') {
-    track.attach(audioElement);
-  }
-});
-```
-
-### Testing with LiveKit Playground
-
-LiveKit provides a playground for testing agents:
-
-1. Start your agent: `python -m Module6_NiruVoice.voice_agent dev`
-2. Open LiveKit Playground: https://agents-playground.livekit.io
-3. Connect using your LiveKit credentials
-4. Start speaking - the agent will respond
+To connect users to the voice agent, use the REST API endpoints provided by the main application.
 
 ## Configuration Options
 
 ### STT Providers
 
-- **Kimi Voice** (default): High-quality ASR using Kimi-Audio 7B model
-- **LiveKit**: Fallback STT provider with automatic failover
+- **VibeVoice** (default): High-quality ASR
+- **OpenAI**: Alternative provider
 
 ### TTS Providers
 
-- **Kimi Voice** (default): Professional voices using Kimi-Audio 7B model
-- **LiveKit**: Fallback TTS provider with automatic failover
+- **VibeVoice** (default): Professional voices
+- **OpenAI**: Alternative provider
 
 ### Language Support
 
@@ -267,14 +209,14 @@ LiveKit provides a playground for testing agents:
 
 ## How It Works
 
-1. **User Speaks**: Audio is captured and sent to LiveKit room
-2. **Speech-to-Text**: User's speech is converted to text using Kimi Voice ASR (with LiveKit fallback)
+1. **User Speaks**: Audio is captured via frontend
+2. **Speech-to-Text**: User's speech is converted to text using VibeVoice ASR
 3. **RAG Query**: Text query is processed through AmaniQuery's RAG pipeline
 4. **Context Retrieval**: Relevant documents are retrieved from vector database
 5. **Response Generation**: LLM generates response based on retrieved context
-6. **Voice Formatting**: Response is formatted for natural speech (removes markdown, adds pauses)
-7. **Text-to-Speech**: Formatted response is converted to speech using Kimi Voice TTS (with LiveKit fallback)
-8. **Audio Output**: Speech is sent back to user through LiveKit room
+6. **Voice Formatting**: Response is formatted for natural speech
+7. **Text-to-Speech**: Formatted response is converted to speech using VibeVoice TTS
+8. **Audio Output**: Speech is sent back to user
 
 ## Integration with Existing Modules
 
@@ -296,7 +238,7 @@ Voice queries use the same knowledge base:
 ## Session Management
 
 The voice agent maintains conversation sessions:
-- **Session ID**: Based on LiveKit room name/SID
+- **Session ID**: Unique identifier for each conversation
 - **Conversation History**: Last 3 turns for context
 - **Timeout**: Sessions expire after 5 minutes of inactivity (configurable)
 - **Cleanup**: Expired sessions are automatically removed
@@ -313,10 +255,8 @@ The agent handles various error scenarios:
 
 ### Agent Not Starting
 
-1. Check LiveKit credentials in `.env`
-2. Verify LiveKit server is accessible
-3. Check Python version (3.9+)
-4. Ensure all dependencies are installed
+1. Check Python version (3.9+)
+2. Ensure all dependencies are installed
 
 ### No Audio Response
 
@@ -327,7 +267,7 @@ The agent handles various error scenarios:
 ### Poor Speech Recognition
 
 1. Try different STT provider (AssemblyAI vs OpenAI)
-2. Check audio quality in LiveKit room
+2. Check audio quality
 3. Verify language setting matches user's language
 
 ### RAG Not Working
@@ -363,29 +303,7 @@ session = manager.create_session("test-session")
 
 ## Deployment
 
-### Docker
-
-Add to your `docker-compose.yml`:
-
-```yaml
-voice-agent:
-  build:
-    context: .
-    dockerfile: Dockerfile.voice
-  environment:
-    - LIVEKIT_URL=${LIVEKIT_URL}
-    - LIVEKIT_API_KEY=${LIVEKIT_API_KEY}
-    - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET}
-    # ... other env vars
-  command: python -m Module6_NiruVoice.voice_agent start
-```
-
-### Cloud Deployment
-
-Deploy to any cloud platform that supports Python:
-- **Render**: Add as a background worker
-- **Fly.io**: Deploy as a separate app
-- **AWS/GCP/Azure**: Use container services
+Deploy as part of the main AmaniQuery application using the standard `Dockerfile`.
 
 ## License
 
@@ -397,5 +315,5 @@ For issues or questions:
 1. Check existing documentation
 2. Review logs for error messages
 3. Test RAG pipeline independently via REST API
-4. Verify LiveKit server connectivity
+4. Verify API server connectivity
 

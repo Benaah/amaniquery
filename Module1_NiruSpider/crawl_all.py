@@ -41,7 +41,7 @@ from niruspider.spiders.parliament_video_spider import ParliamentVideoSpider
 def main():
     """Run all spiders"""
     print("=" * 60)
-    print("🕷️  Starting AmaniQuery Data Crawl")
+    print("[START] Starting AmaniQuery Data Crawl")
     print("=" * 60)
     
     # Get Scrapy settings
@@ -60,17 +60,17 @@ def main():
     ]
     
     for name, spider in spiders:
-        print(f"\n📥 Queuing spider: {name}")
+        print(f"\n[QUEUE] Queuing spider: {name}")
         process.crawl(spider)
     
-    print("\n🚀 Starting crawl process...\n")
+    print("\n[START] Starting crawl process...\n")
     
     # Start crawling (blocking)
     process.start()
     
     print("\n" + "=" * 60)
-    print("✅ Crawl complete!")
-    print("📁 Data saved to: ../data/raw/")
+    print("[DONE] Crawl complete!")
+    print("[INFO] Data saved to: ../data/raw/")
     print("=" * 60)
 
 

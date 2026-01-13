@@ -99,12 +99,12 @@ class SpiderMonitor:
         
         # Check RSS feeds
         async with aiohttp.ClientSession() as session:
-            print("🔍 Checking RSS feeds...")
+            print("[CHECK] Checking RSS feeds...")
             tasks = [self.check_rss_feed(url, name, session) for url, name in news_feeds]
             news_results = await asyncio.gather(*tasks)
             results["news_feeds"] = news_results
             
-            print("🔍 Checking government sites...")
+            print("[CHECK] Checking government sites...")
             tasks = [self.check_rss_feed(url, name, session) for url, name in government_sites]
             gov_results = await asyncio.gather(*tasks)
             results["government_sites"] = gov_results
@@ -144,7 +144,7 @@ class SpiderMonitor:
         
         # Summary
         summary = self.results["summary"]
-        report_lines.append("📊 SUMMARY")
+        report_lines.append("[SUMMARY]")
         report_lines.append("-" * 80)
         report_lines.append(f"RSS Feeds: {summary['accessible_rss_feeds']}/{summary['total_rss_feeds']} accessible ({summary['rss_success_rate']}%)")
         report_lines.append(f"Avg Response Time: {summary['avg_rss_response_time']}s")
@@ -152,32 +152,32 @@ class SpiderMonitor:
         report_lines.append("")
         
         # RSS Feed Details
-        report_lines.append("📰 RSS FEEDS")
+        report_lines.append("[NEWS] RSS FEEDS")
         report_lines.append("-" * 80)
         
         accessible = [f for f in self.results["news_feeds"] if f["accessible"]]
         failed = [f for f in self.results["news_feeds"] if not f["accessible"]]
         
         if accessible:
-            report_lines.append(f"\n✔ Accessible ({len(accessible)}):")
+            report_lines.append(f"\n[OK] Accessible ({len(accessible)}):")
             for feed in accessible:
-                report_lines.append(f"  • {feed['name']}")
+                report_lines.append(f"  - {feed['name']}")
                 report_lines.append(f"    {feed['url']}")
                 report_lines.append(f"    Status: {feed['status']} | Response Time: {feed['response_time']}s")
         
         if failed:
-            report_lines.append(f"\n✗ Failed ({len(failed)}):")
+            report_lines.append(f"\n[FAIL] Failed ({len(failed)}):")
             for feed in failed:
-                report_lines.append(f"  • {feed['name']}")
+                report_lines.append(f"  - {feed['name']}")
                 report_lines.append(f"    {feed['url']}")
                 report_lines.append(f"    Error: {feed['error'] or 'HTTP ' + str(feed['status'])}")
         
         # Government Sites
         report_lines.append("\n")
-        report_lines.append("🏛️ GOVERNMENT SITES")
+        report_lines.append("[GOV] GOVERNMENT SITES")
         report_lines.append("-" * 80)
         for site in self.results["government_sites"]:
-            status_icon = "✔" if site["accessible"] else "✗"
+            status_icon = "[OK]" if site["accessible"] else "[FAIL]"
             report_lines.append(f"{status_icon} {site['name']}")
             report_lines.append(f"   {site['url']}")
             if site["accessible"]:
@@ -200,15 +200,15 @@ class SpiderMonitor:
             with open(json_filename, "w", encoding="utf-8") as f:
                 json.dump(self.results, f, indent=2)
             
-            print(f"\n📝 Report saved to: {filename}")
-            print(f"📊 JSON data saved to: {json_filename}")
+            print(f"\n[NOTE] Report saved to: {filename}")
+            print(f"[INFO] JSON data saved to: {json_filename}")
         
         return report
 
 
 async def main():
     """Main entry point for spider monitoring"""
-    print("🕷️  AmaniQuery Spider Health Monitor")
+    print("[MONITOR] AmaniQuery Spider Health Monitor")
     print("=" * 80)
     print()
     
@@ -223,22 +223,22 @@ async def main():
     
     # Print recommendations
     summary = monitor.results["summary"]
-    print("\n💡 RECOMMENDATIONS")
+    print("\n[TIP] RECOMMENDATIONS")
     print("-" * 80)
     
     if summary["rss_success_rate"] < 90:
-        print("⚠️  RSS feed success rate is below 90%. Review and update failed feeds.")
+        print("[WARN] RSS feed success rate is below 90%. Review and update failed feeds.")
     else:
-        print("✅ RSS feed success rate is good!")
+        print("[OK] RSS feed success rate is good!")
     
     if summary["avg_rss_response_time"] > 3.0:
-        print("⚠️  Average response time is high. Consider adjusting timeouts.")
+        print("[WARN] Average response time is high. Consider adjusting timeouts.")
     else:
-        print("✅ Response times are acceptable.")
+        print("[OK] Response times are acceptable.")
     
     failed_feeds = [f for f in monitor.results["news_feeds"] if not f["accessible"]]
     if failed_feeds:
-        print(f"\n🔧 Action needed for {len(failed_feeds)} failed feeds:")
+        print(f"\n[ACTION] Action needed for {len(failed_feeds)} failed feeds:")
         for feed in failed_feeds:
             print(f"   - {feed['name']}: {feed['url']}")
     

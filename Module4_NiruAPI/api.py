@@ -223,7 +223,7 @@ async def lifespan(app: FastAPI):
         from Module4_NiruAPI.agents.tools.tool_registry import ToolRegistry
         logger.info("Initializing global tool registry...")
         tool_registry = ToolRegistry()
-        logger.info(f"✔ Tool registry initialized with {len(tool_registry.tools)} tools: {tool_registry.list_tools()}")
+        logger.info(f"[OK] Tool registry initialized with {len(tool_registry.tools)} tools: {tool_registry.list_tools()}")
     except Exception as e:
         logger.error(f"Failed to initialize tool registry: {e}")
         tool_registry = None
@@ -373,13 +373,13 @@ async def lifespan(app: FastAPI):
                 try:
                     pubsub = cache_manager.redis_client.pubsub()
                     pubsub.subscribe('bill_updated')
-                    logger.info("🎧 Listening for cache invalidation events on 'bill_updated'")
+                    logger.info("[LISTEN] Listening for cache invalidation events on 'bill_updated'")
                     for message in pubsub.listen():
                         if message['type'] == 'message':
                             bill_name = message['data']
                             if isinstance(bill_name, bytes):
                                 bill_name = bill_name.decode('utf-8')
-                            logger.info(f"🧹 Invalidation event received for: {bill_name}")
+                            logger.info(f"[CLEAN] Invalidation event received for: {bill_name}")
                             cache_manager.delete_pattern(f"*{bill_name}*")
                 except Exception as e:
                     logger.error(f"Redis listener error: {e}")
@@ -461,7 +461,7 @@ async def lifespan(app: FastAPI):
                         if missing_tables:
                             logger.info(f"Creating missing auth tables: {missing_tables}")
                             Base.metadata.create_all(engine)
-                            logger.info("✅ Auth tables created successfully")
+                            logger.info("[OK] Auth tables created successfully")
                             
                             try:
                                 from sqlalchemy.orm import sessionmaker
@@ -470,18 +470,18 @@ async def lifespan(app: FastAPI):
                                 db = Session()
                                 try:
                                     RoleManager.get_or_create_default_roles(db)
-                                    logger.info("✅ Default roles initialized")
+                                    logger.info("[OK] Default roles initialized")
                                 finally:
                                     db.close()
                             except Exception as e:
                                 logger.warning(f"Could not initialize default roles: {e}")
                         else:
-                            logger.info("✅ Auth tables already exist")
+                            logger.info("[OK] Auth tables already exist")
             except Exception as e:
                 logger.warning(f"Auth database initialization check failed: {e}")
                 logger.warning("You may need to run 'python migrate_auth_db.py' manually")
             
-            logger.info("✅ Authentication module initialized")
+            logger.info("[OK] Authentication module initialized")
         except Exception as e:
             logger.error(f"Failed to initialize authentication module: {e}")
             logger.error("Auth features will not be available")
@@ -560,14 +560,14 @@ async def lifespan(app: FastAPI):
     try:
         logger.info("Step 1: Importing AmaniQ v2 modules...")
         from Module4_NiruAPI.agents.amaniq_v2 import AmaniQAgent, AmaniQConfig
-        logger.info("✓ Import successful")
+        logger.info("[OK] Import successful")
         
         logger.info("Step 2: Validating dependencies...")
         if not vector_store:
             missing_deps = []
             missing_deps.append("Vector store (check QDRANT_URL, QDRANT_API_KEY or UPSTASH_VECTOR_URL, UPSTASH_VECTOR_TOKEN)")
             logger.error("=" * 80)
-            logger.error("❌ VECTOR STORE NOT AVAILABLE")
+            logger.error("[ERROR] VECTOR STORE NOT AVAILABLE")
             logger.error("=" * 80)
             logger.error("The vector store failed to initialize. This could be because:")
             logger.error("  1. Cloud vector store (Qdrant/Upstash) is unavailable or misconfigured")
@@ -579,15 +579,15 @@ async def lifespan(app: FastAPI):
             logger.error("  - Or ensure ChromaDB can be initialized locally")
             logger.error("=" * 80)
             raise RuntimeError(f"Vector store is required for AmaniQ v2 agent. Missing: {', '.join(missing_deps)}")
-        logger.info("  ✓ Vector store available")
+        logger.info("  [OK] Vector store available")
         
         if not rag_pipeline:
             raise RuntimeError("RAG pipeline is required for AmaniQ v2 agent but was not initialized")
-        logger.info("  ✓ RAG pipeline available")
+        logger.info("  [OK] RAG pipeline available")
         
         if not rag_pipeline.llm_service:
             raise RuntimeError("LLM service is required for AmaniQ v2 agent but was not initialized (check MOONSHOT_API_KEY)")
-        logger.info("  ✓ LLM service available")
+        logger.info("  [OK] LLM service available")
         
         logger.info("Step 3: Creating agent configuration...")
         # Create config for the agent
@@ -597,15 +597,15 @@ async def lifespan(app: FastAPI):
             enable_telemetry=True,
             enable_persistence=False,  # Disable persistence for faster startup
         )
-        logger.info(f"  ✓ Config created (caching={cache_manager is not None})")
+        logger.info(f"  [OK] Config created (caching={cache_manager is not None})")
         
         logger.info("Step 4: Creating AmaniQAgent instance...")
         amaniq_v2_agent = AmaniQAgent(config=agent_config)
-        logger.info("  ✓ Instance created")
+        logger.info("  [OK] Instance created")
         
         logger.info("Step 5: Initializing agent (building graph, etc.)...")
         await amaniq_v2_agent.initialize()
-        logger.info("  ✓ Initialization complete")
+        logger.info("  [OK] Initialization complete")
         
         logger.info("Step 6: Verifying agent state...")
         if amaniq_v2_agent is None:
@@ -614,15 +614,15 @@ async def lifespan(app: FastAPI):
             raise RuntimeError("Agent._initialized is False after initialization!")
         if amaniq_v2_agent.graph is None:
             raise RuntimeError("Agent.graph is None after initialization!")
-        logger.info(f"  ✓ Agent verified (graph type: {type(amaniq_v2_agent.graph).__name__})")
+        logger.info(f"  [OK] Agent verified (graph type: {type(amaniq_v2_agent.graph).__name__})")
         
         logger.info("=" * 80)
-        logger.info("✅ AMANIQ V2 AGENT INITIALIZED SUCCESSFULLY")
+        logger.info("[OK] AMANIQ V2 AGENT INITIALIZED SUCCESSFULLY")
         logger.info("=" * 80)
         
     except Exception as e:
         logger.error("=" * 80)
-        logger.error("❌ CRITICAL ERROR: AMANIQ V2 AGENT INITIALIZATION FAILED")
+        logger.error("[ERROR] CRITICAL ERROR: AMANIQ V2 AGENT INITIALIZATION FAILED")
         logger.error("=" * 80)
         logger.error(f"Error: {e}")
         import traceback
@@ -634,7 +634,7 @@ async def lifespan(app: FastAPI):
     # Inject dependencies into routers
     _inject_router_dependencies()
     
-    logger.info("✅ AmaniQuery API startup complete")
+    logger.info("[OK] AmaniQuery API startup complete")
     
     # Yield control to FastAPI
     yield
@@ -682,7 +682,7 @@ def _inject_router_dependencies():
     elif amaniq_v2_agent.graph is None:
         logger.error("CRITICAL: amaniq_v2_agent.graph is None during dependency injection!")
     else:
-        logger.info(f"✅ AmaniQ v2 graph injected into chat_router (type={type(amaniq_v2_agent.graph).__name__})")
+        logger.info(f"[OK] AmaniQ v2 graph injected into chat_router (type={type(amaniq_v2_agent.graph).__name__})")
     
     if chat_manager is None:
         logger.warning("chat_manager is None during dependency injection")

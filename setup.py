@@ -9,32 +9,32 @@ from pathlib import Path
 def run_command(command, description):
     """Run a shell command"""
     print(f"\n{'=' * 60}")
-    print(f"📦 {description}")
+    print(f"[PKG] {description}")
     print(f"{'=' * 60}")
     
     try:
         subprocess.run(command, check=True, shell=True)
-        print(f"✅ {description} - Complete")
+        print(f"[OK] {description} - Complete")
         return True
     except subprocess.CalledProcessError as e:
-        print(f"❌ {description} - Failed: {e}")
+        print(f"[ERROR] {description} - Failed: {e}")
         return False
 
 
 def main():
     """Main setup function"""
     print("=" * 60)
-    print("🏗️  AmaniQuery Setup")
+    print("[BUILD] AmaniQuery Setup")
     print("=" * 60)
     
     project_root = Path(__file__).parent
     
     # Check Python version
     if sys.version_info < (3, 8):
-        print("❌ Python 3.8 or higher is required")
+        print("[ERROR] Python 3.8 or higher is required")
         return
     
-    print(f"✅ Python {sys.version_info.major}.{sys.version_info.minor}")
+    print(f"[OK] Python {sys.version_info.major}.{sys.version_info.minor}")
     
     # Create virtual environment
     venv_path = project_root / "venv"
@@ -42,7 +42,7 @@ def main():
         if not run_command("python -m venv venv", "Creating virtual environment"):
             return
     else:
-        print("\n✅ Virtual environment already exists")
+        print("\n[OK] Virtual environment already exists")
     
     # Determine pip command
     if sys.platform == "win32":
@@ -60,12 +60,12 @@ def main():
         f"{pip_cmd} install -r requirements.txt",
         "Installing dependencies"
     ):
-        print("\n⚠️  Some packages may have failed to install")
+        print("\n[WARN] Some packages may have failed to install")
         print("   You can install them manually later")
     
     # Create data directories
     print("\n" + "=" * 60)
-    print("📁 Creating data directories")
+    print("[DIR] Creating data directories")
     print("=" * 60)
     
     directories = [
@@ -78,7 +78,7 @@ def main():
     
     for directory in directories:
         directory.mkdir(parents=True, exist_ok=True)
-        print(f"   ✅ {directory}")
+        print(f"   [OK] {directory}")
     
     # Create .env from template
     env_file = project_root / ".env"
@@ -86,7 +86,7 @@ def main():
     
     if not env_file.exists() and env_example.exists():
         print("\n" + "=" * 60)
-        print("⚙️  Creating .env file")
+        print("[CONFIG] Creating .env file")
         print("=" * 60)
         
         with open(env_example, "r") as f:
@@ -95,14 +95,14 @@ def main():
         with open(env_file, "w") as f:
             f.write(content)
         
-        print(f"   ✅ Created .env")
-        print(f"   ⚠️  Please edit .env and add your API keys")
+        print(f"   [OK] Created .env")
+        print(f"   [WARN] Please edit .env and add your API keys")
     
     # Print next steps
     print("\n" + "=" * 60)
-    print("✅ Setup Complete!")
+    print("[OK] Setup Complete!")
     print("=" * 60)
-    print("\n📋 Next Steps:\n")
+    print("\n[INFO] Next Steps:\n")
     print("1. Activate virtual environment:")
     if sys.platform == "win32":
         print("   venv\\Scripts\\activate")

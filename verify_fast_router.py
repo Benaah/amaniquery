@@ -15,18 +15,18 @@ from Module4_NiruAPI.agents.retrieval_strategies import UnifiedRetriever
 load_dotenv()
 
 async def verify_router():
-    print("🚀 Verifying Fast Intent Router (Amaniq v1)...")
+    print("[START] Verifying Fast Intent Router (Amaniq v1)...")
     
     # Check keys
     gemini_key = os.getenv("GEMINI_API_KEY")
     openrouter_key = os.getenv("OPENROUTER_API_KEY")
     
     if gemini_key:
-        print(f"✅ GEMINI_API_KEY found (Priority 1)")
+        print(f"[OK] GEMINI_API_KEY found (Priority 1)")
     elif openrouter_key:
-        print(f"✅ OPENROUTER_API_KEY found (Priority 2)")
+        print(f"[OK] OPENROUTER_API_KEY found (Priority 2)")
     else:
-        print("❌ No fast LLM keys found!")
+        print("[ERROR] No fast LLM keys found!")
         return
 
     # Initialize Fast LLM
@@ -39,7 +39,7 @@ async def verify_router():
             flash_model = genai.GenerativeModel('gemini-2.5-flash')
             # Pass the model object directly (it has generate_content method)
             fast_llm_client = flash_model
-            print("✅ Initialized Gemini 2.5 Flash")
+            print("[OK] Initialized Gemini 2.5 Flash")
         elif openrouter_key:
             from openai import OpenAI
             or_client = OpenAI(
@@ -52,9 +52,9 @@ async def verify_router():
                     messages=[{"role": "user", "content": prompt}]
                 ).choices[0].message.content
             fast_llm_client = openrouter_wrapper
-            print("✅ Initialized OpenRouter wrapper")
+            print("[OK] Initialized OpenRouter wrapper")
     except Exception as e:
-        print(f"❌ Failed to init fast LLM: {e}")
+        print(f"[ERROR] Failed to init fast LLM: {e}")
         return
 
     # Mock other components
@@ -80,16 +80,16 @@ async def verify_router():
     
     result1 = execute_pipeline(graph, query1)
     
-    print("\n📊 Results 1:")
+    print("\n[RESULTS] Results 1:")
     print(f"Query Type: {result1['metadata']['query_type']}")
     print(f"Confidence: {result1['metadata']['confidence']}")
     print(f"Pipeline Error: {result1['metadata'].get('error')}")
     print(f"Web Search Used: {result1['metadata'].get('web_search_used')}")
     
     if result1['metadata']['confidence'] > 0.6:
-        print("✅ Router worked")
+        print("[OK] Router worked")
     else:
-        print("❌ Router failed (Low confidence/Fallback)")
+        print("[ERROR] Router failed (Low confidence/Fallback)")
 
     # Test Query 2: Mwanahabari (Should trigger search/research intent)
     query2 = "What are the latest amendments to the Finance Bill 2024?"
@@ -97,22 +97,22 @@ async def verify_router():
     
     result2 = execute_pipeline(graph, query2)
     
-    print("\n📊 Results 2:")
+    print("\n[RESULTS] Results 2:")
     print(f"Query Type: {result2['metadata']['query_type']}")
     print(f"Confidence: {result2['metadata']['confidence']}")
     print(f"Web Search Used: {result2['metadata'].get('web_search_used')}")
     
     if result2['metadata']['query_type'] == 'mwanahabari':
-        print("✅ Correctly classified as mwanahabari")
+        print("[OK] Correctly classified as mwanahabari")
     else:
-        print(f"⚠️ Classified as {result2['metadata']['query_type']}")
+        print(f"[WARN] Classified as {result2['metadata']['query_type']}")
 
     print(f"\nTotal Time (Q1): {result1['metadata']['total_time_seconds']:.2f}s")
     
     if result1['metadata']['total_time_seconds'] < 2.0:
-        print("\n✅ Speed Test PASSED (< 2s)")
+        print("\n[OK] Speed Test PASSED (< 2s)")
     else:
-        print("\n⚠️ Speed Test WARNING (> 2s)")
+        print("\n[WARN] Speed Test WARNING (> 2s)")
 
 if __name__ == "__main__":
     asyncio.run(verify_router())

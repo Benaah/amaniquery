@@ -333,7 +333,7 @@ print(share.json()["content"])
 - ✅ **Vision RAG** - Multimodal RAG with Cohere Embed-4 and Gemini 2.5 Flash for image/PDF analysis
 - ✅ **Social media sharing** - Intelligent formatting for Twitter/X, LinkedIn, Facebook
 - ✅ **Chat interface** - Modern, responsive UI with copy/edit/resend for failed queries
-- ✅ **Voice agent** - Real-time voice conversations via LiveKit
+- ✅ **Voice agent** - Real-time voice conversations via VibeVoice
 - ✅ **Authentication & Authorization** - User accounts, API keys, OAuth 2.0, RBAC, rate limiting, usage tracking
 
 ## 🧠 RAG Pipeline
@@ -615,7 +615,7 @@ See `scripts/scheduler_setup.md` for details.
 - 🎓 Educational resource for Kenyan civics
 - 💼 Legislative due diligence
 - 💬 **Real-time chat interface** - Interactive Q&A with streaming responses
-- 🎤 **Voice queries** - Ask questions via voice (LiveKit integration)
+- 🎤 **Voice queries** - Ask questions via voice (VibeVoice integration)
 - 🔄 **Multi-model accuracy** - Enhanced responses when context is limited
 - 📊 **Hybrid retrieval** - Improved accuracy with adaptive retrieval
 - 🔐 **Third-party integrations** - API keys and OAuth 2.0 for external applications

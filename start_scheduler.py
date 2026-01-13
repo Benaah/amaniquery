@@ -117,7 +117,7 @@ def main():
     # Check dependencies
     missing = check_dependencies()
     if missing:
-        print(f"❌ Missing dependencies: {', '.join(missing)}")
+        print(f"[ERROR] Missing dependencies: {', '.join(missing)}")
         print(f"   Install with: pip install {' '.join(missing)}")
         sys.exit(1)
     
@@ -134,26 +134,26 @@ def main():
     if args.save_config:
         config = SchedulerConfig.default()
         config.save(Path(args.save_config))
-        print(f"✅ Default configuration saved to: {args.save_config}")
+        print(f"[OK] Default configuration saved to: {args.save_config}")
         return
     
     # Determine backend
     if args.celery:
         if not check_celery():
-            print("❌ Celery backend requires Redis. Please ensure:")
+            print("[ERROR] Celery backend requires Redis. Please ensure:")
             print("   1. Redis is installed and running")
             print("   2. REDIS_URL environment variable is set")
             print("   Or use the default APScheduler backend: python start_scheduler.py")
             sys.exit(1)
         backend = "celery"
-        print("🚀 Using Celery backend (distributed)")
+        print("[START] Using Celery backend (distributed)")
     else:
         if not check_apscheduler():
-            print("❌ APScheduler not installed")
+            print("[ERROR] APScheduler not installed")
             print("   Install with: pip install apscheduler")
             sys.exit(1)
         backend = "apscheduler"
-        print("🚀 Using APScheduler backend (standalone)")
+        print("[START] Using APScheduler backend (standalone)")
     
     # Load configuration
     if args.config:
@@ -172,17 +172,17 @@ def main():
             import json
             time.sleep(2)
             status = service.get_status()
-            print("\n📊 Scheduler Status:")
+            print("\n[STATUS] Scheduler Status:")
             print(json.dumps(status, indent=2))
             service.stop()
         return
     
     if args.trigger:
-        print(f"🎯 Triggering crawler: {args.trigger}")
+        print(f"[TRIGGER] Triggering crawler: {args.trigger}")
         if service.start():
             crawler_type = CrawlerType(args.trigger)
             service.trigger_crawler(crawler_type)
-            print(f"✅ Crawler {args.trigger} triggered")
+            print(f"[OK] Crawler {args.trigger} triggered")
             
             # Wait for it to start
             import time
@@ -191,7 +191,7 @@ def main():
             # Show status
             status = service.get_status()
             running = status.get("running_crawlers", [])
-            print(f"📊 Running crawlers: {running}")
+            print(f"[STATUS] Running crawlers: {running}")
             
             # Keep running until crawler finishes
             print("\nPress Ctrl+C to exit (crawler will continue in background)")
@@ -201,7 +201,7 @@ def main():
                     status = service.get_status()
                     running = status.get("running_crawlers", [])
                     if not running:
-                        print("✅ Crawler completed")
+                        print("[OK] Crawler completed")
                         break
             except KeyboardInterrupt:
                 pass
@@ -213,12 +213,12 @@ def main():
     print("\n" + "=" * 60)
     print("AmaniQuery Crawler Scheduler")
     print("=" * 60)
-    print("\n📅 Schedule Overview:")
+    print("\n[SCHEDULE] Schedule Overview:")
     for name, schedule in config.schedules.items():
         if schedule.enabled:
-            print(f"   • {name}: Every {schedule.interval_hours}h")
+            print(f"   - {name}: Every {schedule.interval_hours}h")
         else:
-            print(f"   • {name}: DISABLED")
+            print(f"   - {name}: DISABLED")
     print("\n" + "=" * 60)
     print("Press Ctrl+C to stop the scheduler")
     print("=" * 60 + "\n")

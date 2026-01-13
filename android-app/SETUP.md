@@ -25,7 +25,6 @@ Create a `.env` file in the `android-app` directory:
 
 ```env
 API_BASE_URL=http://10.0.2.2:8000
-LIVEKIT_URL=wss://your-livekit-server.com
 ENABLE_NOTIFICATIONS=true
 ```
 
@@ -64,11 +63,7 @@ The app expects the following endpoints:
 - `POST /chat/feedback` - Submit feedback
 
 ### Voice Endpoints
-- `POST /api/livekit-token` - Generate LiveKit token
-  - Request body: `{ roomName, participantName, voice? }`
-  - Response: `{ token: string }`
-
-**Note:** You need to add the LiveKit token endpoint to your FastAPI backend. See `Module4_NiruAPI/api.py` for reference.
+- (Placeholder for VibeVoice endpoints)
 
 ### Notifications Endpoints
 - `GET /api/v1/notifications/sources` - Get notification sources
@@ -130,11 +125,6 @@ The APK will be at: `android/app/build/outputs/apk/release/app-release.apk`
 - Check firewall settings
 - For emulator, use `10.0.2.2` instead of `localhost`
 - For device, ensure phone and computer are on same network
-
-### LiveKit Issues
-- Ensure LiveKit server is running
-- Check `LIVEKIT_URL` in `.env`
-- Verify token generation endpoint is implemented in backend
 
 ## Development Tips
 

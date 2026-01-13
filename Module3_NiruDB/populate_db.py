@@ -199,7 +199,7 @@ def main(
         backends: List of backends to populate (default: all available)
     """
     print("=" * 60)
-    print("💾 Populating Databases (Batch Mode)")
+    print("[DB] Populating Databases (Batch Mode)")
     print("=" * 60)
     print(f"   Batch size: {batch_size}")
     print(f"   Max retries: {MAX_RETRIES}")
@@ -208,21 +208,21 @@ def main(
     # Handle progress
     if fresh_start:
         clear_progress()
-        print("   🔄 Starting fresh (progress cleared)")
+        print("   [INIT] Starting fresh (progress cleared)")
     
     progress = load_progress() if resume else {"completed_files": [], "last_run": None}
     
     if progress.get("last_run"):
-        print(f"   📋 Resuming from: {progress['last_run']}")
-        print(f"   📋 Previously completed: {len(progress['completed_files'])} files")
+        print(f"   [INFO] Resuming from: {progress['last_run']}")
+        print(f"   [INFO] Previously completed: {len(progress['completed_files'])} files")
 
     # Initialize config manager (optional - fallback to env vars)
     config_manager = None
     try:
         config_manager = ConfigManager()
-        print("✔ ConfigManager initialized")
+        print("[OK] ConfigManager initialized")
     except Exception as e:
-        print(f"⚠️  ConfigManager not available ({e}), using environment variables")
+        print(f"[WARN] ConfigManager not available ({e}), using environment variables")
         config_manager = None
 
     # Initialize vector stores for different backends
@@ -232,51 +232,51 @@ def main(
     # Try to initialize Upstash Vector Store
     if "upstash" in available_backends:
         try:
-            print("🔄 Initializing Upstash Vector Store...")
+            print("[INIT] Initializing Upstash Vector Store...")
             upstash_store = VectorStore(
                 backend="upstash",
                 collection_name="amaniquery_docs",
                 config_manager=config_manager
             )
             vector_stores.append(("Upstash", upstash_store))
-            print("✔ Upstash Vector Store initialized")
+            print("[OK] Upstash Vector Store initialized")
         except Exception as e:
-            print(f"✗ Failed to initialize Upstash: {e}")
+            print(f"[ERROR] Failed to initialize Upstash: {e}")
 
     # Try to initialize QDrant Vector Store
     if "qdrant" in available_backends:
         try:
-            print("🔄 Initializing QDrant Vector Store...")
+            print("[INIT] Initializing QDrant Vector Store...")
             qdrant_store = VectorStore(
                 backend="qdrant",
                 collection_name="amaniquery_docs",
                 config_manager=config_manager
             )
             vector_stores.append(("QDrant", qdrant_store))
-            print("✔ QDrant Vector Store initialized")
+            print("[OK] QDrant Vector Store initialized")
         except Exception as e:
-            print(f"✗ Failed to initialize QDrant: {e}")
+            print(f"[ERROR] Failed to initialize QDrant: {e}")
 
     # Initialize ChromaDB as fallback
     if "chromadb" in available_backends:
         try:
-            print("🔄 Initializing ChromaDB Vector Store...")
+            print("[INIT] Initializing ChromaDB Vector Store...")
             chromadb_store = VectorStore(
                 backend="chromadb",
                 collection_name="amaniquery_docs",
                 config_manager=config_manager
             )
             vector_stores.append(("ChromaDB", chromadb_store))
-            print("✔ ChromaDB Vector Store initialized")
+            print("[OK] ChromaDB Vector Store initialized")
         except Exception as e:
-            print(f"✗ Failed to initialize ChromaDB: {e}")
+            print(f"[ERROR] Failed to initialize ChromaDB: {e}")
 
     if not vector_stores:
-        print("✗ Error: No vector stores could be initialized")
+        print("[ERROR] Error: No vector stores could be initialized")
         print("   Please check your configuration and API keys")
         return {"status": "failed", "error": "No vector stores available"}
 
-    print(f"\n📊 Initialized {len(vector_stores)} vector stores:")
+    print(f"\n[INFO] Initialized {len(vector_stores)} vector stores:")
     for name, store in vector_stores:
         print(f"   - {name}")
 
@@ -284,7 +284,7 @@ def main(
     processed_path = Path(__file__).parent.parent / "data" / "processed"
 
     if not processed_path.exists():
-        print(f"✗ Error: Processed data directory not found")
+        print(f"[ERROR] Error: Processed data directory not found")
         print(f"   Please run Module 2 (NiruParser) first")
         return {"status": "failed", "error": "No processed data"}
 
@@ -292,7 +292,7 @@ def main(
     jsonl_files = list(processed_path.rglob("*_processed.jsonl"))
 
     if not jsonl_files:
-        print(f"⚠️  No processed data files found")
+        print(f"[WARN] No processed data files found")
         print(f"   Please run Module 2 (NiruParser) first")
         return {"status": "failed", "error": "No JSONL files found"}
 
@@ -300,9 +300,9 @@ def main(
     if resume and progress.get("completed_files"):
         completed_set = set(progress["completed_files"])
         jsonl_files = [f for f in jsonl_files if str(f) not in completed_set]
-        print(f"\n📂 Found {len(jsonl_files)} remaining files to process")
+        print(f"\n[INFO] Found {len(jsonl_files)} remaining files to process")
     else:
-        print(f"\n📂 Found {len(jsonl_files)} processed files\n")
+        print(f"\n[INFO] Found {len(jsonl_files)} processed files\n")
 
     # Statistics tracking
     stats = {
@@ -317,7 +317,7 @@ def main(
     # Process each file
     for jsonl_file in tqdm(jsonl_files, desc="Processing files"):
         file_path_str = str(jsonl_file)
-        print(f"\n📄 Processing: {jsonl_file.name}")
+        print(f"\n[FILE] Processing: {jsonl_file.name}")
 
         file_chunks = 0
         file_batches = 0
@@ -382,33 +382,33 @@ def main(
         progress["completed_files"].append(file_path_str)
         save_progress(progress)
 
-        print(f"   ✔ Processed {file_chunks} chunks in {file_batches} batches")
+        print(f"   [OK] Processed {file_chunks} chunks in {file_batches} batches")
         if file_failed > 0:
-            print(f"   ⚠️  {file_failed} batch failures")
+            print(f"   [WARN] {file_failed} batch failures")
 
     # Show final stats
     print("\n" + "=" * 60)
-    print(f"✔ Database Population Complete!")
-    print(f"📊 Total files processed: {stats['files_processed']}")
-    print(f"📊 Total chunks added: {stats['total_chunks']}")
-    print(f"📊 Total batches: {stats['total_batches']}")
+    print(f"[OK] Database Population Complete!")
+    print(f"[INFO] Total files processed: {stats['files_processed']}")
+    print(f"[INFO] Total chunks added: {stats['total_chunks']}")
+    print(f"[INFO] Total batches: {stats['total_batches']}")
     if stats["failed_batches"] > 0:
-        print(f"⚠️  Failed batches: {stats['failed_batches']}")
-    print(f"📊 Vector stores updated: {len(vector_stores)}")
+        print(f"[WARN] Failed batches: {stats['failed_batches']}")
+    print(f"[INFO] Vector stores updated: {len(vector_stores)}")
 
-    print(f"\n📈 Chunks per store:")
+    print(f"\n[STATS] Chunks per store:")
     for store_name, count in stats["stores_updated"].items():
         print(f"   - {store_name}: {count} chunks")
 
-    print(f"\n📈 Chunks per namespace:")
+    print(f"\n[STATS] Chunks per namespace:")
     for namespace, count in stats["namespaces"].items():
         print(f"   - {namespace}: {count} chunks")
 
-    print(f"\n📈 Database Statistics:")
+    print(f"\n[STATS] Database Statistics:")
     for store_name, vector_store in vector_stores:
         try:
             store_stats = vector_store.get_stats()
-            print(f"\n🔹 {store_name}:")
+            print(f"\n[STORE] {store_name}:")
             print(f"   Backend: {store_stats.get('backend', 'unknown')}")
             print(f"   Collection: {store_stats.get('collection_name', 'unknown')}")
             print(f"   Total chunks: {store_stats.get('total_chunks', 'unknown')}")
@@ -424,15 +424,15 @@ def main(
                 print(f"   Categories: {', '.join(store_stats['sample_categories'].keys())}")
 
         except Exception as e:
-            print(f"   ✗ Could not get stats: {e}")
+            print(f"   [ERROR] Could not get stats: {e}")
 
     # Clear progress on successful completion
     if stats["failed_batches"] == 0:
         clear_progress()
-        print("\n✔ Progress cleared (all files completed successfully)")
+        print("\n[OK] Progress cleared (all files completed successfully)")
 
     print("\n" + "=" * 60)
-    print("🎉 All databases updated successfully!")
+    print("[DONE] All databases updated successfully!")
     print("   Data is now available in:")
     print("   - Vector databases (for semantic search)")
     print("   - Elasticsearch (for full-text search)")

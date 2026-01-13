@@ -16,7 +16,7 @@ def test_rag():
     try:
         # Initialize pipeline
         pipeline = RAGPipeline()
-        print("✓ Pipeline initialized")
+        print("[OK] Pipeline initialized")
 
         # Test query
         query = "What is the Kenyan Constitution?"
@@ -35,7 +35,7 @@ def test_rag():
                 print(f"  [{i+1}] {src['title']} ({src['category']})")
 
     except Exception as e:
-        print(f"✗ Error: {e}")
+        print(f"[ERROR] Error: {e}")
         import traceback
         traceback.print_exc()
 

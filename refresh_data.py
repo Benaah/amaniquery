@@ -50,7 +50,7 @@ def get_venv_python():
 def run_command(module_path, description, python_exe):
     """Run a Python module and return success status"""
     print("\n" + "=" * 60)
-    print(f"🔄 {description}")
+    print(f"[START] {description}")
     print("=" * 60)
     
     try:
@@ -59,31 +59,31 @@ def run_command(module_path, description, python_exe):
             cwd=project_root,
             check=True
         )
-        print(f"✔ {description} completed successfully")
+        print(f"[OK] {description} completed successfully")
         return True
     except subprocess.CalledProcessError as e:
-        print(f"✗ {description} failed with exit code {e.returncode}")
+        print(f"[ERROR] {description} failed with exit code {e.returncode}")
         logger.error(f"Error running {module_path}: {e}")
         return False
     except KeyboardInterrupt:
-        print(f"\n⚠️  {description} interrupted by user")
+        print(f"\n[WARN] {description} interrupted by user")
         return False
 
 def main():
     """Run the complete data refresh pipeline"""
     print("=" * 60)
-    print("🚀 AmaniQuery Data Refresh Pipeline")
+    print("[START] AmaniQuery Data Refresh Pipeline")
     print("=" * 60)
     
     # Detect and use virtual environment
     python_exe = get_venv_python()
     venv_name = Path(python_exe).parent.parent.name if "venv" in python_exe or ".venv" in python_exe or "env" in python_exe else "system"
     
-    print(f"\n🐍 Python interpreter: {python_exe}")
+    print(f"\n[PYTHON] Python interpreter: {python_exe}")
     if venv_name != "system":
-        print(f"✔Using virtual environment: {venv_name}")
+        print(f"[OK] Using virtual environment: {venv_name}")
     else:
-        print("⚠️  No virtual environment detected - using system Python")
+        print("[WARN] No virtual environment detected - using system Python")
         print("   Consider activating venv first:")
         print("   Windows: venv\\Scripts\\activate")
         print("   Linux/Mac: source venv/bin/activate")
@@ -92,7 +92,7 @@ def main():
     print("  1. Run all spiders to crawl fresh data")
     print("  2. Process and parse the crawled data")
     print("  3. Populate vector databases with processed chunks")
-    print("\n⚠️  This may take 1-3 hours depending on data volume")
+    print("\n[WARN] This may take 1-3 hours depending on data volume")
     
     response = input("\nContinue? (y/n): ")
     if response.lower() != 'y':
@@ -101,24 +101,24 @@ def main():
     
     # Step 1: Crawl data
     if not run_command("Module1_NiruSpider.crawl_all", "Step 1: Crawling Data", python_exe):
-        print("\n✗ Crawling failed. Stopping pipeline.")
+        print("\n[ERROR] Crawling failed. Stopping pipeline.")
         return 1
     
     # Step 2: Process data
     if not run_command("Module2_NiruParser.process_all", "Step 2: Processing Data", python_exe):
-        print("\n✗ Processing failed. Stopping pipeline.")
+        print("\n[ERROR] Processing failed. Stopping pipeline.")
         return 1
     
     # Step 3: Populate vector databases
     if not run_command("Module3_NiruDB.populate_db", "Step 3: Populating Vector Databases", python_exe):
-        print("\n✗ Database population failed.")
+        print("\n[ERROR] Database population failed.")
         return 1
     
     print("\n" + "=" * 60)
-    print("🎉 Data Refresh Complete!")
+    print("[DONE] Data Refresh Complete!")
     print("=" * 60)
-    print("\n✔ All steps completed successfully")
-    print("📊 Your databases are now populated with fresh data")
+    print("\n[OK] All steps completed successfully")
+    print("[INFO] Your databases are now populated with fresh data")
     print("\nYou can now start the API server:")
     print("   python start_api.py")
     print("=" * 60)

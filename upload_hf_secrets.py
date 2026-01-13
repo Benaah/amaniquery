@@ -58,14 +58,14 @@ def main():
     env_path = Path(__file__).parent / ".env"
     if env_path.exists():
         load_dotenv(env_path)
-        print(f"✓ Found .env at {env_path}")
+        print(f"[OK] Found .env at {env_path}")
     else:
-        print(f"✗ No .env file found at {env_path}")
+        print(f"[ERROR] No .env file found at {env_path}")
         return 1
     
     # Parse entire .env file
     env_vars = parse_env_file(env_path)
-    print(f"✓ Parsed {len(env_vars)} environment variables from .env")
+    print(f"[OK] Parsed {len(env_vars)} environment variables from .env")
     
     # Get HuggingFace token
     hf_token = os.getenv("HF_TOKEN") or os.getenv("HUGGINGFACE_TOKEN")
@@ -73,7 +73,7 @@ def main():
         hf_token = input("Enter your HuggingFace token: ").strip()
     
     if not hf_token:
-        print("✗ HuggingFace token is required")
+        print("[ERROR] HuggingFace token is required")
         return 1
     
     # Get space name
@@ -82,7 +82,7 @@ def main():
         space_name = input("Enter your HuggingFace Space name (e.g., username/space-name): ").strip()
     
     if not space_name:
-        print("✗ Space name is required")
+        print("[ERROR] Space name is required")
         return 1
     
     # Variables to exclude from upload (sensitive local-only vars)
@@ -96,7 +96,7 @@ def main():
     # Initialize API
     api = HfApi(token=hf_token)
     
-    print(f"\n📦 Uploading ALL secrets from .env to {space_name}...")
+    print(f"\n[PKG] Uploading ALL secrets from .env to {space_name}...")
     print("=" * 60)
     
     uploaded = 0
@@ -106,13 +106,13 @@ def main():
     for var_name, value in env_vars.items():
         # Skip excluded variables
         if var_name in EXCLUDE_VARS:
-            print(f"⏭  {var_name}: Excluded (local-only)")
+            print(f"[SKIP]  {var_name}: Excluded (local-only)")
             skipped += 1
             continue
         
         # Skip empty values
         if not value:
-            print(f"⏭  {var_name}: Empty value, skipping")
+            print(f"[SKIP]  {var_name}: Empty value, skipping")
             skipped += 1
             continue
         
@@ -127,17 +127,17 @@ def main():
                 display_value = value[:4] + "***" if len(value) > 4 else "***"
             else:
                 display_value = value[:30] + "..." if len(value) > 30 else value
-            print(f"✓  {var_name}: {display_value}")
+            print(f"[OK]  {var_name}: {display_value}")
             uploaded += 1
         except Exception as e:
-            print(f"✗  {var_name}: Failed - {e}")
+            print(f"[ERROR]  {var_name}: Failed - {e}")
             failed += 1
     
     print("=" * 60)
-    print(f"\n✅ Uploaded: {uploaded} | ⏭ Skipped: {skipped} | ✗ Failed: {failed}")
+    print(f"\n[OK] Uploaded: {uploaded} | [SKIP] Skipped: {skipped} | [ERROR] Failed: {failed}")
     
     if uploaded > 0:
-        print(f"\n🚀 Secrets uploaded to https://huggingface.co/spaces/{space_name}")
+        print(f"\n[DONE] Secrets uploaded to https://huggingface.co/spaces/{space_name}")
         print("   The space will restart automatically to apply changes.")
     
     return 0

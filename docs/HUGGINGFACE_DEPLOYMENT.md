@@ -150,7 +150,6 @@ pinned: false
 ❌ **Not Supported** (due to limitations):
 - Automatic data crawling (no scheduler)
 - Persistent data storage (resets on restart)
-- Voice agent (requires LiveKit)
 - Large file uploads (limited storage)
 - High-traffic production use
 

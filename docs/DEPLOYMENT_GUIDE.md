@@ -249,11 +249,6 @@ REDIS_URL=redis://redis-service:6379/0
 AFRICASTALKING_API_KEY=your_key
 AFRICASTALKING_USERNAME=your_username
 
-# Voice Agent (LiveKit)
-LIVEKIT_URL=wss://your-livekit-server
-LIVEKIT_API_KEY=your_key
-LIVEKIT_API_SECRET=your_secret
-
 # MinIO (Object Storage)
 MINIO_ENDPOINT=minio-service:9000
 MINIO_ACCESS_KEY=admin

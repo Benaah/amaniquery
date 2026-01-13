@@ -102,7 +102,7 @@ This will:
 
 ### Step 4: Start API Server
 
-**Recommended method (starts API and optionally voice agent):**
+**Recommended method (starts API and optional voice endpoints):**
 
 ```bash
 python start_api.py
@@ -112,7 +112,7 @@ This will:
 - Start FastAPI server on http://localhost:8000
 - Initialize RAG pipeline
 - Serve API endpoints
-- Optionally start voice agent (if LiveKit credentials are configured)
+- Enable voice endpoints via VibeVoice
 
 **Alternative (API only):**
 
@@ -123,8 +123,6 @@ python -m Module4_NiruAPI.api
 **Access:**
 - API: http://localhost:8000
 - Interactive Docs: http://localhost:8000/docs
-
-**Note:** The `start_api.py` script can also start the voice agent if you have LiveKit credentials configured in your `.env` file. Set `ENABLE_VOICE_AGENT=true` and provide `LIVEKIT_URL`, `LIVEKIT_API_KEY`, and `LIVEKIT_API_SECRET` to enable voice queries.
 
 ### Quick Option: Run All Steps at Once
 

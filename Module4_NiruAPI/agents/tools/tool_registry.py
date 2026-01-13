@@ -109,12 +109,15 @@ class ToolRegistry:
             raise ValueError(f"Tool '{name}' not found. Available tools: {self.list_tools()}")
         
         try:
-            if hasattr(tool, 'execute'):
+            # Check for LangChain BaseTool
+            if hasattr(tool, 'invoke'):
+                return tool.invoke(args)
+            elif hasattr(tool, 'execute'):
                 return tool.execute(**args)
             elif callable(tool):
                 return tool(**args)
             else:
-                raise ValueError(f"Tool '{name}' is not callable and has no execute method")
+                raise ValueError(f"Tool '{name}' is not callable and has no invoke/execute method")
         except Exception as e:
             logger.error(f"Error executing tool {name}: {e}")
             raise

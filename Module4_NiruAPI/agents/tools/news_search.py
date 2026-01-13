@@ -1,23 +1,28 @@
 """
 News Search Tool - Multi-Provider News Search
+Refactored for LangGraph tool calling best practices (2026).
 
 Features:
+- Inherits from langchain_core.tools.BaseTool
+- Strict Pydantic v2 validation for inputs
 - Multiple providers (SerpAPI, NewsAPI, DuckDuckGo News)
 - Async/await support
 - Retry logic with exponential backoff
 - Kenya-focused news sources
 - Result caching
-- LLM-ready tool schema
 """
 
 import os
 import asyncio
 import time
 import hashlib
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Type
 from datetime import datetime, timedelta
 from dataclasses import dataclass, field
 from loguru import logger
+from pydantic import BaseModel, Field, PrivateAttr
+
+from langchain_core.tools import BaseTool
 
 # Provider imports
 try:
@@ -45,6 +50,23 @@ except ImportError:
     HTTPX_AVAILABLE = False
 
 
+# =============================================================================
+# INPUT SCHEMA (Pydantic v2)
+# =============================================================================
+
+class NewsSearchInput(BaseModel):
+    """Input schema for News Search."""
+    query: str = Field(..., description="News search query.")
+    max_results: int = Field(default=10, ge=1, le=50, description="Maximum number of results to return.")
+    location: str = Field(default="Kenya", description="Location for news relevance (e.g., 'Kenya', 'Global').")
+    time_range: Optional[str] = Field(default=None, description="Time range: 'd' (day), 'w' (week), 'm' (month).")
+    sources: Optional[List[str]] = Field(default=None, description="Specific sources to search (e.g., ['nation.co.ke']).")
+
+
+# =============================================================================
+# CONFIGURATION
+# =============================================================================
+
 @dataclass
 class NewsSearchConfig:
     """Configuration for news search tool."""
@@ -60,45 +82,41 @@ class NewsSearchConfig:
     newsapi_key: str = field(default_factory=lambda: os.getenv("NEWSAPI_KEY", ""))
 
 
-class NewsSearchTool:
+# =============================================================================
+# MAIN TOOL CLASS (LangChain Compatible)
+# =============================================================================
+
+class NewsSearchTool(BaseTool):
     """
-    Multi-provider news search tool.
-    
-    Features:
-    - SerpAPI Google News (primary, requires API key)
-    - NewsAPI (secondary, requires API key)
-    - DuckDuckGo News (fallback, no API key)
-    - Kenya-focused sources
+    Multi-provider news search tool for LangGraph agents.
+    Features SerpAPI, NewsAPI, and DuckDuckGo fallback.
     """
     
-    name = "news_search"
-    description = (
+    name: str = "news_search"
+    description: str = (
         "Search for current news and updates. "
         "Supports Kenya-focused news from sources like Nation, Standard, Star. "
         "Best for: breaking news, current events, policy updates."
     )
+    args_schema: Type[BaseModel] = NewsSearchInput
     
-    # Kenya news sources
-    KENYA_SOURCES = [
-        "nation.co.ke",
-        "standardmedia.co.ke",
-        "the-star.co.ke",
-        "capitalfm.co.ke",
-        "kbc.co.ke",
-        "citizen.digital",
-        "businessdailyafrica.com",
-    ]
-    
-    def __init__(self, config: Optional[NewsSearchConfig] = None):
-        """Initialize news search tool."""
-        self.config = config or NewsSearchConfig()
+    # Private attributes
+    _config: NewsSearchConfig = PrivateAttr()
+    _ddgs: Optional[Any] = PrivateAttr()
+    _cache: Dict[str, Dict] = PrivateAttr()
+    _cache_times: Dict[str, float] = PrivateAttr()
+    _metrics: Dict[str, Any] = PrivateAttr()
+
+    def __init__(self, config: Optional[NewsSearchConfig] = None, **kwargs):
+        super().__init__(**kwargs)
+        self._config = config or NewsSearchConfig()
         
         # Initialize providers
         self._ddgs = DDGS() if DDGS_AVAILABLE else None
         
         # Cache
-        self._cache: Dict[str, Dict] = {}
-        self._cache_times: Dict[str, float] = {}
+        self._cache = {}
+        self._cache_times = {}
         
         # Metrics
         self._metrics = {
@@ -110,37 +128,24 @@ class NewsSearchTool:
         }
         
         providers = []
-        if self.config.serpapi_key:
+        if self._config.serpapi_key:
             providers.append("serpapi")
-        if self.config.newsapi_key:
+        if self._config.newsapi_key:
             providers.append("newsapi")
         if DDGS_AVAILABLE:
             providers.append("duckduckgo")
         
         logger.info(f"NewsSearchTool initialized (providers: {providers})")
-    
-    def execute(
+
+    def _run(
         self,
         query: str,
         max_results: int = 10,
         location: str = "Kenya",
         time_range: Optional[str] = None,
-        sources: Optional[List[str]] = None,
-        **kwargs
+        sources: Optional[List[str]] = None
     ) -> Dict[str, Any]:
-        """
-        Synchronous news search (backwards compatible).
-        
-        Args:
-            query: Search query
-            max_results: Maximum number of results
-            location: Location for news relevance
-            time_range: 'd' (day), 'w' (week), 'm' (month)
-            sources: Specific sources to search
-            
-        Returns:
-            News search results with sources
-        """
+        """Synchronous execution (delegates to async runner via event loop)."""
         try:
             loop = asyncio.get_event_loop()
             if loop.is_running():
@@ -148,26 +153,26 @@ class NewsSearchTool:
                 with concurrent.futures.ThreadPoolExecutor() as pool:
                     future = pool.submit(
                         asyncio.run,
-                        self.aexecute(query, max_results, location, time_range, sources)
+                        self._arun(query, max_results, location, time_range, sources)
                     )
-                    return future.result(timeout=self.config.timeout + 5)
+                    return future.result(timeout=self._config.timeout + 5)
             else:
                 return loop.run_until_complete(
-                    self.aexecute(query, max_results, location, time_range, sources)
+                    self._arun(query, max_results, location, time_range, sources)
                 )
         except Exception as e:
-            logger.error(f"Sync execute error: {e}")
+            logger.error(f"Sync execution failed: {e}")
             return self._error_response(query, str(e))
-    
-    async def aexecute(
+
+    async def _arun(
         self,
         query: str,
         max_results: int = 10,
         location: str = "Kenya",
         time_range: Optional[str] = None,
-        sources: Optional[List[str]] = None,
+        sources: Optional[List[str]] = None
     ) -> Dict[str, Any]:
-        """Async news search with fallback providers."""
+        """Async execution with fallback providers."""
         if not query or not query.strip():
             return self._error_response(query, "Empty query provided")
         
@@ -177,7 +182,7 @@ class NewsSearchTool:
         
         # Check cache
         cache_key = self._make_cache_key(query, location, time_range, max_results)
-        if self.config.cache_enabled:
+        if self._config.cache_enabled:
             cached = self._get_from_cache(cache_key)
             if cached:
                 self._metrics["cache_hits"] += 1
@@ -211,7 +216,7 @@ class NewsSearchTool:
                         "timestamp": datetime.utcnow().isoformat(),
                     }
                     
-                    if self.config.cache_enabled:
+                    if self._config.cache_enabled:
                         self._set_cache(cache_key, results)
                     
                     self._metrics["successful_searches"] += 1
@@ -225,28 +230,28 @@ class NewsSearchTool:
         
         self._metrics["failed_searches"] += 1
         return self._error_response(query, str(last_error) if last_error else "All news providers failed")
-    
+
     async def _search_with_retry(self, search_func, **kwargs) -> Dict[str, Any]:
         """Execute search with retry logic."""
         last_error = None
         
-        for attempt in range(self.config.max_retries):
+        for attempt in range(self._config.max_retries):
             try:
                 return await asyncio.wait_for(
                     search_func(**kwargs),
-                    timeout=self.config.timeout
+                    timeout=self._config.timeout
                 )
             except asyncio.TimeoutError:
                 last_error = TimeoutError(f"News search timed out")
             except Exception as e:
                 last_error = e
             
-            if attempt < self.config.max_retries - 1:
-                delay = self.config.base_retry_delay * (2 ** attempt)
+            if attempt < self._config.max_retries - 1:
+                delay = self._config.base_retry_delay * (2 ** attempt)
                 await asyncio.sleep(delay)
         
         raise last_error or Exception("News search failed")
-    
+
     async def _search_serpapi(
         self,
         query: str,
@@ -256,7 +261,7 @@ class NewsSearchTool:
         sources: Optional[List[str]],
     ) -> Dict[str, Any]:
         """Search using SerpAPI Google News."""
-        if not self.config.serpapi_key or not SERPAPI_AVAILABLE:
+        if not self._config.serpapi_key or not SERPAPI_AVAILABLE:
             raise RuntimeError("SerpAPI not available")
         
         loop = asyncio.get_event_loop()
@@ -265,7 +270,7 @@ class NewsSearchTool:
             params = {
                 "q": query,
                 "tbm": "nws",
-                "api_key": self.config.serpapi_key,
+                "api_key": self._config.serpapi_key,
                 "num": max_results,
                 "location": location,
             }
@@ -278,9 +283,8 @@ class NewsSearchTool:
             return search.get_dict()
         
         results = await loop.run_in_executor(None, _do_search)
-        
         return self._format_serpapi_results(query, results.get("news_results", []))
-    
+
     async def _search_newsapi(
         self,
         query: str,
@@ -290,7 +294,7 @@ class NewsSearchTool:
         sources: Optional[List[str]],
     ) -> Dict[str, Any]:
         """Search using NewsAPI."""
-        if not self.config.newsapi_key or not HTTPX_AVAILABLE:
+        if not self._config.newsapi_key or not HTTPX_AVAILABLE:
             raise RuntimeError("NewsAPI not available")
         
         # Calculate date range
@@ -307,19 +311,19 @@ class NewsSearchTool:
                 "https://newsapi.org/v2/everything",
                 params={
                     "q": query,
-                    "apiKey": self.config.newsapi_key,
+                    "apiKey": self._config.newsapi_key,
                     "pageSize": max_results,
                     "from": from_date.strftime("%Y-%m-%d"),
                     "sortBy": "publishedAt",
                     "language": "en",
                 },
-                timeout=self.config.timeout,
+                timeout=self._config.timeout,
             )
             response.raise_for_status()
             data = response.json()
         
         return self._format_newsapi_results(query, data.get("articles", []))
-    
+
     async def _search_ddg_news(
         self,
         query: str,
@@ -328,13 +332,11 @@ class NewsSearchTool:
         time_range: Optional[str],
         sources: Optional[List[str]],
     ) -> Dict[str, Any]:
-        """Search using DuckDuckGo News (fallback, no API key)."""
+        """Search using DuckDuckGo News."""
         if not self._ddgs:
             raise RuntimeError("DuckDuckGo not available")
         
         loop = asyncio.get_event_loop()
-        
-        # Add Kenya context to query if location is Kenya
         search_query = query
         if location.lower() == "kenya":
             search_query = f"{query} Kenya"
@@ -347,9 +349,8 @@ class NewsSearchTool:
             ))
         
         results = await loop.run_in_executor(None, _do_search)
-        
         return self._format_ddg_results(query, results)
-    
+
     def _format_serpapi_results(self, query: str, items: List[Dict]) -> Dict[str, Any]:
         """Format SerpAPI results."""
         formatted = []
@@ -363,7 +364,6 @@ class NewsSearchTool:
                 "date": item.get("date", ""),
                 "link": item.get("link", ""),
             })
-            
             sources.append({
                 "type": "news",
                 "title": item.get("title", ""),
@@ -379,7 +379,7 @@ class NewsSearchTool:
             "sources": sources,
             "count": len(formatted),
         }
-    
+
     def _format_newsapi_results(self, query: str, items: List[Dict]) -> Dict[str, Any]:
         """Format NewsAPI results."""
         formatted = []
@@ -394,7 +394,6 @@ class NewsSearchTool:
                 "link": item.get("url", ""),
                 "author": item.get("author", ""),
             })
-            
             sources.append({
                 "type": "news",
                 "title": item.get("title", ""),
@@ -410,7 +409,7 @@ class NewsSearchTool:
             "sources": sources,
             "count": len(formatted),
         }
-    
+
     def _format_ddg_results(self, query: str, items: List[Dict]) -> Dict[str, Any]:
         """Format DuckDuckGo news results."""
         formatted = []
@@ -424,7 +423,6 @@ class NewsSearchTool:
                 "date": item.get("date", ""),
                 "link": item.get("url", item.get("link", "")),
             })
-            
             sources.append({
                 "type": "news",
                 "title": item.get("title", ""),
@@ -440,7 +438,7 @@ class NewsSearchTool:
             "sources": sources,
             "count": len(formatted),
         }
-    
+
     def _error_response(self, query: str, error: str) -> Dict[str, Any]:
         """Create error response."""
         return {
@@ -450,24 +448,23 @@ class NewsSearchTool:
             "count": 0,
             "error": error,
         }
-    
+
     def _make_cache_key(self, query: str, location: str, time_range: Optional[str], max_results: int) -> str:
         """Create cache key."""
         raw = f"news:{query}:{location}:{time_range}:{max_results}"
         return hashlib.md5(raw.encode()).hexdigest()
-    
+
     def _get_from_cache(self, key: str) -> Optional[Dict]:
         """Get from cache if not expired."""
         if key not in self._cache:
             return None
         
-        if time.time() - self._cache_times.get(key, 0) > self.config.cache_ttl:
+        if time.time() - self._cache_times.get(key, 0) > self._config.cache_ttl:
             del self._cache[key]
             del self._cache_times[key]
             return None
-        
         return self._cache[key].copy()
-    
+
     def _set_cache(self, key: str, value: Dict):
         """Set cache entry."""
         self._cache[key] = value.copy()
@@ -478,39 +475,7 @@ class NewsSearchTool:
             oldest_key = min(self._cache_times, key=self._cache_times.get)
             del self._cache[oldest_key]
             del self._cache_times[oldest_key]
-    
-    def get_tool_schema(self) -> Dict[str, Any]:
-        """Get tool schema for LLM function calling."""
-        return {
-            "name": self.name,
-            "description": self.description,
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "News search query",
-                    },
-                    "max_results": {
-                        "type": "integer",
-                        "description": "Maximum results (1-50)",
-                        "default": 10,
-                    },
-                    "location": {
-                        "type": "string",
-                        "description": "Location for news relevance",
-                        "default": "Kenya",
-                    },
-                    "time_range": {
-                        "type": "string",
-                        "enum": ["d", "w", "m"],
-                        "description": "Time range: d=day, w=week, m=month",
-                    },
-                },
-                "required": ["query"],
-            },
-        }
-    
+
     @property
     def metrics(self) -> Dict[str, Any]:
         """Get search metrics."""

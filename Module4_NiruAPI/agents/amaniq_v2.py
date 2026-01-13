@@ -137,7 +137,7 @@ from .prefetch import (
 from .tools.tool_registry import ToolRegistry
 
 # ReAct Agent
-from .nodes.react_node import react_agent_node
+from .nodes.react_node import react_reasoning_node, react_tool_node
 from .tools.agentic_tools import initialize_agentic_tools, get_agentic_tools
 
 
@@ -246,16 +246,14 @@ class AmaniQState(TypedDict, total=False):
     user_id: str
     user_profile: Dict[str, Any]
     
-    # ReAct Agent
-    react_iterations: List[Dict[str, Any]]  # ReAct loop iterations
-    react_final_answer: Optional[str]  # Answer from ReAct
-    react_success: bool  # Whether ReAct completed successfully
-    react_failed: bool  # Whether ReAct encountered an error
-    requires_multi_hop: bool  # LLM-detected need for sequential reasoning
-    react_failed: bool  # Whether ReAct failed
-    react_max_iterations_reached: bool  # Max iterations hit
-    
-
+    # ReAct Agent (Modern)
+    react_messages: List[Dict[str, Any]]  # OpenAI-format message history for ReAct
+    react_last_message: Any  # Last AIMessage (for tool calls)
+    react_status: Literal["continue", "done", "error"]
+    react_final_answer: Optional[str]
+    react_success: bool
+    react_failed: bool
+    requires_multi_hop: bool
     
     # Timestamps
     started_at: str
@@ -889,10 +887,9 @@ def create_amaniq_v2_graph(
     workflow.add_node("tool_executor", tool_executor_wrapper)
     workflow.add_node("responder", responder_node)
     
-    # ReAct Agent Node
-    workflow.add_node("react_agent", react_agent_node)
-    
-
+    # ReAct Agent Nodes (Modern)
+    workflow.add_node("react_reasoning", react_reasoning_node)
+    workflow.add_node("react_tool_node", react_tool_node)
     
     # Clarification nodes
     workflow.add_node("clarification_entry", clarification_entry_wrapper)
@@ -916,12 +913,10 @@ def create_amaniq_v2_graph(
     supervisor_routes = {
         "clarify": "clarification_entry",
         "tools": "tool_executor",
-        "react": "react_agent",
+        "react": "react_reasoning",  # Route to new reasoning node
         "respond": "responder",
         "escalate": "responder",
     }
-    
-
     
     workflow.add_conditional_edges(
         "supervisor",
@@ -932,17 +927,19 @@ def create_amaniq_v2_graph(
     # Tool executor → Responder
     workflow.add_edge("tool_executor", "responder")
     
-
-    
-    # ReAct agent → conditional routing (success → respond, failure → fallback)
+    # ReAct Agent Routing
     workflow.add_conditional_edges(
-        "react_agent",
-        route_from_react,
+        "react_reasoning",
+        lambda state: state.get("react_status", "done"),
         {
-            "respond": "responder",
-            "fallback_tools": "tool_executor",  # Fall back to parallel tools on failure
+            "continue": "react_tool_node",
+            "done": "responder",
+            "error": "responder"  # Fallback to responder on error
         }
     )
+    
+    # Tool output loop back to reasoning
+    workflow.add_edge("react_tool_node", "react_reasoning")
     
     # Clarification sub-graph
     workflow.add_conditional_edges(
@@ -973,6 +970,12 @@ def create_amaniq_v2_graph(
     
     # Compile graph with appropriate checkpointer
     checkpointer = None
+    interrupt_nodes = ["clarification_entry"]
+    
+    # Add HITL interrupt for tool execution in ReAct loop
+    # This allows human review before tools are executed
+    interrupt_nodes.append("react_tool_node")
+    
     if enable_persistence:
         # Try PostgresSaver for production, fall back to MemorySaver
         try:
@@ -994,12 +997,14 @@ def create_amaniq_v2_graph(
             logger.warning(f"PostgresSaver failed to initialize: {e} - using MemorySaver")
     
     if checkpointer:
-        # Compile with interrupt support for clarification
+        # Compile with interrupt support
         graph = workflow.compile(
             checkpointer=checkpointer,
-            interrupt_before=["clarification_entry"],  # Pause before clarification for HITL
+            interrupt_before=interrupt_nodes,  # Pause before clarification and tool execution
         )
     else:
+        # Without persistence, interrupts won't work effectively across HTTP requests
+        # but we compile anyway
         graph = workflow.compile()
     
     logger.info("AmaniQ v2 Graph built successfully!")

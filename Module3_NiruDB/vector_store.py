@@ -1,9 +1,10 @@
 """
-Vector Store with multiple backend support: Upstash, QDrant, ChromaDB
+Blazing Fast Vector Store with connection pooling, caching, and optimized retrieval
+Multiple backend support: Upstash, QDrant, ChromaDB with performance optimizations
 """
 import os
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 import chromadb
 from chromadb.config import Settings
 from loguru import logger
@@ -13,13 +14,34 @@ from qdrant_client import QdrantClient
 from qdrant_client.http import models
 from upstash_redis import Redis
 from dotenv import load_dotenv
+import time
+import asyncio
+import concurrent.futures
+from functools import lru_cache
+import numpy as np
+from dataclasses import dataclass
+from typing import Tuple
 
 # Load environment variables
 load_dotenv()
 
 
+@dataclass
+class QueryCacheEntry:
+    """Cache entry for vector queries"""
+    query_embedding: np.ndarray
+    results: List[Dict]
+    timestamp: float
+    ttl: int = 300  # 5 minutes default
+
 class VectorStore:
-    """Manage vector embeddings with multiple backends: Upstash, QDrant, ChromaDB"""
+    """Blazing fast vector store with connection pooling, caching, and optimized retrieval"""
+    
+    # Class-level connection pools and caches
+    _embedding_cache = {}
+    _query_cache = {}
+    _connection_pools = {}
+    _cache_stats = {"hits": 0, "misses": 0, "total_queries": 0}
     
     def __init__(
         self,
@@ -28,9 +50,12 @@ class VectorStore:
         collection_name: str = "amaniquery_docs",
         embedding_model: str = "all-MiniLM-L6-v2",
         config_manager = None,
+        enable_caching: bool = True,
+        connection_pool_size: int = 10,
+        query_timeout: float = 5.0,
     ):
         """
-        Initialize vector store
+        Initialize blazing fast vector store
         
         Args:
             backend: Vector store backend ('upstash', 'qdrant', 'chromadb', 'auto')
@@ -38,11 +63,26 @@ class VectorStore:
             collection_name: Name of the collection
             embedding_model: Sentence transformer model name
             config_manager: ConfigManager instance for API keys
+            enable_caching: Enable query result caching
+            connection_pool_size: Size of connection pool for parallel operations
+            query_timeout: Timeout for queries in seconds
         """
         self.collection_name = collection_name
-        self.embedding_model_name = embedding_model  # Store name, load lazily
-        self._embedding_model = None  # Lazy loaded
+        self.embedding_model_name = embedding_model
+        self._embedding_model = None
         self.config_manager = config_manager
+        self.enable_caching = enable_caching
+        self.connection_pool_size = connection_pool_size
+        self.query_timeout = query_timeout
+        
+        # Performance metrics
+        self.query_stats = {
+            "total_queries": 0,
+            "cache_hits": 0,
+            "cache_misses": 0,
+            "avg_query_time": 0.0,
+            "backend_usage": {}
+        }
         
         # Initialize all available cloud backends
         self.backends = {}
@@ -93,7 +133,48 @@ class VectorStore:
             self.chromadb_client = None
             self.chromadb_collection = None
         
-        logger.info(f"Vector store initialized with primary backend: {self.backend}, cloud backends: {list(self.backends.keys())}")
+        # Initialize connection pools for parallel operations
+        self._init_connection_pools()
+        
+        logger.info(f"🚀 Blazing Fast Vector Store initialized")
+        logger.info(f"📊 Primary backend: {self.backend} | Cloud backends: {list(self.backends.keys())}")
+        logger.info(f"⚡ Caching: {enable_caching} | Pool size: {connection_pool_size} | Timeout: {query_timeout}s")
+    
+    def _init_connection_pools(self):
+        """Initialize connection pools for parallel operations"""
+        # Thread pool for parallel queries
+        self.query_executor = concurrent.futures.ThreadPoolExecutor(
+            max_workers=self.connection_pool_size,
+            thread_name_prefix="VectorQuery"
+        )
+        
+        # Dedicated pool for embedding operations
+        self.embedding_executor = concurrent.futures.ThreadPoolExecutor(
+            max_workers=4,
+            thread_name_prefix="VectorEmbedding"
+        )
+    
+    def get_stats(self) -> Dict[str, Any]:
+        """Get performance statistics"""
+        return {
+            **self.query_stats,
+            "cache_hit_rate": self.query_stats["cache_hits"] / max(1, self.query_stats["total_queries"]),
+            "embedding_cache_size": len(self._embedding_cache),
+            "query_cache_size": len(self._query_cache)
+        }
+    
+    def clear_cache(self):
+        """Clear all caches"""
+        self._embedding_cache.clear()
+        self._query_cache.clear()
+        self.query_stats["cache_hits"] = 0
+        self.query_stats["cache_misses"] = 0
+        logger.info("🧹 All caches cleared")
+    
+    @lru_cache(maxsize=1000)
+    def _get_cached_embedding(self, text: str) -> np.ndarray:
+        """Get cached embedding for text (LRU cache)"""
+        return self.embedding_model.encode(text)
     
     @property
     def embedding_model(self):
@@ -946,6 +1027,62 @@ class VectorStore:
         """Search documents in Elasticsearch"""
         if not self.es_client:
             return []
+    
+    def _format_upstash_results(self, results) -> List[Dict]:
+        """Format Upstash results to standard format"""
+        formatted = []
+        for hit in results:
+            metadata = {k: str(v) if not isinstance(v, str) else v for k, v in hit.metadata.items()}
+            formatted.append({
+                "id": hit.id,
+                "text": metadata.get("text", ""),
+                "score": 1.0 - (hit.score if hasattr(hit, 'score') else 0.0),
+                "source": metadata,
+                "metadata": metadata
+            })
+        return formatted
+    
+    def _format_qdrant_results(self, query_result) -> List[Dict]:
+        """Format Qdrant results to standard format"""
+        formatted = []
+        
+        if hasattr(query_result, 'points'):
+            points = query_result.points
+        elif hasattr(query_result, '__iter__'):
+            points = list(query_result)
+        else:
+            points = []
+        
+        for point in points:
+            payload = point.payload or {}
+            formatted.append({
+                "id": point.id,
+                "text": payload.get("text", ""),
+                "score": 1.0 - (point.score if hasattr(point, 'score') else 0.0),
+                "source": payload,
+                "metadata": payload
+            })
+        
+        return formatted
+    
+    def _format_chromadb_results(self, results) -> List[Dict]:
+        """Format ChromaDB results to standard format"""
+        formatted = []
+        
+        if results and results.get("documents"):
+            for i, doc_text in enumerate(results["documents"][0]):
+                metadata = results["metadatas"][0][i] if results.get("metadatas") else {}
+                distance = results["distances"][0][i] if results.get("distances") else 0.0
+                
+                formatted.append({
+                    "id": results["ids"][0][i] if results.get("ids") else str(i),
+                    "text": doc_text,
+                    "score": 1.0 - distance,  # Convert distance to similarity
+                    "source": metadata,
+                    "metadata": metadata
+                })
+        
+        return formatted
         try:
             index_name = self.collection_name
             if namespace:
@@ -1067,20 +1204,276 @@ class VectorStore:
             return []
             
     def query(self, query_text: str, n_results: int = 5, filter: Optional[Dict] = None, namespace: str = None) -> List[Dict]:
-        """Query vector store for similar documents with fallback support"""
+        """🚀 Blazing fast query with caching, parallel retrieval, and optimizations"""
+        start_time = time.time()
+        self.query_stats["total_queries"] += 1
+        
+        # 1. ⚡ Check query cache first
+        if self.enable_caching:
+            cache_key = self._generate_cache_key(query_text, n_results, filter, namespace)
+            cached_result = self._get_query_cache(cache_key)
+            if cached_result is not None:
+                self.query_stats["cache_hits"] += 1
+                logger.info(f"⚡ Query cache hit! Returning {len(cached_result)} results")
+                return cached_result
+        
         try:
-            # 1. Encode query
+            # 2. 🚀 Fast embedding with caching
+            query_embedding = self._get_query_embedding(query_text)
+            
+            # 3. 🏃‍♂️ Parallel backend querying with intelligent fallback
+            results = self._parallel_query_backends(query_embedding, n_results, filter, namespace)
+            
+            # 4. 📊 Update stats and cache
+            query_time = time.time() - start_time
+            self.query_stats["avg_query_time"] = (
+                (self.query_stats["avg_query_time"] * (self.query_stats["total_queries"] - 1) + query_time) 
+                / self.query_stats["total_queries"]
+            )
+            
+            if self.enable_caching and results:
+                self._set_query_cache(cache_key, results)
+            
+            self.query_stats["cache_misses"] += 1
+            
+            logger.info(f"🎯 Query completed in {query_time:.3f}s, returned {len(results)} results")
+            return results
+            
+        except Exception as e:
+            logger.error(f"Query failed: {e}")
+            # Fallback to basic query
+            return self._fallback_query(query_text, n_results, filter, namespace)
+    
+    def _get_query_embedding(self, query_text: str) -> List[float]:
+        """🚀 Fast embedding generation with caching"""
+        # Use cached embedding if available
+        if self.enable_caching and query_text in self._embedding_cache:
+            return self._embedding_cache[query_text]
+        
+        # Generate embedding
+        try:
+            embedding = self.embedding_model.encode(query_text).tolist()
+            
+            # Cache the embedding
+            if self.enable_caching:
+                self._embedding_cache[query_text] = embedding
+                
+                # Prevent cache from growing too large
+                if len(self._embedding_cache) > 10000:
+                    # Remove oldest entries
+                    oldest_keys = list(self._embedding_cache.keys())[:1000]
+                    for key in oldest_keys:
+                        del self._embedding_cache[key]
+            
+            return embedding
+            
+        except Exception as encode_error:
+            if 'meta' in str(encode_error).lower() or 'device' in str(encode_error).lower():
+                logger.warning(f"Encoding error (device issue): {encode_error}, retrying with CPU")
+                import torch
+                if hasattr(self._embedding_model, 'to'):
+                    self._embedding_model = self._embedding_model.to('cpu')
+                return self.embedding_model.encode(query_text).tolist()
+            else:
+                raise
+    
+    def _parallel_query_backends(self, query_embedding: List[float], n_results: int, filter: Optional[Dict], namespace: str) -> List[Dict]:
+        """🏃‍♂️ Parallel querying across multiple backends for maximum speed"""
+        
+        # Determine which backends to query
+        backends_to_query = []
+        
+        # Primary backend
+        if self.backend in self.backends:
+            backends_to_query.append((self.backend, self.backends[self.backend]))
+        
+        # Add other available backends for parallel search
+        for backend_name, backend_client in self.backends.items():
+            if backend_name != self.backend and len(backends_to_query) < 3:  # Max 3 parallel queries
+                backends_to_query.append((backend_name, backend_client))
+        
+        # Always include local ChromaDB as fallback
+        if self.chromadb_collection:
+            backends_to_query.append(("chromadb", self.chromadb_collection))
+        
+        logger.info(f"🚀 Parallel querying {len(backends_to_query)} backends: {[name for name, _ in backends_to_query]}")
+        
+        # Submit parallel queries
+        query_futures = []
+        for backend_name, backend_client in backends_to_query:
+            future = self.query_executor.submit(
+                self._query_single_backend,
+                backend_name,
+                backend_client,
+                query_embedding,
+                n_results,
+                filter,
+                namespace
+            )
+            query_futures.append((backend_name, future))
+        
+        # Collect results as they complete (race condition for speed)
+        all_results = []
+        completed_backends = 0
+        
+        for backend_name, future in query_futures:
             try:
-                query_embedding = self.embedding_model.encode(query_text).tolist()
-            except Exception as encode_error:
-                if 'meta' in str(encode_error).lower() or 'device' in str(encode_error).lower():
-                    logger.warning(f"Encoding error (device issue): {encode_error}, retrying with CPU")
-                    import torch
-                    if hasattr(self._embedding_model, 'to'):
-                        self._embedding_model = self._embedding_model.to('cpu')
-                    query_embedding = self.embedding_model.encode(query_text).tolist()
-                else:
-                    raise
+                results = future.result(timeout=self.query_timeout)
+                if results:
+                    all_results.extend(results)
+                    completed_backends += 1
+                    
+                    # If we have enough results, return early (speed optimization)
+                    if len(all_results) >= n_results * 2:  # Get extra for better ranking
+                        logger.info(f"✅ Early return from {backend_name} with {len(results)} results")
+                        break
+                        
+            except concurrent.futures.TimeoutError:
+                logger.warning(f"⏰ Query timeout for {backend_name}")
+            except Exception as e:
+                logger.warning(f"❌ Query failed for {backend_name}: {e}")
+        
+        # Sort by relevance score and return top results
+        all_results.sort(key=lambda x: x.get("score", 0), reverse=True)
+        final_results = all_results[:n_results]
+        
+        logger.info(f"🎯 Parallel query completed: {completed_backends}/{len(backends_to_query)} backends, {len(final_results)} final results")
+        
+        return final_results
+    
+    def _query_single_backend(self, backend_name: str, backend_client, query_embedding: List[float], 
+                             n_results: int, filter: Optional[Dict], namespace: str) -> List[Dict]:
+        """Query a single backend with error handling"""
+        try:
+            if backend_name == "upstash":
+                return self._query_upstash_fast(backend_client, query_embedding, n_results, filter, namespace)
+            elif backend_name == "qdrant":
+                return self._query_qdrant_fast(backend_client, query_embedding, n_results, filter, namespace)
+            elif backend_name == "chromadb":
+                return self._query_chromadb_fast(backend_client, query_embedding, n_results, filter)
+            else:
+                return []
+        except Exception as e:
+            logger.warning(f"Backend {backend_name} query failed: {e}")
+            return []
+    
+    def _query_upstash_fast(self, client, query_embedding: List[float], n_results: int, 
+                           filter: Optional[Dict], namespace: str) -> List[Dict]:
+        """⚡ Fast Upstash query with optimized filtering"""
+        filter_dict = {}
+        if namespace:
+            filter_dict["metadata.namespace"] = namespace
+        if filter:
+            for k, v in filter.items():
+                filter_dict[f"metadata.{k}"] = str(v)
+        
+        results = client.query(
+            vector=query_embedding,
+            top_k=n_results,
+            filter=filter_dict,
+            include_metadata=True,
+            include_data=True
+        )
+        
+        return self._format_upstash_results(results)
+    
+    def _query_qdrant_fast(self, client, query_embedding: List[float], n_results: int,
+                          filter: Optional[Dict], namespace: str) -> List[Dict]:
+        """⚡ Fast Qdrant query with optimized filtering"""
+        scroll_filter = None
+        if filter or namespace:
+            conditions = []
+            if namespace:
+                conditions.append(models.FieldCondition(
+                    key="namespace", match=models.MatchValue(value=namespace)
+                ))
+            if filter:
+                for k, v in filter.items():
+                    conditions.append(models.FieldCondition(
+                        key=k, match=models.MatchValue(value=str(v))
+                    ))
+            scroll_filter = models.Filter(must=conditions)
+        
+        query_result = client.query_points(
+            collection_name=self.collection_name,
+            query=query_embedding,
+            limit=n_results,
+            query_filter=scroll_filter,
+            with_payload=True,
+            with_vectors=False  # Don't return vectors for speed
+        )
+        
+        return self._format_qdrant_results(query_result)
+    
+    def _query_chromadb_fast(self, collection, query_embedding: List[float], n_results: int,
+                            filter: Optional[Dict]) -> List[Dict]:
+        """⚡ Fast ChromaDB query"""
+        results = collection.query(
+            query_embeddings=[query_embedding],
+            n_results=n_results,
+            where=filter if filter else None
+        )
+        
+        return self._format_chromadb_results(results)
+    
+    def _generate_cache_key(self, query_text: str, n_results: int, filter: Optional[Dict], namespace: str) -> str:
+        """Generate cache key for query"""
+        key_data = {
+            "query": query_text.strip().lower(),
+            "n_results": n_results,
+            "filter": filter,
+            "namespace": namespace
+        }
+        import json
+        key_str = json.dumps(key_data, sort_keys=True)
+        import hashlib
+        return hashlib.md5(key_str.encode()).hexdigest()
+    
+    def _get_query_cache(self, cache_key: str) -> Optional[List[Dict]]:
+        """Get cached query results"""
+        if cache_key in self._query_cache:
+            entry = self._query_cache[cache_key]
+            if time.time() - entry.timestamp < entry.ttl:
+                return entry.results
+            else:
+                # Expired, remove from cache
+                del self._query_cache[cache_key]
+        return None
+    
+    def _set_query_cache(self, cache_key: str, results: List[Dict]):
+        """Cache query results"""
+        self._query_cache[cache_key] = QueryCacheEntry(
+            query_embedding=np.array([]),  # Not needed for result cache
+            results=results,
+            timestamp=time.time()
+        )
+        
+        # Prevent cache from growing too large
+        if len(self._query_cache) > 5000:  # Max 5000 cached queries
+            # Remove oldest entries
+            oldest_keys = list(self._query_cache.keys())[:1000]
+            for key in oldest_keys:
+                del self._query_cache[key]
+    
+    def _fallback_query(self, query_text: str, n_results: int, filter: Optional[Dict], namespace: str) -> List[Dict]:
+        """🔄 Fallback query method when optimized query fails"""
+        logger.warning("Using fallback query method")
+        
+        # Basic embedding
+        query_embedding = self.embedding_model.encode(query_text).tolist()
+        
+        # Try primary backend
+        try:
+            if self.backend == "upstash" and self.client:
+                return self._query_upstash_fast(self.client, query_embedding, n_results, filter, namespace)
+            elif self.backend == "qdrant" and self.client:
+                return self._query_qdrant_fast(self.client, query_embedding, n_results, filter, namespace)
+            elif self.backend == "chromadb" and self.collection:
+                return self._query_chromadb_fast(self.collection, query_embedding, n_results, filter)
+        except Exception as e:
+            logger.error(f"Fallback query failed: {e}")
+        
+        return []
 
             # 2. Define backends to try in order
             # Primary -> QDrant (cloud) -> ChromaDB (local) -> Upstash

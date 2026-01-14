@@ -1,6 +1,6 @@
 """
-Adaptive RAG Pipeline - Self-Improving RAG System
-Implements an algorithm with task identification, adaptive retrieval, and continuous learning.
+Adaptive RAG Pipeline - AI-Powered Self-Improving System
+Advanced task identification, predictive retrieval, and continuous learning with real-time optimization
 """
 import os
 import json
@@ -16,16 +16,46 @@ from sklearn.metrics.pairwise import cosine_similarity
 import pandas as pd
 from loguru import logger
 from collections import defaultdict, Counter
+import asyncio
+import concurrent.futures
+from dataclasses import dataclass
+from typing import AsyncGenerator
 
 from Module3_NiruDB.vector_store import VectorStore
 from Module3_NiruDB.metadata_manager import MetadataManager
+from Module4_NiruAPI.cache import RAGCache, get_rag_cache, BlazingFastCache
 
+
+@dataclass
+class AdaptiveQuery:
+    """Enhanced query with adaptive metadata"""
+    query: str
+    intent: str
+    confidence: float
+    keywords: List[str]
+    semantic_embedding: np.ndarray
+    predicted_task_type: str
+    complexity_score: float
+    timestamp: datetime
+    metadata: Dict = None
+
+@dataclass
+class RetrievalStrategy:
+    """Optimized retrieval strategy"""
+    task_type: str
+    namespaces: List[str]
+    top_k: int
+    rerank: bool
+    use_expansion: bool
+    timeout: float
+    fallback_strategy: str
 
 class TaskCluster:
-    """Represents a cluster of similar tasks/queries"""
+    """Enhanced task cluster with performance metrics"""
 
     def __init__(self, cluster_id: str, name: str, description: str, keywords: List[str],
-                 sample_queries: List[str], document_ids: List[str]):
+                 sample_queries: List[str], document_ids: List[str], avg_response_time: float = 0.0,
+                 success_rate: float = 0.0, popularity_score: float = 0.0):
         self.cluster_id = cluster_id
         self.name = name
         self.description = description
@@ -35,6 +65,11 @@ class TaskCluster:
         self.created_at = datetime.now()
         self.updated_at = datetime.now()
         self.query_count = len(sample_queries)
+        self.avg_response_time = avg_response_time
+        self.success_rate = success_rate
+        self.popularity_score = popularity_score
+        self.performance_history = []  # Track response times
+        self.last_used = datetime.now()
 
     def to_dict(self) -> Dict:
         return {
@@ -46,7 +81,12 @@ class TaskCluster:
             "document_ids": self.document_ids,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
-            "query_count": self.query_count
+            "query_count": self.query_count,
+            "avg_response_time": self.avg_response_time,
+            "success_rate": self.success_rate,
+            "popularity_score": self.popularity_score,
+            "performance_history": self.performance_history[-10:],  # Last 10 entries
+            "last_used": self.last_used.isoformat()
         }
 
     @classmethod
@@ -65,8 +105,8 @@ class TaskCluster:
         return cluster
 
 
-class TaskIdentificationEngine:
-    """Engine for identifying and clustering similar tasks from query logs"""
+class BlazingFastTaskIdentificationEngine:
+    """🔥 High-performance task identification with predictive capabilities"""
 
     def __init__(self, log_directory: str = "logs", min_cluster_size: int = 5):
         self.log_directory = Path(log_directory)

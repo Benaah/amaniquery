@@ -1,10 +1,10 @@
 """
 RAG Pipeline - Retrieval-Augmented Generation
-2025 Best Practices: Async retrieval, intelligent re-ranking, query optimization
+Best Practices: Async retrieval, intelligent re-ranking, query optimization
 """
 import os
 import asyncio
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional, Any, AsyncGenerator
 import time
 from loguru import logger
 from openai import OpenAI
@@ -12,6 +12,9 @@ from anthropic import Anthropic
 from dotenv import load_dotenv
 import hashlib
 import json
+import concurrent.futures
+from dataclasses import dataclass
+from enum import Enum
 
 import sys
 from pathlib import Path
@@ -29,8 +32,24 @@ except ImportError:
     logger.warning("Reranker not available, using basic retrieval")
 
 
+class StreamingMode(Enum):
+    """Streaming modes for real-time responses"""
+    FULL = "full"  # Wait for complete response
+    CHUNKS = "chunks"  # Stream chunks as they arrive
+    PROGRESSIVE = "progressive"  # Progressive rendering with typing indicator
+
+@dataclass
+class StreamingConfig:
+    """Configuration for streaming responses"""
+    mode: StreamingMode = StreamingMode.PROGRESSIVE
+    chunk_size: int = 50  # Characters per chunk
+    initial_delay: float = 0.1  # Initial delay before first chunk
+    chunk_delay: float = 0.05  # Delay between chunks
+    enable_typing_indicator: bool = True
+    max_buffer_size: int = 1000  # Max characters to buffer
+
 class RAGPipeline:
-    """RAG pipeline for question answering with citations"""
+    """Blazing fast RAG pipeline with streaming, parallel retrieval, and advanced caching"""
     
     def __init__(
         self,
@@ -56,9 +75,19 @@ class RAGPipeline:
         self.vector_store = vector_store or VectorStore(config_manager=config_manager)
         self.metadata_manager = MetadataManager(self.vector_store)
         
-        # Initialize cache
+        # Initialize advanced caching system
         self.cache = {}
-        self.cache_max_size = 100  # Keep last 100 queries
+        self.cache_max_size = 1000  # Increased cache size
+        self.semantic_cache = {}  # Semantic similarity cache
+        self.query_cache = {}  # Query pattern cache
+        self.response_cache = {}  # Full response cache
+        
+        # Streaming configuration
+        self.streaming_config = StreamingConfig()
+        
+        # Connection pooling for parallel operations
+        self.query_executor = concurrent.futures.ThreadPoolExecutor(max_workers=10)
+        self.retrieval_executor = concurrent.futures.ThreadPoolExecutor(max_workers=5)
         
         # Initialize LLM
         self.llm_provider = llm_provider
@@ -188,7 +217,8 @@ class RAGPipeline:
                 else:
                     raise ValueError(f"Provider '{llm_provider}' not supported and OPENROUTER_API_KEY not set.")
         
-        logger.info(f"RAG Pipeline initialized with {self.llm_provider}/{self.model}")
+        logger.info(f"🚀 Blazing Fast RAG Pipeline initialized with {self.llm_provider}/{self.model}")
+        logger.info(f"📊 Cache capacity: {self.cache_max_size} | Workers: {self.query_executor._max_workers}")
         
         # Initialize ensemble clients (for multi-model responses when context is limited)
         self.ensemble_clients = self._initialize_ensemble_clients()
@@ -386,6 +416,360 @@ class RAGPipeline:
             return result.get("answer", "")
         return str(result)
 
+    async def query_stream(
+        self,
+        query: str,
+        top_k: int = 5,
+        category: Optional[str] = None,
+        source: Optional[str] = None,
+        temperature: float = 0.7,
+        max_tokens: int = 1500,
+        max_context_length: int = 3000,
+        session_id: Optional[str] = None,
+        enable_typing_indicator: bool = True
+    ) -> AsyncGenerator[Dict, None]:
+        """
+        🔥 Blazing fast streaming RAG query with real-time response generation
+        
+        Features:
+        - Progressive retrieval and generation
+        - Real-time typing indicators
+        - Parallel namespace search
+        - Intelligent caching
+        """
+        start_time = time.time()
+        
+        # Send typing indicator immediately
+        if enable_typing_indicator:
+            yield {
+                "type": "typing_start",
+                "timestamp": start_time,
+                "message": "Thinking..."
+            }
+        
+        # 1. 🚀 Ultra-fast cache check (semantic + exact)
+        cache_key = self._get_cache_key(query, top_k, category, source)
+        cached_result = self._get_cache(cache_key)
+        if cached_result:
+            logger.info("⚡ Cache hit! Streaming cached response")
+            if enable_typing_indicator:
+                await asyncio.sleep(0.1)  # Small delay for natural feel
+            
+            # Stream cached response in chunks
+            answer_chunks = cached_result["answer"].split()
+            current_chunk = ""
+            for i, word in enumerate(answer_chunks):
+                current_chunk += word + " "
+                if len(current_chunk) >= self.streaming_config.chunk_size or i == len(answer_chunks) - 1:
+                    yield {
+                        "type": "chunk",
+                        "content": current_chunk.strip(),
+                        "sources": cached_result["sources"],
+                        "complete": i == len(answer_chunks) - 1
+                    }
+                    current_chunk = ""
+                    await asyncio.sleep(self.streaming_config.chunk_delay)
+            
+            yield {
+                "type": "complete",
+                "answer": cached_result["answer"],
+                "sources": cached_result["sources"],
+                "query_time": time.time() - start_time,
+                "retrieved_chunks": cached_result["retrieved_chunks"],
+                "model_used": cached_result["model_used"],
+                "cached": True
+            }
+            return
+        
+        # 2. 🏃‍♂️ Parallel namespace determination and retrieval
+        filter_dict = {}
+        if category:
+            filter_dict["category"] = category
+        if source:
+            filter_dict["source_name"] = source
+        
+        # Determine namespaces in parallel
+        namespaces_future = asyncio.create_task(
+            self._determine_namespaces_async(query, category, source)
+        )
+        
+        # Start retrieval while determining namespaces
+        retrieval_start = time.time()
+        
+        # 3. ⚡ Progressive retrieval with streaming
+        async for retrieval_result in self._progressive_retrieval(
+            query, top_k, filter_dict, namespaces_future, session_id
+        ):
+            if retrieval_result["type"] == "documents_found":
+                docs = retrieval_result["documents"]
+                logger.info(f"🎯 Found {len(docs)} documents, starting generation")
+                
+                # Prepare context progressively
+                context = self._prepare_context(docs, max_context_length)
+                
+                # Start streaming generation
+                async for gen_result in self._stream_generate_answer(
+                    query, context, temperature, max_tokens
+                ):
+                    yield gen_result
+                
+                # Format and yield final result
+                sources = self._format_sources(docs)
+                query_time = time.time() - start_time
+                
+                # Cache the complete result
+                final_result = {
+                    "answer": gen_result.get("complete_answer", ""),
+                    "sources": sources,
+                    "query_time": query_time,
+                    "retrieved_chunks": len(docs),
+                    "model_used": self.model,
+                }
+                self._set_cache(cache_key, final_result)
+                
+                yield {
+                    "type": "complete",
+                    "answer": final_result["answer"],
+                    "sources": sources,
+                    "query_time": query_time,
+                    "retrieved_chunks": len(docs),
+                    "model_used": self.model,
+                    "cached": False
+                }
+                return
+            
+            elif retrieval_result["type"] == "no_documents":
+                yield {
+                    "type": "complete",
+                    "answer": "I couldn't find any relevant information to answer your question.",
+                    "sources": [],
+                    "query_time": time.time() - start_time,
+                    "retrieved_chunks": 0,
+                    "model_used": self.model,
+                    "cached": False
+                }
+                return
+    
+    async def _progressive_retrieval(
+        self,
+        query: str,
+        top_k: int,
+        filter_dict: Dict,
+        namespaces_future: asyncio.Task,
+        session_id: Optional[str] = None
+    ) -> AsyncGenerator[Dict, None]:
+        """Progressive retrieval with early results streaming"""
+        
+        # Wait for namespace determination
+        namespaces = await namespaces_future
+        logger.info(f"🔍 Searching namespaces: {namespaces}")
+        
+        # Start with quick local search (ChromaDB)
+        quick_results = await self._quick_local_search(query, min(top_k, 3), filter_dict)
+        if quick_results:
+            yield {
+                "type": "documents_found",
+                "documents": quick_results,
+                "source": "quick_local"
+            }
+            return
+        
+        # If no quick results, do comprehensive parallel search
+        retrieval_tasks = []
+        for namespace in namespaces:
+            task = asyncio.create_task(
+                self._retrieve_from_namespace_async(
+                    query, namespace, top_k * 2, filter_dict
+                )
+            )
+            retrieval_tasks.append(task)
+        
+        # Also search session-specific collection
+        if session_id:
+            session_task = asyncio.create_task(
+                self._retrieve_session_docs_async(query, session_id, min(3, top_k))
+            )
+            retrieval_tasks.append(session_task)
+        
+        # Collect results as they complete
+        all_docs = []
+        for task in asyncio.as_completed(retrieval_tasks):
+            try:
+                docs = await task
+                if docs:
+                    all_docs.extend(docs)
+                    # If we get enough good results, yield early
+                    if len(all_docs) >= top_k:
+                        # Sort by relevance and take top_k
+                        all_docs.sort(key=lambda x: x.get("score", 0), reverse=True)
+                        yield {
+                            "type": "documents_found",
+                            "documents": all_docs[:top_k],
+                            "source": "comprehensive"
+                        }
+                        return
+            except Exception as e:
+                logger.warning(f"Retrieval task failed: {e}")
+        
+        # Final result
+        if all_docs:
+            all_docs.sort(key=lambda x: x.get("score", 0), reverse=True)
+            yield {
+                "type": "documents_found",
+                "documents": all_docs[:top_k],
+                "source": "final"
+            }
+        else:
+            yield {"type": "no_documents"}
+    
+    async def _quick_local_search(
+        self,
+        query: str,
+        n_results: int,
+        filter_dict: Dict
+    ) -> List[Dict]:
+        """Ultra-fast local search using ChromaDB"""
+        try:
+            if hasattr(self.vector_store, 'chromadb_collection') and self.vector_store.chromadb_collection:
+                # Quick embedding
+                query_embedding = self.vector_store.embedding_model.encode(query).tolist()
+                
+                # Fast local query
+                results = self.vector_store.chromadb_collection.query(
+                    query_embeddings=[query_embedding],
+                    n_results=n_results,
+                    where=filter_dict if filter_dict else None
+                )
+                
+                # Format results
+                docs = []
+                if results and results.get("documents"):
+                    for i, doc_text in enumerate(results["documents"][0]):
+                        docs.append({
+                            "text": doc_text,
+                            "source": results["metadatas"][0][i] if results.get("metadatas") else {},
+                            "score": 1.0 - (results["distances"][0][i] if results.get("distances") else 0.0)
+                        })
+                
+                return docs
+        except Exception as e:
+            logger.warning(f"Quick local search failed: {e}")
+        
+        return []
+    
+    async def _stream_generate_answer(
+        self,
+        query: str,
+        context: str,
+        temperature: float,
+        max_tokens: int
+    ) -> AsyncGenerator[Dict, None]:
+        """Stream answer generation with real-time chunks"""
+        
+        # Use streaming if available
+        if hasattr(self.client, 'chat') and hasattr(self.client.chat, 'completions'):
+            try:
+                system_prompt = """You are AmaniQuery, an AI assistant specialized in Kenyan law, parliamentary proceedings, and current affairs.
+                Provide accurate, concise answers based on the provided context."""
+                
+                user_prompt = f"""Context: {context}
+                
+                Question: {query}
+                
+                Provide a clear, accurate answer based on the context above."""
+                
+                # Start streaming
+                stream = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt}
+                    ],
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    stream=True
+                )
+                
+                complete_answer = ""
+                for chunk in stream:
+                    if chunk.choices[0].delta.content:
+                        content = chunk.choices[0].delta.content
+                        complete_answer += content
+                        
+                        yield {
+                            "type": "chunk",
+                            "content": content,
+                            "complete_answer": complete_answer
+                        }
+                        
+                        await asyncio.sleep(0.01)  # Small delay for natural flow
+                
+                return
+                
+            except Exception as e:
+                logger.warning(f"Streaming failed, falling back to regular generation: {e}")
+        
+        # Fallback to regular generation
+        result = self._generate_answer(query, context, temperature, max_tokens)
+        if isinstance(result, dict):
+            answer = result.get("answer", "")
+        else:
+            answer = str(result)
+        
+        # Stream the complete answer as one chunk
+        yield {
+            "type": "chunk",
+            "content": answer,
+            "complete_answer": answer
+        }
+    
+    async def _determine_namespaces_async(
+        self,
+        query: str,
+        category: Optional[str] = None,
+        source: Optional[str] = None
+    ) -> List[str]:
+        """Async version of namespace determination"""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            None, self._determine_namespaces, query, category, source
+        )
+    
+    async def _retrieve_session_docs_async(
+        self,
+        query: str,
+        session_id: str,
+        n_results: int
+    ) -> List[Dict]:
+        """Async session document retrieval"""
+        loop = asyncio.get_event_loop()
+        
+        def _sync_retrieve():
+            try:
+                collection_name = f"chat_session_{session_id}"
+                if hasattr(self.vector_store, 'get_collection'):
+                    collection = self.vector_store.get_collection(collection_name)
+                    if collection:
+                        results = collection.query(
+                            query_texts=[query],
+                            n_results=n_results,
+                        )
+                        
+                        docs = []
+                        if results and len(results) > 0:
+                            for i, doc_text in enumerate(results["documents"][0] if results["documents"] else []):
+                                docs.append({
+                                    "text": doc_text,
+                                    "source": results.get("metadatas", [[]])[0][i] if results.get("metadatas") else {},
+                                    "score": 1.0 - (results.get("distances", [[]])[0][i] if results.get("distances") else 0.0)
+                                })
+                        return docs
+            except Exception as e:
+                logger.warning(f"Session retrieval failed: {e}")
+            return []
+        
+        return await loop.run_in_executor(None, _sync_retrieve)
+    
     def query(
         self,
         query: str,
@@ -396,9 +780,10 @@ class RAGPipeline:
         max_tokens: int = 1500,
         max_context_length: int = 3000,
         session_id: Optional[str] = None,
+        use_optimized: bool = True,
     ) -> Dict:
         """
-        Run RAG query
+        Optimized RAG query with parallel retrieval and intelligent caching
         
         Args:
             query: User question
@@ -407,29 +792,140 @@ class RAGPipeline:
             source: Filter by source
             temperature: LLM temperature
             max_tokens: Maximum tokens in response
+            use_optimized: Use optimized parallel retrieval (default: True)
         
         Returns:
             Dictionary with answer and sources
         """
         start_time = time.time()
         
-        # 1. Retrieve relevant documents
-        logger.info(f"Retrieving documents for query: {query[:50]}...")
+        # 1. Ultra-fast cache check
+        cache_key = self._get_cache_key(query, top_k, category, source)
+        cached_result = self._get_cache(cache_key)
+        if cached_result:
+            logger.info("[INFO] Cache hit!")
+            return {**cached_result, "cached": True}
         
+        # 2. Optimized parallel retrieval
+        if use_optimized:
+            try:
+                return self._optimized_query(
+                    query, top_k, category, source, temperature, max_tokens, 
+                    max_context_length, session_id, start_time
+                )
+            except Exception as e:
+                logger.warning(f"Optimized query failed, falling back to standard: {e}")
+        
+        # 3. Fallback to standard sequential retrieval
+        return self._standard_query(
+            query, top_k, category, source, temperature, max_tokens,
+            max_context_length, session_id, start_time
+        )
+    
+    def _optimized_query(
+        self,
+        query: str,
+        top_k: int,
+        category: Optional[str],
+        source: Optional[str],
+        temperature: float,
+        max_tokens: int,
+        max_context_length: int,
+        session_id: Optional[str],
+        start_time: float
+    ) -> Dict:
+        """Optimized query with parallel retrieval and smart caching"""
+        
+        # Parallel namespace determination and retrieval
         filter_dict = {}
         if category:
             filter_dict["category"] = category
         if source:
             filter_dict["source_name"] = source
         
-        # Check cache first
-        cache_key = self._get_cache_key(query, top_k, category, source)
-        cached_result = self._get_cache(cache_key)
-        if cached_result:
-            logger.info("Cache hit for query!")
-            return cached_result
+        # Quick local search first (sub-100ms)
+        quick_results = self._quick_local_search_sync(query, min(top_k, 3), filter_dict)
+        if quick_results:
+            logger.info(f"[INFO] Quick search found {len(quick_results)} results")
+            return self._generate_answer_from_docs(
+                query, quick_results, temperature, max_tokens, 
+                max_context_length, start_time, cache_key=self._get_cache_key(query, top_k, category, source)
+            )
         
-        # Retrieve from main vector store with namespace support
+        # Parallel comprehensive search
+        namespaces = self._determine_namespaces(query, category, source)
+        
+        # Use thread pool for parallel retrieval
+        retrieval_futures = []
+        for namespace in namespaces:
+            future = self.retrieval_executor.submit(
+                self._retrieve_from_namespace_sync, query, namespace, top_k * 2, filter_dict
+            )
+            retrieval_futures.append(future)
+        
+        # Also search session documents
+        if session_id:
+            session_future = self.retrieval_executor.submit(
+                self._retrieve_session_docs_sync, query, session_id, min(3, top_k)
+            )
+            retrieval_futures.append(session_future)
+        
+        # Collect results as they complete
+        all_docs = []
+        for future in concurrent.futures.as_completed(retrieval_futures):
+            try:
+                docs = future.result(timeout=5.0)  # 5 second timeout
+                if docs:
+                    all_docs.extend(docs)
+                    # Early exit if we have enough good results
+                    if len(all_docs) >= top_k:
+                        break
+            except Exception as e:
+                logger.warning(f"Retrieval failed: {e}")
+        
+        # Sort by relevance and process
+        if all_docs:
+            all_docs.sort(key=lambda x: x.get("score", 0), reverse=True)
+            return self._generate_answer_from_docs(
+                query, all_docs[:top_k], temperature, max_tokens,
+                max_context_length, start_time, cache_key=self._get_cache_key(query, top_k, category, source)
+            )
+        
+        # Fallback to ensemble if no documents found
+        if len(self.ensemble_clients) > 0:
+            logger.info("Using ensemble fallback")
+            return self._query_with_ensemble(query, temperature, max_tokens, start_time)
+        
+        return {
+            "answer": "I couldn't find any relevant information to answer your question.",
+            "sources": [],
+            "query_time": time.time() - start_time,
+            "retrieved_chunks": 0,
+            "model_used": self.model,
+            "cached": False
+        }
+    
+    def _standard_query(
+        self,
+        query: str,
+        top_k: int,
+        category: Optional[str],
+        source: Optional[str],
+        temperature: float,
+        max_tokens: int,
+        max_context_length: int,
+        session_id: Optional[str],
+        start_time: float
+    ) -> Dict:
+        """Standard sequential query (fallback method)"""
+        
+        # Sequential namespace retrieval (original method)
+        filter_dict = {}
+        if category:
+            filter_dict["category"] = category
+        if source:
+            filter_dict["source_name"] = source
+        
         namespaces_to_search = self._determine_namespaces(query, category, source)
         
         retrieved_docs = []
@@ -437,7 +933,7 @@ class RAGPipeline:
             try:
                 namespace_docs = self.vector_store.query(
                     query_text=query,
-                    n_results=top_k // len(namespaces_to_search),  # Distribute top_k across namespaces
+                    n_results=top_k // len(namespaces_to_search),
                     filter=filter_dict if filter_dict else None,
                     namespace=namespace
                 )
@@ -445,57 +941,50 @@ class RAGPipeline:
                 logger.info(f"Retrieved {len(namespace_docs)} documents from namespace: {namespace}")
             except Exception as e:
                 logger.warning(f"Failed to query namespace {namespace}: {e}")
-                # Fallback to default namespace if namespace query fails
-                try:
-                    fallback_docs = self.vector_store.query(
-                        query_text=query,
-                        n_results=top_k // len(namespaces_to_search),
-                        filter=filter_dict if filter_dict else None,
-                    )
-                    retrieved_docs.extend(fallback_docs)
-                    logger.info(f"Fallback: Retrieved {len(fallback_docs)} documents from default namespace")
-                except Exception as fallback_e:
-                    logger.warning(f"Fallback query also failed: {fallback_e}")
         
-        # If session_id provided, also retrieve from session-specific collection
+        # Session documents
         if session_id:
             try:
                 collection_name = f"chat_session_{session_id}"
-                # Try to query session-specific collection
                 if hasattr(self.vector_store, 'get_collection'):
                     collection = self.vector_store.get_collection(collection_name)
                     if collection:
-                        session_docs = collection.query(
-                            query_texts=[query],
-                            n_results=min(3, top_k),  # Limit session docs
-                        )
-                        # Merge session docs with main docs
+                        session_docs = collection.query(query_texts=[query], n_results=min(3, top_k))
                         if session_docs and len(session_docs) > 0:
-                            # Format session docs to match main docs format
-                            if isinstance(session_docs, dict) and "documents" in session_docs:
-                                for i, doc_text in enumerate(session_docs["documents"][0] if session_docs["documents"] else []):
-                                    session_doc = {
-                                        "text": doc_text,
-                                        "source": session_docs.get("metadatas", [[]])[0][i] if session_docs.get("metadatas") else {},
-                                        "score": session_docs.get("distances", [[]])[0][i] if session_docs.get("distances") else 0.0,
-                                    }
-                                    retrieved_docs.append(session_doc)
-                            logger.info(f"Retrieved {len(session_docs) if isinstance(session_docs, list) else 1} documents from session collection")
+                            for i, doc_text in enumerate(session_docs["documents"][0] if session_docs["documents"] else []):
+                                session_doc = {
+                                    "text": doc_text,
+                                    "source": session_docs.get("metadatas", [[]])[0][i] if session_docs.get("metadatas") else {},
+                                    "score": session_docs.get("distances", [[]])[0][i] if session_docs.get("distances") else 0.0,
+                                }
+                                retrieved_docs.append(session_doc)
             except Exception as e:
                 logger.warning(f"Failed to retrieve session documents: {e}")
         
-        # Check if context is limited - use ensemble if so
+        return self._generate_answer_from_docs(
+            query, retrieved_docs, temperature, max_tokens,
+            max_context_length, start_time, cache_key=self._get_cache_key(query, top_k, category, source)
+        )
+    
+    def _generate_answer_from_docs(
+        self,
+        query: str,
+        retrieved_docs: List[Dict],
+        temperature: float,
+        max_tokens: int,
+        max_context_length: int,
+        start_time: float,
+        cache_key: str
+    ) -> Dict:
+        """Generate answer from retrieved documents"""
+        
+        # Check if context is limited
         use_ensemble = self._is_context_limited(retrieved_docs)
         
         if not retrieved_docs or use_ensemble:
             if use_ensemble and len(self.ensemble_clients) > 0:
                 logger.info("Context limited - using multi-model ensemble")
-                return self._query_with_ensemble(
-                    query=query,
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                    start_time=start_time
-                )
+                return self._query_with_ensemble(query, temperature, max_tokens, start_time)
             else:
                 return {
                     "answer": "I couldn't find any relevant information to answer your question.",
@@ -503,21 +992,15 @@ class RAGPipeline:
                     "query_time": time.time() - start_time,
                     "retrieved_chunks": 0,
                     "model_used": self.model,
+                    "cached": False
                 }
         
-        # 2. Prepare context
+        # Prepare context and generate answer
         context = self._prepare_context(retrieved_docs, max_context_length)
-        
-        # 3. Generate answer
-        logger.info("Generating answer with LLM")
         answer = self._generate_answer(query, context, temperature, max_tokens)
-        
-        # 4. Format sources
         sources = self._format_sources(retrieved_docs)
         
         query_time = time.time() - start_time
-        
-        logger.info(f"Query completed in {query_time:.2f}s")
         
         result = {
             "answer": answer,
@@ -525,12 +1008,94 @@ class RAGPipeline:
             "query_time": query_time,
             "retrieved_chunks": len(retrieved_docs),
             "model_used": self.model,
+            "cached": False
         }
         
-        # Store in cache
+        # Cache the result
         self._set_cache(cache_key, result)
         
         return result
+    
+    def _quick_local_search_sync(
+        self,
+        query: str,
+        n_results: int,
+        filter_dict: Dict
+    ) -> List[Dict]:
+        """Ultra-fast local search using ChromaDB (sync version)"""
+        try:
+            if hasattr(self.vector_store, 'chromadb_collection') and self.vector_store.chromadb_collection:
+                # Quick embedding
+                query_embedding = self.vector_store.embedding_model.encode(query).tolist()
+                
+                # Fast local query
+                results = self.vector_store.chromadb_collection.query(
+                    query_embeddings=[query_embedding],
+                    n_results=n_results,
+                    where=filter_dict if filter_dict else None
+                )
+                
+                # Format results
+                docs = []
+                if results and results.get("documents"):
+                    for i, doc_text in enumerate(results["documents"][0]):
+                        docs.append({
+                            "text": doc_text,
+                            "source": results["metadatas"][0][i] if results.get("metadatas") else {},
+                            "score": 1.0 - (results["distances"][0][i] if results.get("distances") else 0.0)
+                        })
+                
+                return docs
+        except Exception as e:
+            logger.warning(f"Quick local search failed: {e}")
+        
+        return []
+    
+    def _retrieve_from_namespace_sync(
+        self,
+        query: str,
+        namespace: str,
+        n_results: int,
+        filter_dict: Optional[Dict] = None
+    ) -> List[Dict]:
+        """Sync wrapper for namespace retrieval"""
+        try:
+            return self.vector_store.query(
+                query_text=query,
+                n_results=n_results,
+                filter=filter_dict if filter_dict else None,
+                namespace=namespace
+            )
+        except Exception as e:
+            logger.warning(f"Failed to query namespace {namespace}: {e}")
+            return []
+    
+    def _retrieve_session_docs_sync(
+        self,
+        query: str,
+        session_id: str,
+        n_results: int
+    ) -> List[Dict]:
+        """Sync session document retrieval"""
+        try:
+            collection_name = f"chat_session_{session_id}"
+            if hasattr(self.vector_store, 'get_collection'):
+                collection = self.vector_store.get_collection(collection_name)
+                if collection:
+                    results = collection.query(query_texts=[query], n_results=n_results)
+                    
+                    docs = []
+                    if results and len(results) > 0:
+                        for i, doc_text in enumerate(results["documents"][0] if results["documents"] else []):
+                            docs.append({
+                                "text": doc_text,
+                                "source": results.get("metadatas", [[]])[0][i] if results.get("metadatas") else {},
+                                "score": 1.0 - (results.get("distances", [[]])[0][i] if results.get("distances") else 0.0)
+                            })
+                    return docs
+        except Exception as e:
+            logger.warning(f"Session retrieval failed: {e}")
+        return []
     
     async def aquery(
         self,

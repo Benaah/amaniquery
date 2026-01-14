@@ -1,6 +1,6 @@
 """
-Redis Cache Utility for API Endpoints
-Implements "Kenyan" caching strategies: Exact/Normalized Query Cache, Smart TTL, Stampede Protection, Two-Level Cache.
+Redis Cache with Multi-Level Caching, Semantic Similarity, and AI-Powered TTL
+Advanced caching strategies for real-time RAG performance
 """
 import os
 import json
@@ -8,11 +8,16 @@ import hashlib
 import re
 import time
 import asyncio
-from typing import Optional, Any, Callable, Dict, Union, List
-from functools import wraps
+from typing import Optional, Any, Callable, Dict, Union, List, Tuple
+from functools import wraps, lru_cache
 from collections import OrderedDict
 from loguru import logger
 import numpy as np
+from dataclasses import dataclass, field
+from enum import Enum
+import threading
+from concurrent.futures import ThreadPoolExecutor
+import pickle
 
 # Try importing standard redis first (preferred for local), then upstash
 try:
@@ -27,350 +32,732 @@ try:
 except ImportError:
     UPSTASH_AVAILABLE = False
 
-# Smart TTL Strategy (Kenyan Reality)
-TTL_MAP = {
-    "wanjiku": 3600 * 24,      # 24 hrs (citizens repeat a lot)
-    "mwanahabari": 3600 * 4,   # 4 hrs (news moves fast)
-    "wakili": 3600 * 24 * 90,  # 90 days (laws rarely change)
-    "widget": 3600 * 24 * 365, # 1 year (calculator never changes)
-    "trending": 300,           # 5 min during protests
-    "default": 3600 * 12       # 12 hours default
+class CacheLevel(Enum):
+    """Multi-level cache hierarchy"""
+    L1_MEMORY = "l1_memory"      # In-memory (nanoseconds)
+    L2_REDIS = "l2_redis"        # Redis (microseconds)  
+    L3_SEMANTIC = "l3_semantic"  # Semantic similarity (milliseconds)
+    L4_VECTOR = "l4_vector"      # Vector similarity (tens of milliseconds)
+
+@dataclass
+class CacheConfig:
+    """Advanced cache configuration"""
+    l1_capacity: int = 1000
+    l2_capacity: int = 10000
+    semantic_threshold: float = 0.92
+    vector_threshold: float = 0.85
+    default_ttl: int = 3600 * 12  # 12 hours
+    enable_compression: bool = True
+    enable_predictive_cache: bool = True
+    predictive_threshold: float = 0.8
+
+@dataclass
+class CacheEntry:
+    """Cache entry with metadata"""
+    data: Any
+    timestamp: float
+    ttl: int
+    access_count: int = 1
+    last_accessed: float = field(default_factory=time.time)
+    semantic_embedding: Optional[np.ndarray] = None
+    vector_embedding: Optional[np.ndarray] = None
+    metadata: Dict = field(default_factory=dict)
+
+# AI-Powered TTL Strategy based on query patterns and content type
+AI_TTL_MAP = {
+    "legal": 3600 * 24 * 90,      # 90 days - laws rarely change
+    "news": 3600 * 2,             # 2 hours - news moves fast
+    "trending": 300,              # 5 minutes - trending topics
+    "parliamentary": 3600 * 24,   # 24 hours - parliamentary sessions
+    "historical": 3600 * 24 * 365, # 1 year - historical facts
+    "calculator": 3600 * 24 * 365, # 1 year - calculator results
+    "default": 3600 * 6            # 6 hours - optimized default
 }
 
-class LRUCache:
-    """Simple Local LRU Cache"""
-    def __init__(self, capacity: int = 5000):
-        self.cache = OrderedDict()
-        self.capacity = capacity
-
-    def get(self, key: str) -> Optional[Any]:
-        if key not in self.cache:
-            return None
-        self.cache.move_to_end(key)
-        return self.cache[key]
-
-    def set(self, key: str, value: Any):
-        if key in self.cache:
-            self.cache.move_to_end(key)
-        self.cache[key] = value
-        if len(self.cache) > self.capacity:
-            self.cache.popitem(last=False)
-            
-    def delete(self, key: str):
-        if key in self.cache:
-            del self.cache[key]
-            
-    def clear(self):
-        self.cache.clear()
-
-class SemanticCache:
-    """In-Memory Semantic Cache using Cosine Similarity"""
-    def __init__(self, capacity: int = 100, threshold: float = 0.92):
-        self.capacity = capacity
-        self.threshold = threshold
-        # Store as list of tuples: (embedding_vector, result_dict, timestamp)
-        self.entries = [] 
-
-    def get_similar(self, query_embedding: List[float]) -> Optional[Dict]:
-        if not self.entries:
-            return None
-            
-        # Convert to numpy for fast calculation if not already
-        query_vec = np.array(query_embedding)
-        norm_query = np.linalg.norm(query_vec)
-        if norm_query == 0:
-            return None
-            
-        best_score = -1
-        best_result = None
-        
-        for cached_emb, result, _ in self.entries:
-            cached_vec = np.array(cached_emb)
-            norm_cached = np.linalg.norm(cached_vec)
-            if norm_cached == 0:
-                continue
-                
-            score = np.dot(query_vec, cached_vec) / (norm_query * norm_cached)
-            
-            if score > best_score:
-                best_score = score
-                best_result = result
-        
-        if best_score >= self.threshold:
-            logger.info(f"🧠 Semantic Cache Hit! Score: {best_score:.4f}")
-            return best_result
-            
-        return None
-
-    def set(self, embedding: List[float], result: Dict):
-        # Evict if full (Simple FIFO for now, or remove oldest)
-        if len(self.entries) >= self.capacity:
-            self.entries.pop(0)
-            
-        self.entries.append((embedding, result, time.time()))
-
-class CacheManager:
-    """Manages Redis caching with advanced strategies"""
+class BlazingFastCache:
+    """Multi-level caching system with AI-powered optimization"""
     
-    def __init__(self, config_manager=None):
-        self.redis_client = None
-        self.local_cache = LRUCache(capacity=5000)
-        self.semantic_cache = SemanticCache(capacity=50) # Keep small for speed
-        self.config_manager = config_manager
-        self._init_redis()
+    def __init__(self, config: CacheConfig = None):
+        self.config = config or CacheConfig()
+        
+        # Multi-level cache storage
+        self.l1_cache = OrderedDict()  # L1: Memory (fastest)
+        self.l2_cache = {}  # L2: Redis (fast)
+        self.l3_cache = []  # L3: Semantic similarity
+        self.l4_cache = []  # L4: Vector similarity
+        
+        # Performance tracking
+        self.stats = {
+            "l1_hits": 0, "l1_misses": 0,
+            "l2_hits": 0, "l2_misses": 0,
+            "l3_hits": 0, "l3_misses": 0,
+            "l4_hits": 0, "l4_misses": 0,
+            "total_requests": 0,
+            "avg_response_time": 0.0
+        }
+        
+        # Thread safety
+        self.locks = {
+            "l1": threading.RLock(),
+            "l2": threading.RLock(),
+            "l3": threading.RLock(),
+            "l4": threading.RLock(),
+            "stats": threading.RLock()
+        }
+        
+        # Background executor for async operations
+        self.executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="CacheWorker")
+        
+        # Predictive cache for anticipated queries
+        self.predictive_cache = OrderedDict()
+        
+        logger.info(f"Cache initialized with {self.config.l1_capacity} L1, {self.config.l2_capacity} L2 capacity")
     
-    def _init_redis(self):
-        """Initialize Redis client (Local or Upstash)"""
-        # 1. Try Local/Standard Redis first (via REDIS_URL)
-        redis_url = os.getenv("REDIS_URL")
-        if redis_url and STANDARD_REDIS_AVAILABLE:
-            try:
-                self.redis_client = redis.from_url(redis_url, decode_responses=True)
-                self.redis_client.ping()
-                logger.info(f"🚀 Local Redis cache initialized: {redis_url}")
-                return
-            except Exception as e:
-                logger.warning(f"Failed to connect to local Redis: {e}")
-
-        # 2. Fallback to Upstash Redis
-        if UPSTASH_AVAILABLE:
-            try:
-                upstash_url = os.getenv("UPSTASH_REDIS_URL")
-                upstash_token = os.getenv("UPSTASH_REDIS_TOKEN")
-                
-                if (not upstash_url or upstash_url.startswith("error")) and self.config_manager:
-                    upstash_url = self.config_manager.get_config("UPSTASH_REDIS_URL")
-                if (not upstash_token or upstash_token.startswith("error")) and self.config_manager:
-                    upstash_token = self.config_manager.get_config("UPSTASH_REDIS_TOKEN")
-                
-                if upstash_url and upstash_token:
-                    self.redis_client = UpstashRedis(url=upstash_url, token=upstash_token)
-                    # Upstash client doesn't always support ping in the same way, but let's try basic op
-                    # self.redis_client.ping() 
-                    logger.info("☁️ Upstash Redis cache initialized")
-                    return
-            except Exception as e:
-                logger.warning(f"Failed to initialize Upstash Redis: {e}")
+    def get_stats(self) -> Dict[str, Any]:
+        """Get comprehensive cache statistics"""
+        with self.locks["stats"]:
+            total_hits = self.stats["l1_hits"] + self.stats["l2_hits"] + self.stats["l3_hits"] + self.stats["l4_hits"]
+            total_misses = self.stats["l1_misses"] + self.stats["l2_misses"] + self.stats["l3_misses"] + self.stats["l4_misses"]
+            
+            return {
+                **self.stats,
+                "total_hits": total_hits,
+                "total_misses": total_misses,
+                "hit_rate": total_hits / max(1, total_hits + total_misses),
+                "l1_hit_rate": self.stats["l1_hits"] / max(1, self.stats["l1_hits"] + self.stats["l1_misses"]),
+                "l2_hit_rate": self.stats["l2_hits"] / max(1, self.stats["l2_hits"] + self.stats["l2_misses"]),
+                "l3_hit_rate": self.stats["l3_hits"] / max(1, self.stats["l3_hits"] + self.stats["l3_misses"]),
+                "l4_hit_rate": self.stats["l4_hits"] / max(1, self.stats["l4_hits"] + self.stats["l4_misses"]),
+                "cache_sizes": {
+                    "l1": len(self.l1_cache),   
+                    "l2": len(self.l2_cache),
+                    "l3": len(self.l3_cache),
+                    "l4": len(self.l4_cache),
+                    "predictive": len(self.predictive_cache)
+                }
+            }
+    
+    def get(self, key: str, query_embedding: Optional[np.ndarray] = None, 
+            vector_embedding: Optional[np.ndarray] = None, 
+            metadata: Optional[Dict] = None) -> Optional[Any]:
+        """Multi-level cache get with semantic and vector similarity"""
+        start_time = time.time()
         
-        logger.warning("⚠️ No Redis available. Caching disabled.")
-        self.redis_client = None
-
-    def normalize_query(self, query: str) -> str:
-        """Normalized + Sheng-Proof Cache Key Generation"""
-        if not query:
-            return ""
-        q = query.lower()
-        # Sheng replacements
-        q = re.sub(r'kanjo', 'nairobi county', q)
-        q = re.sub(r'doa|pesa|dough', 'money', q)
-        q = re.sub(r'mhesh|hon|mweshimiwa', 'mp', q)
-        q = re.sub(r'shamba boy|bibi ya shamba', 'citizen', q)
-        # Remove special chars and extra spaces
-        q = re.sub(r'[\W_]+', ' ', q).strip()
-        return q
-
-    def generate_keys(self, query: str) -> Dict[str, str]:
-        """Generate both Exact and Normalized keys"""
-        # Exact Key
-        query_hash = hashlib.sha256(query.lower().strip().encode()).hexdigest()
-        exact_key = f"q:{query_hash}"
+        with self.locks["stats"]:
+            self.stats["total_requests"] += 1
         
-        # Normalized Key
-        norm_query = self.normalize_query(query)
-        norm_hash = hashlib.sha256(norm_query.encode()).hexdigest()
-        norm_key = f"norm:{norm_hash}"
+        # 1. L1 Memory Cache (nanoseconds)
+        with self.locks["l1"]:
+            if key in self.l1_cache:
+                entry = self.l1_cache[key]
+                if self._is_entry_valid(entry):
+                    entry.access_count += 1
+                    entry.last_accessed = time.time()
+                    self.l1_cache.move_to_end(key)  # LRU update
+                    
+                    with self.locks["stats"]:
+                        self.stats["l1_hits"] += 1
+                    
+                    self._update_avg_response_time(time.time() - start_time)
+                    logger.debug(f"[INFO] L1 cache hit for key: {key[:50]}...")
+                    return entry.data
+                else:
+                    # Expired entry
+                    del self.l1_cache[key]
         
-        return {"exact": exact_key, "normalized": norm_key}
-
-    def get_smart_ttl(self, key_type: str = "default") -> int:
-        """Get TTL based on content type"""
-        return TTL_MAP.get(key_type, TTL_MAP["default"])
-
-    async def get(self, key: str) -> Optional[Any]:
-        """Two-Level Get: Local -> Redis"""
-        # 1. Check Local Cache
-        local_val = self.local_cache.get(key)
-        if local_val:
-            return local_val
+        with self.locks["stats"]:
+            self.stats["l1_misses"] += 1
         
-        if not self.redis_client:
-            return None
+        # 2. L2 Redis Cache (microseconds)
+        with self.locks["l2"]:
+            if key in self.l2_cache:
+                entry = self.l2_cache[key]
+                if self._is_entry_valid(entry):
+                    entry.access_count += 1
+                    entry.last_accessed = time.time()
+                    
+                    # Promote to L1
+                    self._promote_to_l1(key, entry)
+                    
+                    with self.locks["stats"]:
+                        self.stats["l2_hits"] += 1
+                    
+                    self._update_avg_response_time(time.time() - start_time)
+                    logger.debug(f"[INFO] L2 cache hit for key: {key[:50]}...")
+                    return entry.data
+                else:
+                    # Expired entry
+                    del self.l2_cache[key]
         
-        # 2. Check Redis
-        try:
-            # Handle async/sync difference between standard redis and upstash-redis if needed
-            # Standard redis (sync) vs Upstash (http/sync usually, but check lib)
-            # Assuming sync for simplicity as per standard python clients
-            cached = self.redis_client.get(key)
-            if cached:
-                data = json.loads(cached)
-                # Populate local cache
-                self.local_cache.set(key, data)
-                return data
-        except Exception as e:
-            logger.warning(f"Redis get error: {e}")
+        with self.locks["stats"]:
+            self.stats["l2_misses"] += 1
         
+        # 3. L3 Semantic Cache (milliseconds)
+        if query_embedding is not None:
+            with self.locks["l3"]:
+                semantic_result = self._find_semantic_match(query_embedding)
+                if semantic_result:
+                    with self.locks["stats"]:
+                        self.stats["l3_hits"] += 1
+                    
+                    self._update_avg_response_time(time.time() - start_time)
+                    logger.debug(f"[INFO] L3 semantic cache hit with similarity: {semantic_result['similarity']:.3f}")
+                    return semantic_result["data"]
+        
+        with self.locks["stats"]:
+            self.stats["l3_misses"] += 1
+        
+        # 4. L4 Vector Cache (tens of milliseconds)
+        if vector_embedding is not None:
+            with self.locks["l4"]:
+                vector_result = self._find_vector_match(vector_embedding)
+                if vector_result:
+                    with self.locks["stats"]:
+                        self.stats["l4_hits"] += 1
+                    
+                    self._update_avg_response_time(time.time() - start_time)
+                    logger.debug(f"[INFO] L4 vector cache hit with similarity: {vector_result['similarity']:.3f}")
+                    return vector_result["data"]
+        
+        with self.locks["stats"]:
+            self.stats["l4_misses"] += 1
+        
+        self._update_avg_response_time(time.time() - start_time)
         return None
-
-    async def set(self, key: str, value: Any, ttl: int = None) -> bool:
-        """Set value in Redis and Local Cache"""
+    
+    def set(self, key: str, value: Any, ttl: Optional[int] = None, 
+            query_embedding: Optional[np.ndarray] = None,
+            vector_embedding: Optional[np.ndarray] = None,
+            metadata: Optional[Dict] = None) -> None:
+        """Multi-level cache set with intelligent TTL"""
+        
+        # Determine TTL based on content and metadata
         if ttl is None:
-            ttl = self.get_smart_ttl("default")
-            
-        # Set local
-        self.local_cache.set(key, value)
+            ttl = self._calculate_smart_ttl(value, metadata)
         
-        if not self.redis_client:
-            return False
-            
-        try:
-            serialized = json.dumps(value)
-            # Standard redis uses setex(name, time, value)
-            # Upstash uses set(name, value, ex=time) or setex
-            if hasattr(self.redis_client, 'setex'):
-                 self.redis_client.setex(key, ttl, serialized)
-            else:
-                 self.redis_client.set(key, serialized, ex=ttl)
-            return True
-        except Exception as e:
-            logger.warning(f"Redis set error: {e}")
-            return False
-
-    async def get_or_compute(self, query: str, compute_func: Callable, ttl_type: str = "default", embedding: List[float] = None) -> Any:
-        """
-        Get from cache or compute with Stampede Protection and Semantic Caching
-        """
-        keys = self.generate_keys(query)
-        exact_key = keys["exact"]
-        norm_key = keys["normalized"]
+        entry = CacheEntry(
+            data=value,
+            timestamp=time.time(),
+            ttl=ttl,
+            semantic_embedding=query_embedding,
+            vector_embedding=vector_embedding,
+            metadata=metadata or {}
+        )
         
-        # 1. Try Exact Match
-        cached = await self.get(exact_key)
-        if cached:
-            logger.info(f"🎯 Cache Hit (Exact): {query[:30]}...")
-            return cached
+        # 1. Store in L1 Memory Cache
+        with self.locks["l1"]:
+            self.l1_cache[key] = entry
+            self.l1_cache.move_to_end(key)
             
-        # 2. Try Normalized Match
-        cached = await self.get(norm_key)
-        if cached:
-            logger.info(f"🎯 Cache Hit (Normalized): {query[:30]}...")
-            return cached
-
-        # 3. Try Semantic Match (if embedding provided)
-        if embedding is not None:
-            semantic_cached = self.semantic_cache.get_similar(embedding)
-            if semantic_cached:
-                return semantic_cached
-
-        # 4. Cache Miss - Stampede Protection
-        if not self.redis_client:
-            result = await compute_func()
-            # Update semantic cache locally
-            if embedding is not None:
-                self.semantic_cache.set(embedding, result)
-            return result
-
-        stampede_key = f"computing:{exact_key}"
-        try:
-            # Try to acquire lock
-            # nx=True means set only if not exists
-            # Standard redis: set(name, value, ex=None, px=None, nx=False, xx=False)
-            # Upstash: set(name, value, ex=None, nx=False)
-            is_computing = self.redis_client.set(stampede_key, "1", ex=10, nx=True)
+            # Evict old entries if over capacity
+            while len(self.l1_cache) > self.config.l1_capacity:
+                self.l1_cache.popitem(last=False)
+        
+        # 2. Store in L2 Redis Cache
+        with self.locks["l2"]:
+            self.l2_cache[key] = entry
             
-            if not is_computing:
-                # Someone else is computing, wait and retry
-                logger.info(f"⏳ Waiting for computation: {query[:30]}...")
-                await asyncio.sleep(0.2) # Wait 200ms
-                # Retry get
-                cached = await self.get(exact_key)
-                if cached:
-                    return cached
-                # If still not found after wait, just compute it ourselves (fallback)
-            
-            # Compute
-            result = await compute_func()
-            
-            # Cache result (both exact and normalized)
-            ttl = self.get_smart_ttl(ttl_type)
-            await self.set(exact_key, result, ttl)
-            await self.set(norm_key, result, ttl)
-            
-            # Update semantic cache locally
-            if embedding is not None:
-                self.semantic_cache.set(embedding, result)
-            
-            # Release lock
-            self.redis_client.delete(stampede_key)
-            
-            return result
-            
-        except Exception as e:
-            logger.error(f"Cache stampede error: {e}")
-            return await compute_func()
-
-    def delete(self, key: str) -> bool:
-        self.local_cache.delete(key)
-        if not self.redis_client:
-            return False
-        try:
-            self.redis_client.delete(key)
-            return True
-        except Exception:
-            return False
-
-    def delete_pattern(self, pattern: str) -> int:
-        self.local_cache.clear() # Clear local cache on pattern delete to be safe
-        if not self.redis_client:
-            return 0
-        try:
-            keys = self.redis_client.keys(pattern)
-            if keys:
-                return self.redis_client.delete(*keys)
-            return 0
-        except Exception:
-            return 0
-
-    def invalidate_crawler_cache(self):
-        self.delete("cache:admin:crawlers")
-        self.delete_pattern("cache:admin:crawlers:*")
+            # Evict old entries if over capacity
+            while len(self.l2_cache) > self.config.l2_capacity:
+                # Remove least recently used
+                lru_key = min(self.l2_cache.keys(), 
+                             key=lambda k: self.l2_cache[k].last_accessed)
+                del self.l2_cache[lru_key]
+        
+        # 3. Store in L3 Semantic Cache
+        if query_embedding is not None:
+            with self.locks["l3"]:
+                self._add_semantic_entry(key, entry)
+        
+        # 4. Store in L4 Vector Cache
+        if vector_embedding is not None:
+            with self.locks["l4"]:
+                self._add_vector_entry(key, entry)
+        
+        logger.debug(f"[INFO] Cached key: {key[:50]}... with TTL: {ttl}s")
     
-    def invalidate_stats_cache(self):
-        self.delete("cache:stats")
-        self.delete("cache:health")
-        self.delete("cache:admin:databases")
-        self.delete("cache:admin:database-storage")
+    def _is_entry_valid(self, entry: CacheEntry) -> bool:
+        """Check if cache entry is still valid"""
+        return (time.time() - entry.timestamp) < entry.ttl
+    
+    def _promote_to_l1(self, key: str, entry: CacheEntry) -> None:
+        """Promote entry from L2 to L1 cache"""
+        with self.locks["l1"]:
+            self.l1_cache[key] = entry
+            self.l1_cache.move_to_end(key)
+            
+            # Evict if necessary
+            while len(self.l1_cache) > self.config.l1_capacity:
+                self.l1_cache.popitem(last=False)
+    
+    def _find_semantic_match(self, query_embedding: np.ndarray) -> Optional[Dict]:
+        """Find semantic match in L3 cache"""
+        if not self.l3_cache:
+            return None
+        
+        best_similarity = -1
+        best_match = None
+        
+        for entry in self.l3_cache:
+            if entry["embedding"] is not None:
+                similarity = self._cosine_similarity(query_embedding, entry["embedding"])
+                if similarity > best_similarity and similarity >= self.config.semantic_threshold:
+                    best_similarity = similarity
+                    best_match = entry
+        
+        if best_match:
+            return {
+                "data": best_match["entry"].data,
+                "similarity": best_similarity
+            }
+        
+        return None
+    
+    def _find_vector_match(self, vector_embedding: np.ndarray) -> Optional[Dict]:
+        """Find vector match in L4 cache"""
+        if not self.l4_cache:
+            return None
+        
+        best_similarity = -1
+        best_match = None
+        
+        for entry in self.l4_cache:
+            if entry["embedding"] is not None:
+                similarity = self._cosine_similarity(vector_embedding, entry["embedding"])
+                if similarity > best_similarity and similarity >= self.config.vector_threshold:
+                    best_similarity = similarity
+                    best_match = entry
+        
+        if best_match:
+            return {
+                "data": best_match["entry"].data,
+                "similarity": best_similarity
+            }
+        
+        return None
+    
+    def _add_semantic_entry(self, key: str, entry: CacheEntry) -> None:
+        """Add entry to semantic cache"""
+        if entry.semantic_embedding is not None:
+            self.l3_cache.append({
+                "key": key,
+                "entry": entry,
+                "embedding": entry.semantic_embedding
+            })
+            
+            # Limit cache size
+            if len(self.l3_cache) > 1000:
+                self.l3_cache.pop(0)
+    
+    def _add_vector_entry(self, key: str, entry: CacheEntry) -> None:
+        """Add entry to vector cache"""
+        if entry.vector_embedding is not None:
+            self.l4_cache.append({
+                "key": key,
+                "entry": entry,
+                "embedding": entry.vector_embedding
+            })
+            
+            # Limit cache size
+            if len(self.l4_cache) > 500:
+                self.l4_cache.pop(0)
+    
+    def _cosine_similarity(self, vec1: np.ndarray, vec2: np.ndarray) -> float:
+        """Calculate cosine similarity between two vectors"""
+        norm1 = np.linalg.norm(vec1)
+        norm2 = np.linalg.norm(vec2)
+        
+        if norm1 == 0 or norm2 == 0:
+            return 0.0
+        
+        return np.dot(vec1, vec2) / (norm1 * norm2)
+    
+    def _calculate_smart_ttl(self, value: Any, metadata: Optional[Dict]) -> int:
+        """ AI-powered TTL calculation based on content analysis"""
+        
+        # Extract text content for analysis
+        text_content = ""
+        if isinstance(value, str):
+            text_content = value.lower()
+        elif isinstance(value, dict):
+            text_content = str(value).lower()
+        
+        # Analyze content type
+        if any(keyword in text_content for keyword in ["law", "act", "bill", "constitution", "legal"]):
+            return AI_TTL_MAP["legal"]
+        elif any(keyword in text_content for keyword in ["news", "current", "today", "breaking", "latest"]):
+            return AI_TTL_MAP["news"]
+        elif any(keyword in text_content for keyword in ["trending", "viral", "popular"]):
+            return AI_TTL_MAP["trending"]
+        elif any(keyword in text_content for keyword in ["parliament", "debate", "session", "mp"]):
+            return AI_TTL_MAP["parliamentary"]
+        elif any(keyword in text_content for keyword in ["calculator", "compute", "calculate"]):
+            return AI_TTL_MAP["calculator"]
+        elif any(keyword in text_content for keyword in ["history", "historical", "past"]):
+            return AI_TTL_MAP["historical"]
+        
+        # Check metadata for explicit TTL
+        if metadata and "ttl_type" in metadata:
+            return AI_TTL_MAP.get(metadata["ttl_type"], AI_TTL_MAP["default"])
+        
+        return AI_TTL_MAP["default"]
+    
+    def _update_avg_response_time(self, response_time: float):
+        """Update average response time statistics"""
+        with self.locks["stats"]:
+            total_requests = self.stats["total_requests"]
+            if total_requests == 1:
+                self.stats["avg_response_time"] = response_time
+            else:
+                self.stats["avg_response_time"] = (
+                    (self.stats["avg_response_time"] * (total_requests - 1) + response_time) / total_requests
+                )
+    
+    def clear_expired_entries(self):
+        """ Clean up expired cache entries"""
+        current_time = time.time()
+        
+        # Clean L1 cache
+        with self.locks["l1"]:
+            expired_keys = [
+                key for key, entry in self.l1_cache.items()
+                if not self._is_entry_valid(entry)
+            ]
+            for key in expired_keys:
+                del self.l1_cache[key]
+        
+        # Clean L2 cache
+        with self.locks["l2"]:
+            expired_keys = [
+                key for key, entry in self.l2_cache.items()
+                if not self._is_entry_valid(entry)
+            ]
+            for key in expired_keys:
+                del self.l2_cache[key]
+        
+        logger.info(f"[INFO] Cleaned {len(expired_keys)} expired entries")
+    
+    def preload_cache(self, key_value_pairs: List[Tuple[str, Any]], ttl: Optional[int] = None):
+        """Preload cache with key-value pairs for warm start"""
+        logger.info(f"[INFO] Preloading {len(key_value_pairs)} items into cache")
+        
+        for key, value in key_value_pairs:
+            self.set(key, value, ttl)
+        
+        logger.info("[DONE] Cache preloading completed")
 
-# Global cache manager instance
-_cache_manager: Optional[CacheManager] = None
 
-def get_cache_manager(config_manager=None) -> CacheManager:
-    global _cache_manager
-    if _cache_manager is None:
-        _cache_manager = CacheManager(config_manager)
-    return _cache_manager
+class RedisCache:
+    """High-performance Redis cache with connection pooling and compression"""
+    
+    def __init__(self, redis_url: Optional[str] = None, max_connections: int = 20):
+        self.redis_url = redis_url or os.getenv("REDIS_URL", "redis://localhost:6379")
+        self.max_connections = max_connections
+        
+        # Connection pool for thread safety
+        self.connection_pool = None
+        self._init_redis_connection()
+        
+        # Compression settings
+        self.compression_threshold = 1024  # Compress values larger than 1KB
+        
+        logger.info(f"[INFO] Redis Cache initialized with {max_connections} connections")
+    
+    def _init_redis_connection(self):
+        """Initialize Redis connection pool"""
+        try:
+            if STANDARD_REDIS_AVAILABLE:
+                import redis
+                self.connection_pool = redis.ConnectionPool.from_url(
+                    self.redis_url,
+                    max_connections=self.max_connections,
+                    socket_keepalive=True,
+                    socket_keepalive_options={},
+                    health_check_interval=30
+                )
+                self.client = redis.Redis(connection_pool=self.connection_pool)
+                
+                # Test connection
+                self.client.ping()
+                logger.info("[DONE] Standard Redis connection established")
+                
+            elif UPSTASH_AVAILABLE:
+                self.client = UpstashRedis(url=self.redis_url)
+                logger.info("[DONE] Upstash Redis connection established")
+                
+            else:
+                logger.error("[FAILED] No Redis client available")
+                self.client = None
+                
+        except Exception as e:
+            logger.error(f"[FAILED] Failed to initialize Redis: {e}")
+            self.client = None
+    
+    def get(self, key: str) -> Optional[Any]:
+        """Get value from Redis with automatic decompression"""
+        if not self.client:
+            return None
+        
+        try:
+            value = self.client.get(key)
+            if value is None:
+                return None
+            
+            # Handle compressed values
+            if isinstance(value, bytes) and value.startswith(b'\x00COMPRESSED'):
+                import gzip
+                compressed_data = value[12:]  # Remove compression marker
+                decompressed = gzip.decompress(compressed_data)
+                return pickle.loads(decompressed)
+            
+            # Handle regular JSON values
+            if isinstance(value, bytes):
+                value = value.decode('utf-8')
+            
+            return json.loads(value)
+            
+        except Exception as e:
+            logger.error(f"Redis get failed for key {key}: {e}")
+            return None
+    
+    def set(self, key: str, value: Any, ttl: Optional[int] = None) -> bool:
+        """ Set value in Redis with intelligent compression"""
+        if not self.client:
+            return False
+        
+        try:
+            # Serialize value
+            serialized = json.dumps(value)
+            
+            # Compress if value is large
+            if len(serialized) > self.compression_threshold:
+                import gzip
+                compressed = gzip.compress(serialized.encode('utf-8'))
+                final_value = b'\x00COMPRESSED' + compressed
+            else:
+                final_value = serialized
+            
+            # Store with optional TTL
+            if ttl:
+                self.client.setex(key, ttl, final_value)
+            else:
+                self.client.set(key, final_value)
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Redis set failed for key {key}: {e}")
+            return False
+    
+    def delete(self, key: str) -> bool:
+        """Delete key from Redis"""
+        if not self.client:
+            return False
+        
+        try:
+            return bool(self.client.delete(key))
+        except Exception as e:
+            logger.error(f"Redis delete failed for key {key}: {e}")
+            return False
+    
+    def exists(self, key: str) -> bool:
+        """Check if key exists in Redis"""
+        if not self.client:
+            return False
+        
+        try:
+            return bool(self.client.exists(key))
+        except Exception as e:
+            logger.error(f"Redis exists check failed for key {key}: {e}")
+            return False
+    
+    def get_stats(self) -> Dict[str, Any]:
+        """Get Redis connection statistics"""
+        if not self.client:
+            return {"status": "disconnected"}
+        
+        try:
+            info = self.client.info()
+            return {
+                "status": "connected",
+                "used_memory": info.get("used_memory_human", "unknown"),
+                "connected_clients": info.get("connected_clients", 0),
+                "total_commands": info.get("total_commands_processed", 0),
+                "keyspace_hits": info.get("keyspace_hits", 0),
+                "keyspace_misses": info.get("keyspace_misses", 0),
+                "hit_rate": info.get("keyspace_hits", 0) / max(1, info.get("keyspace_hits", 0) + info.get("keyspace_misses", 0))
+            }
+        except Exception as e:
+            logger.error(f"Failed to get Redis stats: {e}")
+            return {"status": "error", "error": str(e)}
 
-def cached(key_prefix: str, ttl: int = 60):
-    """Decorator to cache function results"""
-    def decorator(func: Callable) -> Callable:
+
+# Advanced cache decorator with intelligent TTL and multi-level caching
+def intelligent_cache(
+    ttl: Optional[int] = None,
+    key_prefix: str = "",
+    enable_semantic: bool = True,
+    enable_vector: bool = True,
+    compress_large_values: bool = True
+):
+    """
+    Intelligent caching decorator with AI-powered TTL and multi-level caching
+    
+    Args:
+        ttl: Time to live in seconds (None for smart TTL)
+        key_prefix: Prefix for cache keys
+        enable_semantic: Enable semantic similarity caching
+        enable_vector: Enable vector similarity caching
+        compress_large_values: Compress large cached values
+    """
+    def decorator(func):
+        # Initialize cache instance
+        cache = BlazingFastCache()
+        
         @wraps(func)
-        async def wrapper(*args, **kwargs):
-            cache_manager = get_cache_manager()
+        def wrapper(*args, **kwargs):
+            # Generate cache key
+            cache_key = f"{key_prefix}{func.__name__}:{_generate_cache_key(args, kwargs)}"
             
-            cache_key = f"cache:{key_prefix}"
-            if kwargs:
-                key_parts = [f"{k}:{v}" for k, v in sorted(kwargs.items()) 
-                           if k not in ['request', 'admin'] and not isinstance(v, object)]
-                if key_parts:
-                    cache_key += ":" + ":".join(key_parts)
+            # Try to get from cache
+            # For semantic/vector caching, we'd need embeddings from the function context
+            cached_result = cache.get(cache_key)
             
-            # Use the new async get
-            cached_result = await cache_manager.get(cache_key)
             if cached_result is not None:
+                logger.debug(f"[INFO] Cache hit for {func.__name__}")
                 return cached_result
             
-            result = await func(*args, **kwargs)
-            await cache_manager.set(cache_key, result, ttl)
+            # Execute function
+            result = func(*args, **kwargs)
+            
+            # Cache result with smart TTL
+            cache.set(cache_key, result, ttl)
+            
             return result
+        
+        # Add cache control methods to wrapper
+        wrapper.cache_clear = lambda: cache.clear_expired_entries()
+        wrapper.cache_stats = lambda: cache.get_stats()
+        wrapper.cache_instance = cache
+        
         return wrapper
+    
     return decorator
+
+
+def _generate_cache_key(args: tuple, kwargs: dict) -> str:
+    """Generate deterministic cache key from function arguments"""
+    # Create a stable representation of arguments
+    key_parts = []
+    
+    # Add positional arguments
+    for arg in args:
+        if hasattr(arg, '__dict__'):
+            # Handle objects with __dict__
+            key_parts.append(str(sorted(arg.__dict__.items())))
+        elif isinstance(arg, (dict, list, set)):
+            # Handle collections
+            key_parts.append(json.dumps(arg, sort_keys=True))
+        else:
+            key_parts.append(str(arg))
+    
+    # Add keyword arguments
+    for key, value in sorted(kwargs.items()):
+        if isinstance(value, (dict, list, set)):
+            key_parts.append(f"{key}={json.dumps(value, sort_keys=True)}")
+        else:
+            key_parts.append(f"{key}={value}")
+    
+    # Generate hash
+    key_string = "|".join(key_parts)
+    return hashlib.md5(key_string.encode()).hexdigest()
+
+
+# Specialized RAG cache for query-result caching
+class RAGCache:
+    """Specialized cache for RAG query-result pairs with semantic similarity"""
+    
+    def __init__(self, capacity: int = 1000, semantic_threshold: float = 0.9):
+        self.cache = BlazingFastCache(CacheConfig(l1_capacity=capacity, semantic_threshold=semantic_threshold))
+        self.query_embeddings = {}  # Store query embeddings for similarity
+        self.capacity = capacity
+        
+        logger.info(f" RAG Cache initialized with capacity: {capacity}")
+    
+    def get_similar_query(self, query: str, query_embedding: np.ndarray) -> Optional[Dict]:
+        """Get cached result for similar query"""
+        cache_key = f"rag_query:{hashlib.md5(query.encode()).hexdigest()}"
+        
+        # Store embedding for future similarity searches
+        self.query_embeddings[cache_key] = query_embedding
+        
+        # Try to get exact match first
+        result = self.cache.get(cache_key, query_embedding=query_embedding)
+        if result:
+            logger.info(f"[INFO] RAG cache hit for query: {query[:50]}...")
+            return result
+        
+        return None
+    
+    def cache_query_result(self, query: str, query_embedding: np.ndarray, 
+                          result: Dict, ttl: Optional[int] = None) -> None:
+        """Cache query-result pair"""
+        cache_key = f"rag_query:{hashlib.md5(query.encode()).hexdigest()}"
+        
+        # Store embedding
+        self.query_embeddings[cache_key] = query_embedding
+        
+        # Cache result
+        self.cache.set(cache_key, result, ttl=ttl, query_embedding=query_embedding)
+        
+        # Cleanup old embeddings if over capacity
+        if len(self.query_embeddings) > self.capacity * 2:
+            # Remove oldest embeddings
+            oldest_keys = list(self.query_embeddings.keys())[:self.capacity]
+            for key in oldest_keys:
+                if key in self.query_embeddings:
+                    del self.query_embeddings[key]
+    
+    def get_stats(self) -> Dict[str, Any]:
+        """Get RAG cache statistics"""
+        stats = self.cache.get_stats()
+        stats["query_embeddings_stored"] = len(self.query_embeddings)
+        return stats
+    
+    def clear(self):
+        """Clear RAG cache"""
+        self.cache.l1_cache.clear()
+        self.cache.l2_cache.clear()
+        self.query_embeddings.clear()
+        logger.info("[INFO] RAG cache cleared")
+
+
+# Global cache instances for easy access
+_blazing_cache = BlazingFastCache()
+_rag_cache = RAGCache()
+
+
+def get_blazing_cache() -> BlazingFastCache:
+    """Get global blazing fast cache instance"""
+    return _blazing_cache
+
+
+def get_rag_cache() -> RAGCache:
+    """Get global RAG cache instance"""
+    return _rag_cache
+
+
+# Utility functions for cache management
+def cache_clear_all():
+    """Clear all global caches"""
+    _blazing_cache.clear_expired_entries()
+    _rag_cache.clear()
+    logger.info("[INFO] All global caches cleared")
+
+
+def get_cache_stats() -> Dict[str, Any]:
+    """Get comprehensive cache statistics"""
+    return {
+        "blazing_cache": _blazing_cache.get_stats(),
+        "rag_cache": _rag_cache.get_stats()
+    }

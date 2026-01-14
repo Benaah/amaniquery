@@ -5,6 +5,7 @@ import {
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
+  Keyboard,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import {FilePicker} from './FilePicker';
@@ -25,25 +26,26 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   selectedFiles = [],
   isLoading = false,
   disabled = false,
-  placeholder = 'Ask about Kenyan law, parliament, or news...',
+  placeholder = 'Ask AmaniQuery...',
 }) => {
   const [input, setInput] = useState('');
-  const [inputHeight, setInputHeight] = useState(44);
+  const [inputHeight, setInputHeight] = useState(50);
   const inputRef = useRef<TextInput>(null);
 
   const handleSend = () => {
     if ((input.trim() || selectedFiles.length > 0) && !isLoading && !disabled) {
       onSend(input.trim() || `Uploaded ${selectedFiles.length} file(s)`, []);
       setInput('');
-      setInputHeight(44);
+      setInputHeight(50);
       onFilesSelected?.([]);
+      Keyboard.dismiss();
     }
   };
 
   const handleContentSizeChange = (event: any) => {
     const height = Math.min(
-      Math.max(44, event.nativeEvent.contentSize.height + 20),
-      200,
+      Math.max(50, event.nativeEvent.contentSize.height + 24),
+      150,
     );
     setInputHeight(height);
   };
@@ -60,47 +62,60 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           />
         </View>
       )}
-      <View style={styles.inputRow}>
+      
+      <View style={styles.inputContainer}>
+        {/* Attachment Button */}
         <TouchableOpacity
-          style={styles.attachButton}
+          style={styles.iconButton}
           onPress={() => {
-            // File picker will be triggered by FilePicker component
+            // Logic to trigger file picker would go here via parent prop or ref
           }}
           disabled={isLoading || disabled}
           activeOpacity={0.7}>
-          <Icon name="attach" size={22} color="#007AFF" />
+          <View style={styles.plusIconWrapper}>
+            <Icon name="add" size={24} color="#444746" />
+          </View>
         </TouchableOpacity>
-        <View style={styles.inputWrapper}>
-          <TextInput
-            ref={inputRef}
-            style={[styles.input, {height: inputHeight}]}
-            value={input}
-            onChangeText={setInput}
-            onContentSizeChange={handleContentSizeChange}
-            placeholder={placeholder}
-            placeholderTextColor="#999"
-            multiline
-            maxLength={1000}
-            editable={!isLoading && !disabled}
-            textAlignVertical="center"
-            blurOnSubmit={false}
-          />
-        </View>
-        <TouchableOpacity
-          style={[
-            styles.sendButton,
-            (isLoading || disabled || !input.trim()) &&
-              styles.sendButtonDisabled,
-          ]}
-          onPress={handleSend}
-          disabled={isLoading || disabled || !input.trim()}
-          activeOpacity={0.8}>
-          {isLoading ? (
-            <ActivityIndicator size="small" color="#FFFFFF" />
-          ) : (
-            <Icon name="send" size={20} color="#FFFFFF" />
+
+        {/* Text Input */}
+        <TextInput
+          ref={inputRef}
+          style={[styles.input, {height: inputHeight}]}
+          value={input}
+          onChangeText={setInput}
+          onContentSizeChange={handleContentSizeChange}
+          placeholder={placeholder}
+          placeholderTextColor="#444746"
+          multiline
+          maxLength={2000}
+          editable={!isLoading && !disabled}
+          textAlignVertical="center"
+        />
+
+        {/* Right Actions */}
+        <View style={styles.rightActions}>
+          {!input.trim() && (
+            <TouchableOpacity 
+              style={styles.iconButton} 
+              disabled={isLoading || disabled}>
+              <Icon name="mic-outline" size={24} color="#444746" />
+            </TouchableOpacity>
           )}
-        </TouchableOpacity>
+          
+          {(input.trim() || selectedFiles.length > 0) && (
+            <TouchableOpacity
+              style={[styles.sendButton, isLoading && styles.sendButtonDisabled]}
+              onPress={handleSend}
+              disabled={isLoading || disabled}
+              activeOpacity={0.8}>
+              {isLoading ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <Icon name="send" size={18} color="#FFFFFF" />
+              )}
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
     </View>
   );
@@ -108,61 +123,63 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
 const styles = StyleSheet.create({
   container: {
-    padding: 12,
-    backgroundColor: '#FFFFFF',
-    borderTopWidth: 1,
-    borderTopColor: '#E9ECEF',
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: -2,
-    },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 5,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: '#FFFFFF', // Or #F0F4F9 for specific gemini bg
   },
   filePickerContainer: {
     marginBottom: 8,
   },
-  inputRow: {
+  inputContainer: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    gap: 8,
+    backgroundColor: '#F0F4F9', // Light gray background like Gemini
+    borderRadius: 28,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    minHeight: 56,
   },
-  attachButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+  iconButton: {
+    width: 48,
+    height: 48,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#F8F9FA',
+    marginBottom: 2, // Align with bottom
   },
-  inputWrapper: {
-    flex: 1,
-    borderRadius: 22,
-    backgroundColor: '#F8F9FA',
-    borderWidth: 1,
-    borderColor: '#E9ECEF',
-    overflow: 'hidden',
+  plusIconWrapper: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#E1E3E1', // Slightly darker circle
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   input: {
     flex: 1,
     fontSize: 16,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    minHeight: 44,
-    maxHeight: 200,
-    color: '#000',
+    color: '#1F1F1F',
+    marginHorizontal: 4,
+    paddingTop: 14,
+    paddingBottom: 14,
+    // Android padding fix
+    paddingVertical: 0, 
+  },
+  rightActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 2,
   },
   sendButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#007AFF',
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#004A77', // Gemini Blue/Dark Blue
     justifyContent: 'center',
     alignItems: 'center',
+    marginLeft: 4,
+    marginBottom: 4,
   },
   sendButtonDisabled: {
-    backgroundColor: '#DEE2E6',
+    backgroundColor: '#B0B0B0',
   },
 });

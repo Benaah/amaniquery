@@ -125,7 +125,8 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   contentContainer: {
-    paddingVertical: 8,
+    paddingVertical: 24,
+    paddingBottom: 40, // Add extra padding at bottom
   },
   dateSeparator: {
     flexDirection: 'row',

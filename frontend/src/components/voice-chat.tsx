@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useRef, useCallback } from "react"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Mic, MicOff, Volume2, Loader2, StopCircle } from "lucide-react"
+import { Mic, MicOff, Volume2, Loader2, StopCircle, User, Bot } from "lucide-react"
+import { cn } from "@/lib/utils"
 
 // Type definitions for Web Speech API
 interface SpeechRecognition extends EventTarget {
@@ -82,7 +82,7 @@ export function VoiceChat() {
   // Scroll to bottom when messages change
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
-  }, [messages])
+  }, [messages, currentTranscript])
 
   // Fetch available voices
   useEffect(() => {
@@ -245,6 +245,7 @@ export function VoiceChat() {
 
   const handleAudioEnded = () => {
     setIsPlaying(false)
+    // Restart listening if needed (optional)
   }
 
   const toggleListening = () => {
@@ -271,136 +272,152 @@ export function VoiceChat() {
   }
 
   return (
-    <div className="flex flex-col h-full max-w-4xl mx-auto gap-4">
+    <div className="flex flex-col h-full max-w-3xl mx-auto w-full relative">
       {/* Hidden audio element */}
       <audio ref={audioRef} onEnded={handleAudioEnded} className="hidden" />
 
-      {/* Messages Area */}
-      <Card className="flex-1 overflow-hidden flex flex-col bg-background/60 backdrop-blur-sm border-border/40">
-        <CardHeader className="border-b border-border/40 py-4">
-          <CardTitle className="flex items-center gap-3 text-lg">
-            <div className="p-2 rounded-lg bg-gradient-to-br from-purple-500/20 to-cyan-500/20 border border-purple-500/20">
-              <Volume2 className="w-5 h-5 text-purple-500" />
-            </div>
-            <span>AmaniQuery Voice</span>
-            {voices.length > 0 && (
-              <select
-                value={selectedVoice}
-                onChange={(e) => setSelectedVoice(e.target.value)}
-                className="ml-auto text-sm bg-muted border border-border rounded px-2 py-1"
-              >
-                {voices.map(v => (
-                  <option key={v.name} value={v.name}>{v.name}</option>
-                ))}
-              </select>
-            )}
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="flex-1 overflow-y-auto p-4 space-y-4">
+      {/* Main Content Area */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-6">
           {messages.length === 0 && (
-            <div className="flex flex-col items-center justify-center h-full text-muted-foreground text-center">
-              <Volume2 className="w-12 h-12 mb-4 opacity-50" />
-              <p className="text-lg font-medium">Voice Assistant</p>
-              <p className="text-sm mt-2">Click the microphone and ask about Kenyan law, parliament, or news.</p>
+            <div className="flex flex-col items-center justify-center h-full text-muted-foreground text-center space-y-4">
+              <div className="w-16 h-16 rounded-full bg-secondary flex items-center justify-center">
+                 <Mic className="w-8 h-8 text-primary" />
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold text-foreground">Voice Assistant</h2>
+                <p className="text-sm mt-1 max-w-xs mx-auto">Ask questions about Kenyan law, parliament, or current affairs.</p>
+              </div>
             </div>
           )}
 
           {messages.map((msg) => (
             <div
               key={msg.id}
-              className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+              className={cn(
+                "flex gap-4 animate-in fade-in slide-in-from-bottom-2",
+                msg.role === "user" ? "flex-row-reverse" : "flex-row"
+              )}
             >
-              <div
-                className={`max-w-[80%] p-3 rounded-2xl ${
-                  msg.role === "user"
-                    ? "bg-cyan-600/20 border border-cyan-500/30 rounded-tr-none"
-                    : "bg-purple-600/20 border border-purple-500/30 rounded-tl-none"
-                }`}
-              >
-                <p className="text-sm">{msg.content}</p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  {msg.timestamp.toLocaleTimeString()}
-                </p>
+              <div className={cn(
+                "flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center border",
+                msg.role === "user" ? "bg-secondary text-foreground border-transparent" : "bg-primary text-primary-foreground border-transparent"
+              )}>
+                {msg.role === "user" ? <User className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
+              </div>
+
+              <div className={cn(
+                "flex-1 max-w-[80%]",
+                msg.role === "user" ? "text-right" : "text-left"
+              )}>
+                <div className={cn(
+                  "inline-block px-5 py-3 text-base leading-relaxed text-left",
+                  msg.role === "user" 
+                    ? "bg-secondary text-secondary-foreground rounded-3xl rounded-tr-sm" 
+                    : "text-foreground p-0"
+                )}>
+                  {msg.content}
+                </div>
               </div>
             </div>
           ))}
 
           {/* Current transcript (interim) */}
           {currentTranscript && (
-            <div className="flex justify-end">
-              <div className="max-w-[80%] p-3 rounded-2xl bg-cyan-600/10 border border-cyan-500/20 rounded-tr-none animate-pulse">
-                <p className="text-sm text-cyan-400/70 italic">{currentTranscript}</p>
-              </div>
-            </div>
+             <div className="flex gap-4 flex-row-reverse">
+               <div className="flex-shrink-0 w-8 h-8 rounded-full bg-secondary flex items-center justify-center">
+                 <User className="w-4 h-4" />
+               </div>
+               <div className="inline-block px-5 py-3 rounded-3xl rounded-tr-sm bg-secondary/50 text-secondary-foreground/70 text-base leading-relaxed italic">
+                 {currentTranscript}
+                 <span className="inline-block w-1.5 h-4 ml-1 align-middle bg-current animate-pulse"/>
+               </div>
+             </div>
           )}
 
           {/* Processing indicator */}
           {isProcessing && (
-            <div className="flex justify-start">
-              <div className="p-3 rounded-2xl bg-purple-600/10 border border-purple-500/20 rounded-tl-none">
-                <Loader2 className="w-5 h-5 animate-spin text-purple-400" />
-              </div>
-            </div>
+             <div className="flex gap-4">
+               <div className="flex-shrink-0 w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center">
+                 <Bot className="w-4 h-4" />
+               </div>
+               <div className="flex items-center gap-2 text-sm text-muted-foreground pt-2">
+                 <Loader2 className="w-4 h-4 animate-spin" />
+                 <span>Processing response...</span>
+               </div>
+             </div>
           )}
 
-          <div ref={messagesEndRef} />
-        </CardContent>
-      </Card>
+          <div ref={messagesEndRef} className="h-4" />
+      </div>
 
       {/* Error display */}
       {error && (
-        <div className="p-3 bg-destructive/10 border border-destructive/30 rounded-lg text-destructive text-sm">
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 px-4 py-2 bg-destructive text-destructive-foreground rounded-full text-sm shadow-lg animate-in fade-in slide-in-from-top-4">
           {error}
         </div>
       )}
 
-      {/* Controls */}
-      <Card className="bg-background/60 backdrop-blur-sm border-border/40">
-        <CardContent className="p-4 flex items-center justify-center gap-4">
-          {/* Mic button */}
-          <Button
-            onClick={toggleListening}
-            disabled={!speechSupported || isProcessing}
-            size="lg"
-            className={`w-16 h-16 rounded-full ${
-              isListening
-                ? "bg-red-500 hover:bg-red-600 animate-pulse"
-                : "bg-gradient-to-br from-cyan-500 to-purple-600 hover:opacity-90"
-            }`}
-          >
-            {isListening ? (
-              <MicOff className="w-6 h-6" />
-            ) : (
-              <Mic className="w-6 h-6" />
-            )}
-          </Button>
+      {/* Controls Bar */}
+      <div className="p-4 pb-8 border-t bg-background/80 backdrop-blur-sm z-10 flex flex-col items-center gap-4">
+         
+         <div className="flex items-center gap-2 px-3 py-1 bg-secondary rounded-full text-xs text-muted-foreground">
+             <span>Active Voice:</span>
+             <select
+                value={selectedVoice}
+                onChange={(e) => setSelectedVoice(e.target.value)}
+                className="bg-transparent border-none focus:ring-0 p-0 text-foreground font-medium cursor-pointer"
+              >
+                {voices.map(v => (
+                  <option key={v.name} value={v.name}>{v.name}</option>
+                ))}
+              </select>
+         </div>
 
-          {/* Stop audio button */}
-          {isPlaying && (
+         <div className="flex items-center justify-center gap-6 w-full">
+            {isPlaying && (
+                <Button
+                onClick={stopAudio}
+                variant="outline"
+                size="icon"
+                className="h-12 w-12 rounded-full border-2 border-destructive text-destructive hover:bg-destructive hover:text-destructive-foreground transition-all"
+                title="Stop Audio"
+                >
+                <StopCircle className="w-6 h-6" />
+                </Button>
+            )}
+
             <Button
-              onClick={stopAudio}
-              variant="outline"
-              size="lg"
-              className="w-16 h-16 rounded-full border-orange-500/50 text-orange-500 hover:bg-orange-500/10"
+                onClick={toggleListening}
+                disabled={!speechSupported || isProcessing}
+                size="lg"
+                className={cn(
+                    "h-16 w-16 rounded-full shadow-lg transition-all duration-300",
+                    isListening 
+                        ? "bg-destructive hover:bg-destructive/90 animate-pulse scale-110" 
+                        : "bg-primary hover:bg-primary/90 hover:scale-105"
+                )}
             >
-              <StopCircle className="w-6 h-6" />
+                {isListening ? (
+                <MicOff className="w-8 h-8" />
+                ) : (
+                <Mic className="w-8 h-8" />
+                )}
             </Button>
-          )}
+         </div>
 
-          {/* Status text */}
-          <div className="text-sm text-muted-foreground">
+         <div className="text-sm text-muted-foreground font-medium">
             {isProcessing ? (
-              "Processing..."
+              "Thinking..."
             ) : isListening ? (
-              <span className="text-cyan-500">Listening...</span>
+              <span className="text-destructive">Listening...</span>
             ) : isPlaying ? (
-              <span className="text-purple-500">Playing response...</span>
+              <span className="text-primary">Speaking...</span>
             ) : (
-              "Click mic to speak"
+              "Tap to speak"
             )}
-          </div>
-        </CardContent>
-      </Card>
+         </div>
+      </div>
     </div>
   )
 }
+

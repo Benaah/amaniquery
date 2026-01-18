@@ -1,0 +1,218 @@
+# AmaniQuery - Kenyan Legal & Parliamentary Intelligence System
+
+> AI-powered RAG system that democratizes access to Kenyan legal information
+
+**Project Type:** Full-stack web application with AI/ML
+**Primary Languages:** Python (backend), TypeScript/JavaScript (frontend)
+**Main Frameworks:** FastAPI, Next.js, Scrapy, LangGraph
+
+---
+
+## Core Purpose
+
+AmaniQuery is a Retrieval-Augmented Generation (RAG) system that makes Kenyan legal, parliamentary, and news information accessible through natural language queries. It features unique capabilities like constitutional alignment analysis, public sentiment tracking, SMS accessibility for feature phones, and searchable YouTube transcripts.
+
+## System Architecture
+
+### 9-Module Pipeline
+
+1. **NiruSpider** - Web crawling & data ingestion (Scrapy + Celery)
+2. **NiruParser** - ETL pipeline with embeddings (Sentence Transformers)
+3. **NiruDB** - Vector database (ChromaDB/Upstash) + PostgreSQL
+4. **NiruAPI** - FastAPI REST endpoints + LangGraph agents
+5. **NiruShare** - Social media sharing
+6. **NiruVoice** - Voice agent (Deepgram + ElevenLabs/VibeVoice)
+7. **NiruHybrid** - Enhanced RAG with Conv-Transformer hybrid encoder
+8. **NiruAuth** - JWT authentication + API key management
+9. **NiruSense** - Kenyan NLP (NER, Swahili, sentiment)
+
+### Key Technologies
+
+**Backend**
+- Python 3.8+
+- FastAPI (REST API)
+- LangGraph (agent orchestration)
+- ChromaDB (vector database)
+- PostgreSQL (metadata)
+- Redis (caching/rate limiting)
+- Upstash-Vector (cloud vector store)
+
+**Data Processing**
+- Scrapy (web crawling)
+- Celery (task queue)
+- Sentence Transformers (embeddings)
+- Trafilatura/pdfplumber (text extraction)
+
+**AI/ML**
+- OpenAI GPT-4/Claude/Gemini (LLMs)
+- LangChain/LangGraph (framework)
+- Cohere Embed-4 (multimodal)
+- Custom Conv-Transformer (hybrid retrieval)
+- Fine-tuned DistilBERT (Kenyan NER)
+
+**Frontend**
+- Next.js 16
+- React 19
+- TypeScript
+- Radix UI
+- TailwindCSS v4
+
+**Deployment**
+- Docker
+- Kubernetes
+- Render
+- HuggingFace Spaces
+
+## Project Structure
+
+```
+AmaniQuery/
+├── Module1_NiruSpider/          # 33 Python files
+│   ├── niruspider/spiders/      # 10 specialized spiders
+│   ├── scheduler/               # Celery + APScheduler
+│   └── settings.py              # Crawler configuration
+├── Module2_NiruParser/          # 20 Python files  
+│   ├── extractors/              # HTML/PDF/text extraction
+│   ├── cleaners/                # Text preprocessing
+│   ├── chunkers/                # Document chunking
+│   └── embedders/               # Sentence transformers
+├── Module3_NiruDB/              # 11 Python files
+│   ├── vector_store.py          # ChromaDB interface
+│   ├── metadata_manager.py      # PostgreSQL integration
+│   └── chat_manager.py          # Session management
+├── Module4_NiruAPI/             # 121 Python files
+│   ├── api.py                   # FastAPI main app
+│   ├── routers/                 # Route handlers
+│   ├── agents/                  # LangGraph agents
+│   ├── rag/                     # RAG pipeline
+│   └── auth/                    # Authentication
+├── Module5_NiruShare/           # Social media integration
+├── Module6_NiruVoice/           # Voice agent (Deepgram/ElevenLabs)
+├── Module7_NiruHybrid/          # Hybrid Conv-Transformer RAG
+├── Module8_NiruAuth/            # Auth system (JWT/API keys)
+├── Module9_NiruSense/           # Kenyan NLP
+├── frontend/                    # 186 files
+│   ├── app/                     # Next.js 16 App Router
+│   ├── components/              # React components
+│   └── src/                     # TypeScript source
+├── data/                        # Data storage
+│   ├── raw/                     # Crawled content
+│   ├── processed/               # Chunks & embeddings
+│   └── embeddings/              # Vector stores
+├── docs/                        # Documentation
+├── venv/                        # Virtual environment
+├── docker-compose.yml           # Services configuration
+├── requirements.txt             # Python dependencies
+├── setup.py                     # Installation script
+└── start_api.py                 # Unified startup
+```
+
+## Development Quick Start
+
+### Prerequisites
+- Python 3.8+
+- 4GB+ RAM (for embeddings)
+- Internet connection (for crawling)
+- Moonshot/OpenAI/Anthropic API key
+
+### 1. Installation
+```bash
+# Clone repository
+git clone https://github.com/amaniquery/amaniquery.git
+cd amaniquery
+
+# Run setup script
+python setup.py
+```
+
+### 2. Configuration
+```bash
+cp .env.example .env
+# Edit .env with your API keys
+```
+
+### 3. Run
+```bash
+# Start API and scheduler
+python start_api.py
+
+# Or run modules individually
+python -m Module1_NiruSpider.crawl_all
+python -m Module2_NiruParser.process_all
+python -m Module4_NiruAPI.api
+```
+
+## Key Entry Points
+
+**Backend**
+- `start_api.py` - Start entire system (API + Scheduler)
+- `Module1_NiruSpider/crawl_all.py` - Run all spiders
+- `Module2_NiruParser/process_all.py` - Process crawled data
+- `Module4_NiruAPI/api.py` - Start FastAPI server
+- `setup.py` - Automated installation
+
+**Frontend**
+- `frontend/package.json` - Next.js dependencies
+- `frontend/src/components/` - React components
+- `frontend/app/` - App router pages
+
+## Configuration Files
+
+- `.env` - Environment variables (API keys, database URLs)
+- `docker-compose.yml` - Service definitions
+- `requirements.txt` - Python dependencies
+- `frontend/package.json` - Node dependencies
+- `config/sources.yaml` - Data source configuration
+
+## Unique Features
+
+1. **Constitutional Alignment Analysis** - Dual-retrieval RAG (bill + constitution chunks)
+2. **Public Sentiment Gauge** - Real-time sentiment tracking from news
+3. **InfoSMS Gateway** - SMS queries for feature phones (160-char responses)
+4. **Parliament Video Indexer** - Timestamped YouTube transcript search
+
+## External Integrations
+
+**APIs**
+- OpenAI (Compatible with Moonshot, Claude, Gemini)
+- Deepgram (Speech-to-text)
+- ElevenLabs (Text-to-speech)
+- Africa's Talking (SMS gateway)
+- Cloudinary (Media storage)
+
+**Data Sources**
+- Kenya Law (new.kenyalaw.org)
+- Parliament.go.ke
+- Nation Media, Standard, The Star
+- YouTube (Parliament channels)
+- 17+ international sources (Reuters, BBC, etc.)
+
+## License
+
+MIT License - See LICENSE file for details
+
+## Links
+
+- Documentation: [docs/DOCUMENTATION_INDEX.md](./docs/DOCUMENTATION_INDEX.md)
+- Quick Start: [QUICKSTART.md](./QUICKSTART.md)
+- Contributing: [CONTRIBUTING.md](./CONTRIBUTING.md)
+- Architecture: [docs/ARCHITECTURE_OVERVIEW.md](./docs/ARCHITECTURE_OVERVIEW.md)
+
+## AI Assistant Instructions
+
+**When analyzing this codebase:**
+1. Read `requirements.txt` first to understand dependencies
+2. Review `Module4_NiruAPI/api.py` for main API routes
+3. Check `Module1_NiruSpider/niruspider/spiders/` for data sources
+4. Use `start_api.py` as the main entry point
+5. Follow `CODE_DOCUMENTATION_GUIDE.md` for documentation standards
+6. See `docs/DOCUMENTATION_INDEX.md` for navigation
+7. Environment variables in `.env.example`
+
+**When modifying code:**
+1. Update docstrings following templates in `CODE_DOCUMENTATION_GUIDE.md`
+2. Test with `pytest`
+3. Update relevant module README
+4. Update API docs if endpoints changed
+5. Add type hints
+6. Follow existing code style (Black formatter)

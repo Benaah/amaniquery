@@ -27,53 +27,50 @@ export function ChatHeader({
   HistoryIcon
 }: ChatHeaderProps) {
   return (
-    <div className="border-b border-white/5 bg-background/60 backdrop-blur-xl flex-shrink-0 relative z-30">
-      <div className="flex flex-col gap-1 p-2 md:p-2.5">
+    <div className="border-b border-border bg-background flex-shrink-0 relative z-30 h-14 flex items-center">
+      <div className="w-full px-4">
         <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-1.5 md:gap-2 min-w-0 flex-1">
-            <div className="min-w-0 flex-1">
-              <p className="text-[9px] md:text-[10px] uppercase tracking-[0.15em] text-muted-foreground truncate">AmaniQuery</p>
-              <h1 className="text-xs md:text-sm font-semibold truncate">Conversational Legal Intelligence</h1>
-            </div>
-            {isResearchMode && (
-              <Badge variant="default" className="bg-blue-600/90 text-[9px] md:text-[10px] py-0.5 px-1.5 flex-shrink-0">
-                <Search className="w-2.5 h-2.5 mr-0.5" />
-                <span className="hidden sm:inline">Research</span>
-              </Badge>
-            )}
-            {useHybrid && !isResearchMode && (
-              <Badge variant="default" className="bg-purple-600/90 text-[9px] md:text-[10px] py-0.5 px-1.5 flex-shrink-0">
-                <Sparkles className="w-2.5 h-2.5 mr-0.5" />
-                <span className="hidden sm:inline">Hybrid</span>
-              </Badge>
-            )}
-          </div>
-          <div className="flex items-center gap-1 flex-shrink-0">
+          <div className="flex items-center gap-2 min-w-0 flex-1">
             <Button
-              variant={showHistory ? "default" : "outline"}
-              size="sm"
-              className="h-8 md:h-7 rounded-full px-2 md:px-2 text-[11px] flex-shrink-0"
+              variant="ghost"
+              size="icon"
+              className="md:hidden -ml-2 h-9 w-9 text-muted-foreground"
               onClick={() => {
-                if (onToggleSidebar && window.innerWidth < 768) {
+                if (onToggleSidebar) {
                   onToggleSidebar()
                 } else {
                   onToggleHistory()
                 }
               }}
             >
-              {HistoryIcon ? <HistoryIcon className="w-3 h-3 md:mr-1" /> : <History className="w-3 h-3 md:mr-1" />}
-              <span className="hidden md:inline">History</span>
+              {HistoryIcon ? <HistoryIcon className="w-5 h-5" /> : <History className="w-5 h-5" />}
             </Button>
+            
+            <div className="min-w-0 flex items-center gap-2">
+              <span className="font-semibold text-sm md:text-base truncate">AmaniQuery</span>
+              {isResearchMode && (
+                <Badge variant="secondary" className="text-xs font-normal bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 border-0">
+                  Research
+                </Badge>
+              )}
+              {useHybrid && !isResearchMode && (
+                <Badge variant="secondary" className="text-xs font-normal bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300 border-0">
+                  Hybrid
+                </Badge>
+              )}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1">
             {currentSessionId && (
-              <Button variant="outline" size="sm" className="h-8 md:h-7 rounded-full px-2 md:px-2 text-[11px] flex-shrink-0" onClick={onShare}>
-                <Share2 className="w-3 h-3 md:mr-1" />
-                <span className="hidden md:inline">Share</span>
+              <Button variant="ghost" size="sm" className="h-8 text-muted-foreground hover:text-foreground" onClick={onShare}>
+                <Share2 className="w-4 h-4 mr-2" />
+                <span className="hidden sm:inline">Share</span>
               </Button>
             )}
             <Link href="/">
-              <Button variant="outline" size="sm" className="h-8 md:h-7 rounded-full px-2 md:px-2 text-[11px] flex-shrink-0">
-                <Home className="w-3 h-3 md:mr-1" />
-                <span className="hidden md:inline">Home</span>
+              <Button variant="ghost" size="sm" className="h-8 text-muted-foreground hover:text-foreground">
+                <Home className="w-4 h-4" />
               </Button>
             </Link>
           </div>

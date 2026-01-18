@@ -74,85 +74,22 @@ export function ChatInput({
   const ModeIcon = currentMode.icon
 
   return (
-    <div className="border-t border-white/5 bg-background/80 p-2 md:p-3 flex-shrink-0">
-      <form onSubmit={handleSubmit} className="space-y-1.5">
-        {selectedFiles.length > 0 && (
-          <div className="mb-2 px-1 md:px-2">
-            <FileUpload
-              files={selectedFiles}
-              onFilesChange={setSelectedFiles}
-              maxFiles={5}
-              maxSizeMB={10}
-            />
-          </div>
-        )}
-        <div className="relative group rounded-2xl">
-          <div className="absolute -inset-0.5 bg-gradient-to-r from-blue-500 to-purple-600 rounded-2xl blur opacity-30 group-hover:opacity-75 transition duration-1000 group-hover:duration-200 animate-tilt"></div>
-          <div className="relative rounded-2xl border border-white/10 bg-black/90 px-2 md:px-3 py-2 shadow-lg backdrop-blur-lg">
-            <div className="flex items-end gap-1.5 md:gap-2">
-            <div className="flex items-center gap-0.5 md:gap-1 flex-shrink-0">
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-8 gap-1.5 px-2 text-xs font-medium text-muted-foreground hover:text-foreground"
-                  >
-                    <ModeIcon className={`w-3.5 h-3.5 ${currentMode.color}`} />
-                    <span className="hidden sm:inline">{currentMode.label}</span>
-                    <ChevronDown className="w-3 h-3 opacity-50" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="w-48">
-                  <DropdownMenuItem onClick={() => {
-                    if (isResearchMode) onToggleResearch()
-                    if (useHybrid) onToggleHybrid()
-                  }}>
-                    <MessageSquare className="w-4 h-4 mr-2" />
-                    Standard Chat
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => {
-                    if (isResearchMode) onToggleResearch()
-                    if (!useHybrid) onToggleHybrid()
-                  }}>
-                    <Sparkles className="w-4 h-4 mr-2 text-purple-500" />
-                    Hybrid RAG
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => {
-                    if (!isResearchMode) onToggleResearch()
-                    if (useHybrid) onToggleHybrid() // Ensure hybrid is off when research is on, though logic might handle this upstream
-                  }}>
-                    <Search className="w-4 h-4 mr-2 text-blue-500" />
-                    Agentic Research
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-
-              <div className="w-px h-4 bg-white/10 mx-1" />
-
-              <Button
-                variant="ghost"
-                size="icon"
-                type="button"
-                className="h-8 w-8 rounded-xl text-muted-foreground"
-                onClick={() => {
-                  const input = document.createElement("input")
-                  input.type = "file"
-                  input.multiple = true
-                  input.accept = ".pdf,.png,.jpg,.jpeg,.txt,.md"
-                  input.onchange = (e) => {
-                    const files = (e.target as HTMLInputElement).files
-                    if (files) {
-                      setSelectedFiles(prev => [...prev, ...Array.from(files)].slice(0, 5))
-                    }
-                  }
-                  input.click()
-                }}
-              >
-                <Paperclip className="w-4 h-4 md:w-3.5 md:h-3.5" />
-              </Button>
+    <div className="p-4 flex-shrink-0 z-20">
+      <div className="max-w-3xl mx-auto">
+        <form onSubmit={handleSubmit} className="relative">
+          {selectedFiles.length > 0 && (
+            <div className="mb-2 px-1">
+              <FileUpload
+                files={selectedFiles}
+                onFilesChange={setSelectedFiles}
+                maxFiles={5}
+                maxSizeMB={10}
+              />
             </div>
-            <div className="relative flex-1 min-w-0">
+          )}
+          
+          <div className="relative flex flex-col gap-2 rounded-3xl border shadow-sm bg-secondary/50 focus-within:ring-1 focus-within:ring-ring transition-all duration-200 overflow-hidden px-4 py-3">
+            <div className="flex-1 min-w-0">
               <Textarea
                 ref={(el) => {
                   inputRef.current = el
@@ -166,7 +103,6 @@ export function ChatInput({
                   }
                 }}
                 onKeyDown={(e) => {
-                  // Enter to send, Shift+Enter for new line
                   if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault()
                     if ((input.trim() || selectedFiles.length > 0) && !isLoading) {
@@ -180,51 +116,124 @@ export function ChatInput({
                   }
                 }}
                 onBlur={() => {
-                  // Delay hiding to allow clicking on suggestions
                   if (setShowAutocomplete) {
                     setTimeout(() => setShowAutocomplete(false), 200)
                   }
                 }}
                 placeholder={
                   isResearchMode
-                    ? "Ask detailed legal research questions..."
-                    : "Ask about Kenyan law..."
+                    ? "Deep research mode enabled..."
+                    : "Send a message..."
                 }
-                className="w-full border-0 bg-transparent text-sm md:text-base focus-visible:ring-0 py-2 md:py-2 resize-none min-h-[44px] max-h-[200px] overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] text-white placeholder:text-white/50"
+                className="w-full border-0 bg-transparent text-sm md:text-base focus-visible:ring-0 p-0 resize-none min-h-[24px] max-h-[200px] overflow-y-auto shadow-none text-foreground placeholder:text-muted-foreground leading-relaxed"
                 disabled={isLoading}
                 rows={1}
               />
+              
               {enableAutocomplete && showAutocomplete && autocompleteSuggestions.length > 0 && (
-                <div className="absolute bottom-full left-0 right-0 mb-1 rounded-xl border border-white/10 bg-white/95 dark:bg-gray-900/95 backdrop-blur-lg shadow-xl z-[100] max-h-48 md:max-h-60 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+                <div className="absolute bottom-full left-0 right-0 mb-2 rounded-2xl border bg-popover shadow-xl z-[100] max-h-60 overflow-y-auto overflow-hidden">
                   {autocompleteSuggestions.map((suggestion, idx) => (
                     <button
                       key={idx}
                       type="button"
                       onMouseDown={(e) => {
-                        // Prevent input blur when clicking
                         e.preventDefault()
                         setInput(suggestion)
                         if (setShowAutocomplete) setShowAutocomplete(false)
                         inputRef.current?.focus()
                       }}
-                      className="w-full px-3 md:px-4 py-2.5 md:py-2 text-left text-sm hover:bg-primary/10 dark:hover:bg-primary/20 transition-colors first:rounded-t-xl last:rounded-b-xl text-foreground min-h-[44px] flex items-center"
+                      className="w-full px-4 py-2.5 text-left text-sm hover:bg-muted transition-colors text-foreground flex items-center gap-2"
                     >
-                      <div className="flex items-center gap-2">
-                        <Search className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
-                        <span className="truncate">{suggestion}</span>
-                      </div>
+                      <Search className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+                      <span className="truncate">{suggestion}</span>
                     </button>
                   ))}
                 </div>
               )}
             </div>
-            <Button type="submit" disabled={isLoading || (!input.trim() && selectedFiles.length === 0)} className="h-11 w-11 md:h-9 md:w-9 rounded-xl flex-shrink-0">
-              {isLoading ? <Loader2 className="w-4 h-4 md:w-3.5 md:h-3.5 animate-spin" /> : <Send className="w-4 h-4 md:w-3.5 md:h-3.5" />}
-            </Button>
-          </div>  
+
+            <div className="flex items-center justify-between pt-2 border-t border-border/50">
+              <div className="flex items-center gap-1">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 gap-1.5 px-2 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-background/50 rounded-lg"
+                    >
+                      <ModeIcon className={`w-3.5 h-3.5 ${currentMode.color}`} />
+                      <span className="hidden sm:inline">{currentMode.label}</span>
+                      <ChevronDown className="w-3 h-3 opacity-50" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="w-48">
+                    <DropdownMenuItem onClick={() => {
+                      if (isResearchMode) onToggleResearch()
+                      if (useHybrid) onToggleHybrid()
+                    }}>
+                      <MessageSquare className="w-4 h-4 mr-2" />
+                      Standard Chat
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => {
+                      if (isResearchMode) onToggleResearch()
+                      if (!useHybrid) onToggleHybrid()
+                    }}>
+                      <Sparkles className="w-4 h-4 mr-2 text-purple-500" />
+                      Hybrid RAG
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => {
+                      if (!isResearchMode) onToggleResearch()
+                      if (useHybrid) onToggleHybrid()
+                    }}>
+                      <Search className="w-4 h-4 mr-2 text-blue-500" />
+                      Agentic Research
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  type="button"
+                  className="h-8 w-8 rounded-lg text-muted-foreground hover:bg-background/50"
+                  onClick={() => {
+                    const input = document.createElement("input")
+                    input.type = "file"
+                    input.multiple = true
+                    input.accept = ".pdf,.png,.jpg,.jpeg,.txt,.md"
+                    input.onchange = (e) => {
+                      const files = (e.target as HTMLInputElement).files
+                      if (files) {
+                        setSelectedFiles(prev => [...prev, ...Array.from(files)].slice(0, 5))
+                      }
+                    }
+                    input.click()
+                  }}
+                >
+                  <Paperclip className="w-4 h-4" />
+                </Button>
+              </div>
+
+              <Button 
+                type="submit" 
+                disabled={isLoading || (!input.trim() && selectedFiles.length === 0)} 
+                className={cn(
+                  "h-8 w-8 rounded-lg flex-shrink-0 transition-all duration-200",
+                  (input.trim() || selectedFiles.length > 0) 
+                    ? "bg-primary text-primary-foreground hover:opacity-90" 
+                    : "bg-muted text-muted-foreground hover:bg-muted"
+                )}
+                size="icon"
+              >
+                {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+              </Button>
+            </div>
+          </div>
+        </form>
+        <div className="text-center mt-2">
+            <p className="text-[10px] text-muted-foreground">AmaniQuery can make mistakes. Consider checking important information.</p>
         </div>
       </div>
-      </form>
     </div>
   )
 }

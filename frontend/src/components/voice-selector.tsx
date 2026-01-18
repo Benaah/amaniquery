@@ -40,15 +40,15 @@ export function VoiceSelector({
         variant="outline"
         onClick={() => !disabled && setIsOpen(!isOpen)}
         disabled={disabled}
-        className="w-full justify-between"
+        className="w-full justify-between h-auto py-2 px-3 border-border hover:bg-secondary/50"
       >
-        <div className="flex flex-col items-start">
+        <div className="flex flex-col items-start text-left">
           <span className="text-sm font-medium">{selectedVoiceInfo?.label || "Select Voice"}</span>
           <span className="text-xs text-muted-foreground">{selectedVoiceInfo?.description}</span>
         </div>
         <ChevronDown
           className={cn(
-            "w-4 h-4 transition-transform",
+            "w-4 h-4 transition-transform text-muted-foreground",
             isOpen && "transform rotate-180"
           )}
         />
@@ -60,12 +60,12 @@ export function VoiceSelector({
             className="fixed inset-0 z-10"
             onClick={() => setIsOpen(false)}
           />
-          <Card className="absolute z-20 w-full mt-2 shadow-lg">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Select Voice</CardTitle>
-            </CardHeader>
-            <CardContent className="p-2">
-              <div className="space-y-1">
+          <div className="absolute z-20 w-full mt-2 shadow-xl bg-popover border border-border rounded-lg overflow-hidden animate-in fade-in zoom-in-95 duration-100">
+            <div className="p-1 max-h-[300px] overflow-y-auto">
+              <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                Available Voices
+              </div>
+              <div className="space-y-0.5">
                 {OPENAI_VOICES.map((voice) => (
                   <button
                     key={voice.value}
@@ -75,14 +75,15 @@ export function VoiceSelector({
                     }}
                     className={cn(
                       "w-full text-left px-3 py-2 rounded-md text-sm transition-colors",
-                      "hover:bg-accent hover:text-accent-foreground",
-                      "flex items-center justify-between",
-                      selectedVoice === voice.value && "bg-accent"
+                      "hover:bg-secondary flex items-center justify-between group",
+                      selectedVoice === voice.value && "bg-secondary"
                     )}
                   >
                     <div className="flex flex-col">
-                      <span className="font-medium">{voice.label}</span>
-                      <span className="text-xs text-muted-foreground">{voice.description}</span>
+                      <span className={cn("font-medium", selectedVoice === voice.value ? "text-primary" : "text-foreground")}>
+                        {voice.label}
+                      </span>
+                      <span className="text-xs text-muted-foreground group-hover:text-muted-foreground/80">{voice.description}</span>
                     </div>
                     {selectedVoice === voice.value && (
                       <Check className="w-4 h-4 text-primary" />
@@ -90,8 +91,8 @@ export function VoiceSelector({
                   </button>
                 ))}
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          </div>
         </>
       )}
     </div>

@@ -1,15 +1,14 @@
 blank_issues_enabled: false
 contact_links:
   - name: 💬 GitHub Discussions
-    url: https://github.com/YOUR_USERNAME/AmaniQuery/discussions
+    url: https://github.com/Benaah/amaniquery/discussions
     about: Ask questions and discuss ideas with the community
   - name: 📚 Documentation
-    url: https://github.com/YOUR_USERNAME/AmaniQuery#readme
+    url: https://github.com/Benaah/amaniquery#readme
     about: Check our documentation for setup and usage guides
   - name: 🐛 Bug Report
-    url: https://github.com/YOUR_USERNAME/AmaniQuery/issues/new?template=bug_report.yml
+    url: https://github.com/Benaah/amaniquery/issues/new?template=bug_report.yml
     about: Report a bug or issue
   - name: ✨ Feature Request
-    url: https://github.com/YOUR_USERNAME/AmaniQuery/issues/new?template=feature_request.yml
+    url: https://github.com/Benaah/amaniquery/issues/new?template=feature_request.yml
     about: Suggest a new feature or enhancement
-

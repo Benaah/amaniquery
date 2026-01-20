@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Plus, MessageSquare, Trash2, X, Pencil, Check, X as XIcon } from "lucide-react"
 import type { ChatSession } from "./types"
+import { cn } from "@/lib/utils"
 
 interface ChatSidebarProps {
   chatHistory: ChatSession[]

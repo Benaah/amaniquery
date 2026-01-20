@@ -20,6 +20,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "AmaniQuery - RAG-Powered Legal & News Intelligence",
   description: "AI-powered platform for Kenyan legal, parliamentary, and news intelligence with constitutional alignment analysis",
+  manifest: "/manifest.json",
 };
 
 export default function RootLayout({

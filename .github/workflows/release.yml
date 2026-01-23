@@ -68,7 +68,7 @@ jobs:
           echo "Released on $(date)" >> release-artifacts/version.txt
 
       - name: Upload release artifacts
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: release-artifacts
           path: release-artifacts/

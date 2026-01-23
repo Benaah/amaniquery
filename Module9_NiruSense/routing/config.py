@@ -19,7 +19,7 @@ SARCASM_PATTERNS = [
     r"(?i)\b(haha){3,}\b",       # Long laughter often implies mockery
     r"(?i)\b(lo+l)\b",           # LOL
     r"(?i)\bclown\b",            # Clown emoji/text
-    r"(?i)\b🤡\b"                # Clown emoji
+    r"(?i)\b\[CLOWN\]\b"                # Clown emoji
 ]
 
 COMPILED_SARCASM_PATTERNS = [re.compile(p) for p in SARCASM_PATTERNS]

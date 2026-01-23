@@ -23,47 +23,55 @@ A robust, scalable social media sharing service with plugin-based architecture, 
 ## Supported Platforms
 
 ### X (Twitter)
+
 - Character limit: 280 characters (with thread support)
 - Automatic thread creation for long responses
 - Hashtag optimization
 - Source links
-- **Posting**: ✅ Supported (requires API credentials)
+- **Posting**: [OK] Supported (requires API credentials)
 
 ### LinkedIn
+
 - Character limit: 3000 characters
 - Professional formatting
 - Rich citations
-- **Posting**: ✅ Supported
+- **Posting**: [OK] Supported
 
 ### Facebook
+
 - No strict character limit
 - Engaging format
-- **Posting**: ✅ Supported
+- **Posting**: [OK] Supported
 
 ### Instagram
+
 - Character limit: 2200 characters
 - Image-focused platform
 - Hashtag support (up to 15)
 - **Posting**: Requires Instagram Graph API
 
 ### Reddit
+
 - Character limit: 40,000 characters
 - Markdown formatting support
 - Link formatting
 - **Posting**: Requires Reddit API
 
 ### Telegram
+
 - Character limit: 4096 characters
 - Markdown formatting
 - Link support
 - **Posting**: Requires Telegram Bot API
 
 ### WhatsApp
+
 - No strict character limit (kept concise)
 - Link support
 - **Posting**: Requires WhatsApp Business API
 
 ### Mastodon
+
 - Character limit: 500 characters
 - Thread support via replies
 - Hashtag support
@@ -80,6 +88,7 @@ The module uses a plugin-based architecture for easy extensibility:
 - **Platform Plugins**: Individual platform implementations
 
 To add a new platform, simply:
+
 1. Create a class extending `BasePlatform`
 2. Implement required methods
 3. Register with the registry
@@ -87,6 +96,7 @@ To add a new platform, simply:
 ### Components
 
 #### ShareService (`service.py`)
+
 - Platform registry management
 - Post formatting with caching
 - Share URL generation
@@ -95,17 +105,20 @@ To add a new platform, simply:
 - OAuth authentication handling
 
 #### Formatters (`formatters/`)
+
 - **BaseFormatter**: Base class with common utilities
 - **NaturalFormatter**: LLM-powered natural language formatting
 - **Platform Formatters**: Platform-specific formatting (Twitter, LinkedIn, etc.)
 
 #### Image Generator (`image_generator.py`)
+
 - Text-to-image generation using PIL/Pillow
 - Multiple color schemes (default, dark, professional, vibrant)
 - Customizable dimensions and formats
 - Branded templates
 
 #### Platform Plugins (`platforms/`)
+
 - Individual platform handlers
 - Platform-specific metadata
 - Share link generation
@@ -114,27 +127,32 @@ To add a new platform, simply:
 ## API Endpoints
 
 ### Formatting & Sharing
+
 - `POST /share/format` - Format response for specific platform
   - Supports `style` parameter (professional, casual, engaging)
 - `POST /share/preview` - Preview formatted post for all platforms
 - `POST /share/generate-link` - Generate share link for platform
 
 ### Image Generation
+
 - `POST /share/generate-image` - Generate image from text
 - `POST /share/generate-image-from-post` - Generate image from formatted post
 
 ### Direct Posting
+
 - `POST /share/post` - Post directly to platform (requires authentication)
 - `POST /share/auth` - Initiate OAuth authentication
 - `POST /share/auth/callback` - Handle OAuth callback
 
 ### Utilities
+
 - `GET /share/platforms` - Get supported platforms info
 - `POST /share/stats` - Get post statistics
 
 ## Usage Examples
 
 ### Format for Platform with Style
+
 ```python
 POST /share/format
 {
@@ -148,6 +166,7 @@ POST /share/format
 ```
 
 ### Generate Image
+
 ```python
 POST /share/generate-image
 {
@@ -161,6 +180,7 @@ POST /share/generate-image
 ```
 
 ### Preview All Platforms
+
 ```python
 POST /share/preview
 {
@@ -172,6 +192,7 @@ POST /share/preview
 ```
 
 ### Direct Posting (After Authentication)
+
 ```python
 POST /share/post
 {
@@ -182,6 +203,7 @@ POST /share/post
 ```
 
 ### Authentication Flow
+
 ```python
 # 1. Initiate auth
 POST /share/auth
@@ -225,11 +247,13 @@ MOONSHOT_API_KEY=your_key
 ### Dependencies
 
 Required:
+
 - `fastapi` - API framework
 - `pydantic` - Data validation
 - `requests` - HTTP client
 
 Optional:
+
 - `Pillow` - Image generation (`pip install Pillow`)
 - `openai` - Natural formatting with OpenAI
 - `anthropic` - Natural formatting with Claude
@@ -284,6 +308,7 @@ The service includes in-memory caching for formatted posts:
 ### Adding a New Platform
 
 1. Create a new file in `platforms/`:
+
 ```python
 from .base_platform import BasePlatform, PlatformMetadata
 
@@ -305,7 +330,8 @@ class MyPlatform(BasePlatform):
         pass
 ```
 
-2. Register in `service.py`:
+1. Register in `service.py`:
+
 ```python
 from .platforms.my_platform import MyPlatform
 
@@ -316,7 +342,7 @@ platforms = [
 ]
 ```
 
-3. The platform will be automatically available via the API!
+1. The platform will be automatically available via the API!
 
 ## Performance
 

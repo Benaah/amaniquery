@@ -136,9 +136,9 @@ class VectorStore:
         # Initialize connection pools for parallel operations
         self._init_connection_pools()
         
-        logger.info(f"🚀 Blazing Fast Vector Store initialized")
-        logger.info(f"📊 Primary backend: {self.backend} | Cloud backends: {list(self.backends.keys())}")
-        logger.info(f"⚡ Caching: {enable_caching} | Pool size: {connection_pool_size} | Timeout: {query_timeout}s")
+        logger.info(f"[START] Blazing Fast Vector Store initialized")
+        logger.info(f"[STATS] Primary backend: {self.backend} | Cloud backends: {list(self.backends.keys())}")
+        logger.info(f"[FAST] Caching: {enable_caching} | Pool size: {connection_pool_size} | Timeout: {query_timeout}s")
     
     def _init_connection_pools(self):
         """Initialize connection pools for parallel operations"""
@@ -169,7 +169,7 @@ class VectorStore:
         self._query_cache.clear()
         self.query_stats["cache_hits"] = 0
         self.query_stats["cache_misses"] = 0
-        logger.info("🧹 All caches cleared")
+        logger.info("[CLEAN] All caches cleared")
     
     @lru_cache(maxsize=1000)
     def _get_cached_embedding(self, text: str) -> np.ndarray:

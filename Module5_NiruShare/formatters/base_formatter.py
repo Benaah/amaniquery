@@ -115,4 +115,4 @@ class BaseFormatter(ABC):
         if not citations:
             return ""
         
-        return "\n\n📚 Sources:\n" + "\n".join(citations)
+        return "\n\n[DOCS] Sources:\n" + "\n".join(citations)

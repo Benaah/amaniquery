@@ -358,7 +358,7 @@ const KenyanContext: React.FC<{
             "text-base font-bold uppercase tracking-wide mb-2",
             theme.classes.iconColor
           )}>
-            🇰🇪 Kenyan Context
+            [KE] Kenyan Context
           </h3>
           
           <p className={cn(

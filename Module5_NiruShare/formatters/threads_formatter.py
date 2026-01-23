@@ -38,7 +38,7 @@ class ThreadsFormatter(BaseFormatter):
         # First post: Query (if exists) + Intro
         start_text = ""
         if query:
-            start_text = f"🧵 {query}\n\n"
+            start_text = f"[THREAD] {query}\n\n"
         
         # Extract clear points
         key_points = self._extract_key_points(answer, max_points=10)

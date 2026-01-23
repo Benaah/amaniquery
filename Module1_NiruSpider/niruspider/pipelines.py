@@ -221,7 +221,7 @@ class DeduplicationPipeline:
         # Check if duplicate
         is_dup, reason = self.dedup_engine.is_duplicate(url, content, title)
         if is_dup:
-            spider.logger.info(f"✗ Dropping duplicate article: {title[:50]}... (reason: {reason})")
+            spider.logger.info(f"[FAIL] Dropping duplicate article: {title[:50]}... (reason: {reason})")
             raise scrapy.exceptions.DropItem(f"Duplicate article: {reason}")
         
         # Register article
@@ -234,11 +234,11 @@ class DeduplicationPipeline:
         )
         
         if not registered:
-            spider.logger.info(f"✗ Failed to register article (likely duplicate): {title[:50]}...")
+            spider.logger.info(f"[FAIL] Failed to register article (likely duplicate): {title[:50]}...")
             raise scrapy.exceptions.DropItem("Failed to register article")
         
         # Successfully passed deduplication
-        spider.logger.info(f"✓ New article registered: {title[:50]}...")
+        spider.logger.info(f"[OK] New article registered: {title[:50]}...")
         
         return item
 
@@ -344,7 +344,7 @@ class PDFDownloadPipeline(FilesPipeline):
         
         # If content_type is PDF, download it
         if adapter.get("content_type") == "pdf" and adapter.get("url"):
-            info.spider.logger.info(f"📄 Queueing PDF download: {adapter.get('title', '')[:50]}...")
+            info.spider.logger.info(f"[DOC] Queueing PDF download: {adapter.get('title', '')[:50]}...")
             yield scrapy.Request(
                 adapter["url"],
                 meta={"item": item}
@@ -418,5 +418,5 @@ class FileStoragePipeline:
         adapter = ItemAdapter(item)
         line = json.dumps(dict(item), ensure_ascii=False, default=str) + "\n"
         self.files[spider].write(line)
-        spider.logger.info(f"💾 Saved to file: {adapter['title'][:50]}...")
+        spider.logger.info(f"[SAVE] Saved to file: {adapter['title'][:50]}...")
         return item

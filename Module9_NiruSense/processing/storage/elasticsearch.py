@@ -37,7 +37,7 @@ class ElasticsearchClient:
             
             # Test connection
             if self.client.ping():
-                logger.info("✓ Elasticsearch connected successfully")
+                logger.info("[OK] Elasticsearch connected successfully")
             else:
                 logger.error("Elasticsearch ping failed")
                 self.client = None

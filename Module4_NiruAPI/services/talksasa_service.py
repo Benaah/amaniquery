@@ -87,7 +87,7 @@ class TalksasaNotificationService:
             result = response.json()
 
             if result.get("status") == "success":
-                logger.info(f"✓ SMS sent to {recipient}")
+                logger.info(f"[OK] SMS sent to {recipient}")
                 return {
                     "status": "success",
                     "data": result.get("data")
@@ -188,7 +188,7 @@ class TalksasaNotificationService:
             result = response.json()
 
             if result.get("status") == "success":
-                logger.info(f"✓ WhatsApp sent to {recipient}")
+                logger.info(f"[OK] WhatsApp sent to {recipient}")
                 return {
                     "status": "success",
                     "data": result.get("data")

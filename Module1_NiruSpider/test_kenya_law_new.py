@@ -17,7 +17,7 @@ from niruspider.spiders.kenya_law_new_spider import KenyaLawNewSpider
 def test_spider():
     """Test the Kenya Law New spider with limited pages"""
     print("=" * 80)
-    print("🧪 Testing Kenya Law New Spider")
+    print("[TEST] Testing Kenya Law New Spider")
     print("=" * 80)
     print("\nThis will crawl a limited number of pages to test functionality.")
     print("Full crawl can be run with: python crawl_spider.py kenya_law_new_spider\n")
@@ -36,13 +36,13 @@ def test_spider():
     # Add spider with limited pages
     process.crawl(KenyaLawNewSpider, max_pages=50)
     
-    print("🚀 Starting test crawl...\n")
+    print("[START] Starting test crawl...\n")
     
     # Start crawling (blocking)
     process.start()
     
     print("\n" + "=" * 80)
-    print("✅ Test complete!")
+    print("[OK] Test complete!")
     print("=" * 80)
 
 

@@ -2,8 +2,6 @@
 
 > Standards for documenting code, APIs, and modules across the AmaniQuery codebase.
 
-**Based on:** `.agent/skills/documentation-templates/SKILL.md`
-
 ---
 
 ## 📋 Overview
@@ -15,12 +13,14 @@ This guide ensures consistent, AI-friendly documentation across AmaniQuery's 9 m
 ## 🎯 Core Principles
 
 ### 1. **Self-Documenting Code First**
+
 - Write clear, descriptive variable/function names
 - Use type hints in all Python code
 - Structure code logically
 - Comments explain **why**, not **what**
 
 ### 2. **Documentation Templates**
+
 All module-level documentation should follow standard templates:
 
 | Document Type | Template | Location |
@@ -31,11 +31,13 @@ All module-level documentation should follow standard templates:
 | Class | [Class Template](#class-docstring-template) | Code docstrings |
 
 ### 3. **Progressive Detail**
+
 - **Level 1**: One-line summary (what it does)
 - **Level 2**: Key features and usage examples
 - **Level 3**: Detailed parameters, returns, and implementation notes
 
 ### 4. **AI-Friendly Format**
+
 - Clear H1-H3 hierarchy
 - Code blocks with language tags
 - Tables for parameters/config
@@ -56,10 +58,12 @@ One-line description of what this module does.
 ## 🏗️ Structure
 
 ```
+
 ModuleX_Name/
 ├── component1/          # Brief description
 ├── component2/          # Brief description
 └── main.py             # Entry point
+
 ```
 
 ## ✨ Features
@@ -87,6 +91,7 @@ result = main_function(input)
 ## 📤 Output
 
 What this module produces:
+
 - File formats
 - Locations
 - Metadata structure
@@ -150,7 +155,9 @@ def function_name(param1: type, param2: type = default) -> return_type:
 ```
 
 ### When to Use Detailed Docstrings
+
 ✅ **DO** use for:
+
 - Public API functions
 - Complex algorithms
 - Business-critical logic
@@ -158,6 +165,7 @@ def function_name(param1: type, param2: type = default) -> return_type:
 - Functions with complex parameters
 
 ❌ **DON'T** need for:
+
 - Private/helper functions (use simple comments)
 - Obvious getters/setters
 - One-line lambdas
@@ -271,6 +279,7 @@ curl -X GET "https://api.amaniquery.com/endpoint/value?query=test"
 ## 💬 Code Comment Guidelines
 
 ### ✅ **DO Comment:**
+
 - **Why** not **What**: Explain business logic, not obvious code
 - **Complex algorithms**: High-level approach before implementation
 - **Non-obvious behavior**: Edge cases, assumptions, gotchas
@@ -279,6 +288,7 @@ curl -X GET "https://api.amaniquery.com/endpoint/value?query=test"
 - **TODOs/FIXMEs**: With ticket numbers or dates
 
 ### ❌ **DON'T Comment:**
+
 ```python
 # ❌ BAD
 # Increment counter by 1
@@ -319,18 +329,21 @@ def add_user_to_database(user_data: dict) -> int:
 ## 📊 Documentation Coverage Requirements
 
 ### Module-Level
+
 ✅ README.md with structure, features, usage
 ✅ API documentation (if applicable)
 ✅ Configuration examples
 ✅ Output format specifications
 
 ### Code-Level
+
 ✅ Public functions/classes: Full docstrings
 ✅ Complex private functions: Inline comments
 ✅ API endpoints: Full parameter/response docs
 ✅ Database schemas: Field descriptions
 
 ### Integration-Level
+
 ✅ Inter-module dependencies documented
 ✅ Environment variables listed in `.env.example`
 ✅ Setup/deployment scripts documented
@@ -424,6 +437,7 @@ except RateLimitError as e:
 ## 📖 Examples of Good Documentation
 
 ### Before (Poor)
+
 ```python
 def calc(user, data):
     # Process user data
@@ -437,6 +451,7 @@ def calc(user, data):
 ```
 
 ### After (Good)
+
 ```python
 def calculate_user_credit_score(user_id: int, transactions: List[Transaction]) -> int:
     """
@@ -481,6 +496,7 @@ def calculate_user_credit_score(user_id: int, transactions: List[Transaction]) -
 ## 🏁 Summary
 
 **Remember:**
+
 1. Write self-documenting code with clear names and types
 2. Explain **why**, not **what**
 3. Provide examples for public APIs
@@ -490,6 +506,7 @@ def calculate_user_credit_score(user_id: int, transactions: List[Transaction]) -
 7. Think about the next developer (or AI agent) reading your code
 
 **References:**
+
 - [Documentation Templates Skill](../.agent/skills/documentation-templates/SKILL.md)
 - [Documentation Index](../docs/DOCUMENTATION_INDEX.md)
 - [Contributing Guide](./CONTRIBUTING.md)

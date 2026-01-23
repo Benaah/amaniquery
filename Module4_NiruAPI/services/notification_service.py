@@ -427,7 +427,7 @@ class NotificationService:
         if len(title) > max_title_len:
             title = title[:max_title_len - 3] + "..."
 
-        message = f"📰 {title}\n"
+        message = f"[NEWS] {title}\n"
         if category:
             message += f"Category: {category}\n"
         message += f"Source: {source}"
@@ -447,7 +447,7 @@ class NotificationService:
 
     def _format_digest_message(self, articles: List[Dict]) -> str:
         """Format daily digest message"""
-        message = f"📰 Daily News Digest ({len(articles)} articles)\n\n"
+        message = f"[NEWS] Daily News Digest ({len(articles)} articles)\n\n"
 
         for i, article in enumerate(articles[:5], 1):  # Limit to 5 articles
             title = article.get("title", "Article")

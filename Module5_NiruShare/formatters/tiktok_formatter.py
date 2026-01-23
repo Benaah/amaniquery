@@ -24,14 +24,14 @@ class TikTokFormatter(BaseFormatter):
         # TikTok captions often start with a hook
         content = ""
         if query:
-            content += f"Question: {query} 🤔\n\n"
+            content += f"Question: {query} [QUERY]\n\n"
             
         content += f"Here's the breakdown:\n\n{answer}\n\n"
         
         # Formatting sources nicely since we have space
         sources_text = self._format_sources_plain(sources)
         if sources_text:
-            content += f"📚 Sources:\n{sources_text}\n\n"
+            content += f"[DOCS] Sources:\n{sources_text}\n\n"
             
         # TikTok relies heavily on hashtags
         hashtags = self._generate_hashtags(answer, 5)

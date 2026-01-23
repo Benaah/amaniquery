@@ -485,7 +485,7 @@ export default function LandingPage() {
               </Link>
             </div>
             <p className="text-xs md:text-sm text-muted-foreground mt-3 md:mt-4">
-              © 2025 AmaniQuery. Open source under MIT License.
+              © 2026 AmaniQuery.
             </p>
           </div>
         </footer>

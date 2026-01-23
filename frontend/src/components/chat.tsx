@@ -633,7 +633,7 @@ ${queryInterpretation}
 
 ---
 
-### 📖 Applicable Laws & Provisions
+### [DOCS] Applicable Laws & Provisions
 
 ${Array.isArray(analysis.applicable_laws) 
   ? analysis.applicable_laws.map((law: string, idx: number) => `${idx + 1}. ${law}`).join('\n')
@@ -641,13 +641,13 @@ ${Array.isArray(analysis.applicable_laws)
 
 ---
 
-### ⚖️ Legal Analysis
+### [LAW] Legal Analysis
 
 ${legalAnalysis}
 
 ---
 
-### 🛠️ Practical Guidance
+### [TOOLS] Practical Guidance
 
 ${guidanceSummary ? `**Summary:** ${guidanceSummary}\n\n` : ''}**Action Steps:**
 
@@ -655,7 +655,7 @@ ${guidanceSteps.map((step: string, idx: number) => `${idx + 1}. ${step}`).join('
 
 ---
 
-### ⚠️ Important Considerations
+### [WARN] Important Considerations
 
 ${additionalConsiderations.map((consideration: string) => `- ${consideration}`).join('\n')}
 

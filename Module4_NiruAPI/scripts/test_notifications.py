@@ -31,28 +31,28 @@ def test_talksasa_service(phone_number: str, message: str = None):
     sender_id = config_manager.get_config("TALKSASA_SENDER_ID") or os.getenv("TALKSASA_SENDER_ID", "TALKSASA")
     
     if not api_token:
-        print("❌ ERROR: TALKSASA_API_TOKEN not found in config or environment")
+        print("[ERROR] ERROR: TALKSASA_API_TOKEN not found in config or environment")
         print("   Please set it using:")
         print("   - Config Manager in admin panel, or")
         print("   - Environment variable: export TALKSASA_API_TOKEN='your_token'")
         return False
     
-    print(f"✓ API Token: {'*' * (len(api_token) - 4) + api_token[-4:]}")
-    print(f"✓ Sender ID: {sender_id}")
-    print(f"✓ Phone Number: {phone_number}")
+    print(f"[OK] API Token: {'*' * (len(api_token) - 4) + api_token[-4:]}")
+    print(f"[OK] Sender ID: {sender_id}")
+    print(f"[OK] Phone Number: {phone_number}")
     
     # Initialize service
     service = TalksasaNotificationService(api_token=api_token, sender_id=sender_id)
     
     if not service.available:
-        print("❌ Service not available - API token invalid or missing")
+        print("[ERROR] Service not available - API token invalid or missing")
         return False
     
     # Default test message
     if not message:
         message = f"Test notification from AmaniQuery at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
     
-    print(f"\n📝 Test Message: {message}")
+    print(f"\n[DOC] Test Message: {message}")
     print(f"   Length: {len(message)} characters")
     
     results = {}
@@ -65,11 +65,11 @@ def test_talksasa_service(phone_number: str, message: str = None):
     results['sms'] = sms_result
     
     if sms_result.get("status") == "success":
-        print("✅ SMS sent successfully!")
+        print("[OK] SMS sent successfully!")
         if sms_result.get("data"):
             print(f"   Response: {sms_result.get('data')}")
     else:
-        print(f"❌ SMS failed: {sms_result.get('message', 'Unknown error')}")
+        print(f"[ERROR] SMS failed: {sms_result.get('message', 'Unknown error')}")
     
     # Test WhatsApp
     print("\n" + "-"*60)
@@ -79,7 +79,7 @@ def test_talksasa_service(phone_number: str, message: str = None):
     results['whatsapp'] = whatsapp_result
     
     if whatsapp_result.get("status") == "success":
-        print("✅ WhatsApp sent successfully!")
+        print("[OK] WhatsApp sent successfully!")
         if whatsapp_result.get("data"):
             print(f"   Response: {whatsapp_result.get('data')}")
     else:
@@ -87,9 +87,9 @@ def test_talksasa_service(phone_number: str, message: str = None):
         error_message = whatsapp_result.get("message", "Unknown error")
         details = whatsapp_result.get("details", "")
         
-        print(f"❌ WhatsApp failed: {error_message}")
+        print(f"[ERROR] WhatsApp failed: {error_message}")
         if error_code == 403:
-            print("\n⚠️  403 Forbidden Error Details:")
+            print("\n[WARN]  403 Forbidden Error Details:")
             print("   This typically means:")
             print("   1. Your Talksasa account doesn't have WhatsApp enabled")
             print("   2. Your API token lacks WhatsApp permissions")
@@ -110,17 +110,17 @@ def test_talksasa_service(phone_number: str, message: str = None):
     results['notification'] = notification_result
     
     if notification_result.get("status") == "success":
-        print("✅ Notification sent successfully!")
+        print("[OK] Notification sent successfully!")
     else:
-        print(f"❌ Notification failed: {notification_result.get('message', 'Unknown error')}")
+        print(f"[ERROR] Notification failed: {notification_result.get('message', 'Unknown error')}")
     
     # Summary
     print("\n" + "="*60)
     print("Test Summary")
     print("="*60)
-    print(f"SMS:        {'✅ Success' if results['sms'].get('status') == 'success' else '❌ Failed'}")
-    print(f"WhatsApp:    {'✅ Success' if results['whatsapp'].get('status') == 'success' else '❌ Failed'}")
-    print(f"Notification: {'✅ Success' if results['notification'].get('status') == 'success' else '❌ Failed'}")
+    print(f"SMS:        {'[OK] Success' if results['sms'].get('status') == 'success' else '[ERROR] Failed'}")
+    print(f"WhatsApp:    {'[OK] Success' if results['whatsapp'].get('status') == 'success' else '[ERROR] Failed'}")
+    print(f"Notification: {'[OK] Success' if results['notification'].get('status') == 'success' else '[ERROR] Failed'}")
     
     return all(r.get("status") == "success" for r in results.values())
 
@@ -157,7 +157,7 @@ def test_notification_service(phone_number: str):
             print(f"   Active: {result.is_active}")
             
             # Test sending notification
-            print("\n📤 Testing article notification...")
+            print("\n[SEND] Testing article notification...")
             test_article = {
                 "title": "Test Article: Notification System Working",
                 "source_name": "AmaniQuery Test",

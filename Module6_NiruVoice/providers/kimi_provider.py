@@ -65,7 +65,7 @@ class KimiAudioProvider:
                 )
                 
                 self.is_loaded = True
-                logger.info(f"✓ Kimi model loaded successfully on {self.device}")
+                logger.info(f"[OK] Kimi model loaded successfully on {self.device}")
                 
             except ImportError as e:
                 logger.error(f"Kimi Audio library not available: {e}")

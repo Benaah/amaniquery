@@ -37,7 +37,7 @@ class AfricasTalkingSMSService:
         # Check for SSL verification bypass (development only)
         self.verify_ssl = os.getenv("SMS_VERIFY_SSL", "true").lower() not in ("false", "0", "no")
         if not self.verify_ssl:
-            logger.warning("⚠️  SSL verification is DISABLED - This is insecure and should only be used in development!")
+            logger.warning("[WARN]  SSL verification is DISABLED - This is insecure and should only be used in development!")
             # When SSL verification is disabled, use direct API by default for better control
             self.use_direct_api = True
         else:

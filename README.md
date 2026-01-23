@@ -72,78 +72,6 @@ AmaniQuery is built as an 8-module pipeline:
 7. **[NiruHybrid](Module7_NiruHybrid/README.md)** - Enhanced RAG with hybrid encoder and adaptive retrieval
 8. **[NiruAuth](Module8_NiruAuth/README.md)** - Authentication and authorization system for users and third-party integrations
 
-## 📂 Project Structure
-
-```
-AmaniQuery/
-├── Module1_NiruSpider/          # Data crawling & ingestion
-│   ├── spiders/
-│   │   ├── kenya_law_spider.py
-│   │   ├── parliament_spider.py
-│   │   ├── news_rss_spider.py
-│   │   └── global_trends_spider.py
-│   ├── scrapy.cfg
-│   └── settings.py
-├── Module2_NiruParser/          # ETL & embedding pipeline
-│   ├── extractors/
-│   ├── cleaners/
-│   ├── chunkers/
-│   └── embedders/
-├── Module3_NiruDB/              # Vector database
-│   ├── vector_store.py
-│   ├── metadata_manager.py
-│   └── chat_manager.py
-├── Module4_NiruAPI/             # RAG API
-│   ├── api.py
-│   ├── rag_pipeline.py
-│   ├── alignment_pipeline.py
-│   ├── sms_pipeline.py
-│   └── models/
-├── Module5_NiruShare/           # Social media sharing
-│   ├── formatters/
-│   │   ├── twitter_formatter.py
-│   │   ├── linkedin_formatter.py
-│   │   └── facebook_formatter.py
-│   ├── service.py
-│   └── api.py
-├── Module6_NiruVoice/           # Voice agent
-│   ├── voice_agent.py
-│   └── rag_integration.py
-├── Module7_NiruHybrid/          # Enhanced RAG with hybrid encoder
-│   ├── hybrid_encoder.py
-│   ├── integration/
-│   │   ├── rag_integration.py
-│   │   └── vector_store_adapter.py
-│   ├── retention/
-│   │   ├── adaptive_retriever.py
-│   │   ├── memory_manager.py
-│   │   └── continual_learner.py
-│   └── streaming/
-│       └── stream_processor.py
-├── Module8_NiruAuth/            # Authentication & authorization
-│   ├── models/                  # Database models
-│   ├── providers/               # Auth providers (JWT, OAuth, API keys)
-│   ├── routers/                 # API endpoints
-│   ├── middleware/              # Auth, rate limiting, usage tracking
-│   ├── authorization/           # RBAC, permissions, policies
-│   └── services/                # OTP, email services
-├── frontend/                    # Next.js frontend
-│   └── src/
-│       └── components/
-│           └── chat.tsx
-├── data/                        # Data storage
-│   ├── raw/
-│   ├── processed/
-│   └── embeddings/
-├── config/
-│   └── sources.yaml
-├── start_api.py                 # Unified startup script
-├── migrate_auth_db.py           # Auth database migration script
-├── requirements.txt
-├── .env.example
-└── README.md
-```
-
 ## 📸 Screenshots
 
 ### Homepage
@@ -481,76 +409,7 @@ response = requests.post("http://localhost:8000/alignment-check", json={
 
 See [Constitutional Alignment Guide](docs/CONSTITUTIONAL_ALIGNMENT.md) for details.
 
-## � API Endpoints Summary
-
-### Core Query Endpoints
-
-- `POST /query` - General RAG query with filters
-- `POST /query/stream` - Streaming RAG query (token-by-token)
-- `GET /health` - API health check
-- `GET /stats` - Database statistics
-
-### Hybrid RAG Endpoints
-
-- `POST /query/hybrid` - Enhanced RAG with hybrid encoder
-- `POST /stream/query` - Real-time streaming with hybrid RAG
-- `GET /hybrid/stats` - Hybrid pipeline statistics
-- `POST /retention/update` - Trigger retention update
-
-### Chat Endpoints
-
-- `GET /chat/sessions` - List chat sessions
-- `POST /chat/sessions` - Create new session
-- `GET /chat/sessions/{id}/messages` - Get session messages
-- `POST /chat/sessions/{id}/messages` - Add message (with streaming)
-- `POST /chat/feedback` - Submit feedback (like/dislike)
-- `POST /chat/share` - Generate shareable chat link
-
-### Unique Feature Endpoints
-
-- `GET /sentiment` - Public sentiment analysis by topic
-- `POST /sms-webhook` - Africa's Talking SMS webhook
-- `POST /sms-send` - Manual SMS sending
-- `GET /sms-query` - Preview SMS response
-- `POST /alignment-check` - Full constitutional alignment analysis
-- `POST /alignment-quick-check` - Quick bill vs concept check
-
-### Authentication Endpoints (Module 8)
-
-- `POST /api/v1/auth/register` - Register new user
-- `POST /api/v1/auth/login` - Login user
-- `POST /api/v1/auth/logout` - Logout user
-- `GET /api/v1/auth/me` - Get current user profile
-- `POST /api/v1/auth/password/reset-request` - Request password reset (with OTP)
-- `POST /api/v1/auth/password/reset` - Reset password
-- `POST /api/v1/auth/phone/send-otp` - Send phone verification OTP
-- `POST /api/v1/auth/phone/verify-otp` - Verify phone OTP
-- `POST /api/v1/auth/integrations` - Create third-party integration
-- `POST /api/v1/auth/integrations/{id}/keys` - Create API key
-- `POST /api/v1/auth/oauth/token` - OAuth 2.0 token endpoint
-
-### Social Media Sharing
-
-- `POST /share/format` - Format for specific platform
-- `POST /share/preview` - Preview all platforms
-- `POST /share/generate-link` - Get shareable link
-- `GET /share/platforms` - List supported platforms
-
-### Authentication Endpoints (Module 8)
-
-- `POST /api/v1/auth/register` - Register new user
-- `POST /api/v1/auth/login` - Login user
-- `POST /api/v1/auth/logout` - Logout user
-- `GET /api/v1/auth/me` - Get current user profile
-- `POST /api/v1/auth/password/reset-request` - Request password reset (with OTP)
-- `POST /api/v1/auth/password/reset` - Reset password
-- `POST /api/v1/auth/phone/send-otp` - Send phone verification OTP
-- `POST /api/v1/auth/phone/verify-otp` - Verify phone OTP
-- `POST /api/v1/auth/integrations` - Create third-party integration
-- `POST /api/v1/auth/integrations/{id}/keys` - Create API key
-- `POST /api/v1/auth/oauth/token` - OAuth 2.0 token endpoint
-
-### Documentation
+## Documentation
 
 - `GET /docs` - Interactive API documentation (Swagger UI)
 - `GET /redoc` - Alternative documentation (ReDoc)
@@ -562,13 +421,6 @@ Module 5 provides intelligent formatting for:
 - **Twitter/X**: Auto-threading for long content (280 char limit)
 - **LinkedIn**: Professional posts with key takeaways (3000 char)
 - **Facebook**: Engaging posts with call-to-action
-
-**API Endpoints:**
-
-- `POST /share/format` - Format for specific platform
-- `POST /share/preview` - Preview all platforms
-- `POST /share/generate-link` - Get shareable link
-- `GET /share/platforms` - List supported platforms
 
 See [Sharing Guide](docs/SHARING_GUIDE.md) for details.
 
@@ -648,5 +500,3 @@ Apache License 2.0 - See LICENSE file
 All contributions are welcome! Refer to the [CONTRIBUTING.md](CONTRIBUTING.md) file for details.
 
 ---
-
-**Built with ❤️ for Kenya**

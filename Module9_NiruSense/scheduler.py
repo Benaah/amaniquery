@@ -47,7 +47,7 @@ class NiruSenseScheduler:
                 name='Process Pending Documents',
                 replace_existing=True
             )
-            logger.info(f"📅 Scheduled: Batch processing every {self.batch_interval_minutes} minutes")
+            logger.info(f"[DATE] Scheduled: Batch processing every {self.batch_interval_minutes} minutes")
             
             # Job 2: Cleanup old processed documents (daily at configured hour)
             self.scheduler.add_job(
@@ -57,7 +57,7 @@ class NiruSenseScheduler:
                 name='Cleanup Old Documents',
                 replace_existing=True
             )
-            logger.info(f"📅 Scheduled: Cleanup daily at {self.cleanup_hour}:00 UTC")
+            logger.info(f"[DATE] Scheduled: Cleanup daily at {self.cleanup_hour}:00 UTC")
             
             # Job 3: Update metrics and health status
             self.scheduler.add_job(
@@ -67,7 +67,7 @@ class NiruSenseScheduler:
                 name='Update Metrics',
                 replace_existing=True
             )
-            logger.info(f"📅 Scheduled: Metrics update every {self.metrics_interval_minutes} minutes")
+            logger.info(f"[DATE] Scheduled: Metrics update every {self.metrics_interval_minutes} minutes")
             
             # Job 4: Re-index failed documents (weekly on Sunday at 2 AM)
             self.scheduler.add_job(
@@ -77,10 +77,10 @@ class NiruSenseScheduler:
                 name='Reprocess Failed Documents',
                 replace_existing=True
             )
-            logger.info("📅 Scheduled: Reprocess failed documents weekly (Sunday 2:00 AM UTC)")
+            logger.info("[DATE] Scheduled: Reprocess failed documents weekly (Sunday 2:00 AM UTC)")
             
             self.scheduler.start()
-            logger.info("✅ NiruSense scheduler started successfully")
+            logger.info("[OK] NiruSense scheduler started successfully")
             return True
             
         except Exception as e:
@@ -119,7 +119,7 @@ class NiruSenseScheduler:
     def _process_pending_batch(self):
         """Process a batch of pending documents from the queue"""
         try:
-            logger.info("📊 Running scheduled batch processing...")
+            logger.info("[STATS] Running scheduled batch processing...")
             from .processing.monitoring import metrics
             
             # Get current stats
@@ -138,7 +138,7 @@ class NiruSenseScheduler:
     async def _cleanup_old_documents(self):
         """Cleanup old processed documents and logs"""
         try:
-            logger.info("🧹 Running scheduled cleanup...")
+            logger.info("[CLEAN] Running scheduled cleanup...")
             import asyncio
             from .processing.storage.postgres import postgres
             
@@ -176,7 +176,7 @@ class NiruSenseScheduler:
     async def _reprocess_failed(self):
         """Reprocess failed documents from the database"""
         try:
-            logger.info("🔄 Running scheduled reprocessing of failed documents...")
+            logger.info("[SYNC] Running scheduled reprocessing of failed documents...")
             import asyncio
             from .processing.storage.postgres import postgres
             from .processing.orchestrator import process_document

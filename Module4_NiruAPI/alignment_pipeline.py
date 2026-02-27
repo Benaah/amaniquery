@@ -145,7 +145,7 @@ class ConstitutionalAlignmentPipeline:
         self.rag_pipeline = rag_pipeline
         self.query_analyzer = QueryAnalyzer()
     
-    def analyze_alignment(
+    async def analyze_alignment(
         self,
         query: str,
         bill_top_k: int = 3,
@@ -180,7 +180,7 @@ class ConstitutionalAlignmentPipeline:
         query_analysis = self.query_analyzer.analyze(query)
         
         # Step 2: Dual retrieval
-        alignment_context = self._dual_retrieval(
+        alignment_context = await self._dual_retrieval(
             query=query,
             query_analysis=query_analysis,
             bill_top_k=bill_top_k,
@@ -234,7 +234,7 @@ class ConstitutionalAlignmentPipeline:
         logger.info("Constitutional alignment analysis completed")
         return response
     
-    def _dual_retrieval(
+    async def _dual_retrieval(
         self,
         query: str,
         query_analysis: Dict,
@@ -465,7 +465,7 @@ Text: {text}
         
         return "\n".join(formatted)
     
-    def quick_check(self, bill_name: str, constitutional_topic: str) -> Dict[str, any]:
+    async def quick_check(self, bill_name: str, constitutional_topic: str) -> Dict[str, any]:
         """
         Quick alignment check for a specific bill and constitutional topic
         
@@ -477,4 +477,4 @@ Text: {text}
             Alignment analysis
         """
         query = f"How does the {bill_name} align with the Constitution regarding {constitutional_topic}?"
-        return self.analyze_alignment(query)
+        return await self.analyze_alignment(query)

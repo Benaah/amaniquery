@@ -1204,11 +1204,11 @@ class VectorStore:
             return []
             
     def query(self, query_text: str, n_results: int = 5, filter: Optional[Dict] = None, namespace: str = None) -> List[Dict]:
-        """🚀 Blazing fast query with caching, parallel retrieval, and optimizations"""
+        """ Blazing fast query with caching, parallel retrieval, and optimizations"""
         start_time = time.time()
         self.query_stats["total_queries"] += 1
         
-        # 1. ⚡ Check query cache first
+        # 1. Check query cache first
         if self.enable_caching:
             cache_key = self._generate_cache_key(query_text, n_results, filter, namespace)
             cached_result = self._get_query_cache(cache_key)
@@ -1218,13 +1218,13 @@ class VectorStore:
                 return cached_result
         
         try:
-            # 2. 🚀 Fast embedding with caching
+            # 2. Fast embedding with caching
             query_embedding = self._get_query_embedding(query_text)
             
-            # 3. 🏃‍♂️ Parallel backend querying with intelligent fallback
+            # 3. Parallel backend querying with intelligent fallback
             results = self._parallel_query_backends(query_embedding, n_results, filter, namespace)
             
-            # 4. 📊 Update stats and cache
+            # 4. Update stats and cache
             query_time = time.time() - start_time
             self.query_stats["avg_query_time"] = (
                 (self.query_stats["avg_query_time"] * (self.query_stats["total_queries"] - 1) + query_time) 
@@ -1236,7 +1236,7 @@ class VectorStore:
             
             self.query_stats["cache_misses"] += 1
             
-            logger.info(f"🎯 Query completed in {query_time:.3f}s, returned {len(results)} results")
+            logger.info(f"[Query] Query completed in {query_time:.3f}s, returned {len(results)} results")
             return results
             
         except Exception as e:
@@ -1245,7 +1245,7 @@ class VectorStore:
             return self._fallback_query(query_text, n_results, filter, namespace)
     
     def _get_query_embedding(self, query_text: str) -> List[float]:
-        """🚀 Fast embedding generation with caching"""
+        """Fast embedding generation with caching"""
         # Use cached embedding if available
         if self.enable_caching and query_text in self._embedding_cache:
             return self._embedding_cache[query_text]
@@ -1475,80 +1475,76 @@ class VectorStore:
         
         return []
 
-            # 2. Define backends to try in order
-            # Primary -> QDrant (cloud) -> ChromaDB (local) -> Upstash
-            backends_to_try = [self.backend]
-            fallbacks = ["qdrant", "chromadb", "upstash"]
-            for fb in fallbacks:
-                if fb != self.backend and fb not in backends_to_try:
-                    backends_to_try.append(fb)
-            
-            logger.info(f"Querying with fallback chain: {backends_to_try}")
+        # 2. Define backends to try in order
+        # Primary -> QDrant (cloud) -> ChromaDB (local) -> Upstash
+        backends_to_try = [self.backend]
+        fallbacks = ["qdrant", "chromadb", "upstash"]
+        for fb in fallbacks:
+            if fb != self.backend and fb not in backends_to_try:
+                backends_to_try.append(fb)
+        
+        logger.info(f"Querying with fallback chain: {backends_to_try}")
 
-            # 3. Try backends in order
-            for backend in backends_to_try:
-                try:
-                    results = []
-                    
-                    # Check availability before trying
-                    if backend == "chromadb" and not self.is_chromadb_available():
-                        continue
-                    if backend == "qdrant" and "qdrant" not in self.backends and self.backend != "qdrant":
-                        continue
-                    if backend == "upstash" and "upstash" not in self.backends and self.backend != "upstash":
-                        continue
-
-                    # Execute query based on backend
-                    if backend == self.backend:
-                        # Use current configuration
-                        results = self._execute_query(self.backend, query_embedding, n_results, filter, namespace)
-                    else:
-                        # Context switch for fallback
-                        logger.info(f"Falling back to {backend}...")
-                        
-                        # Save current state
-                        original_backend = self.backend
-                        original_client = self.client
-                        original_collection = getattr(self, "collection", None)
-                        original_collection_name = self.collection_name
-                        
-                        try:
-                            # Setup fallback state
-                            self.backend = backend
-
-                            if backend == "chromadb":
-                                self.client = self.chromadb_client
-                            elif backend == "qdrant":
-                                self.client = self.backends["qdrant"]
-                            elif backend == "upstash":
-                                self.client = self.backends["upstash"]
-                                self.collection_name = original_collection_name
-
-                            # Execute query
-                            results = self._execute_query(backend, query_embedding, n_results, filter, namespace)
-                            
-                        finally:
-                            # Restore state
-                            self.backend = original_backend
-                            self.client = original_client
-                            if original_collection:
-                                self.collection = original_collection
-                            self.collection_name = original_collection_name
-                    
-                    if results:
-                        logger.info(f"Query successful using {backend}, found {len(results)} results")
-                        return results
-                    
-                except Exception as e:
-                    logger.warning(f"Query failed with {backend}: {e}")
+        # 3. Try backends in order
+        for backend in backends_to_try:
+            try:
+                results = []
+                
+                # Check availability before trying
+                if backend == "chromadb" and not self.is_chromadb_available():
                     continue
-            
-            logger.warning("All backends in fallback chain failed or returned no results")
-            return []
+                if backend == "qdrant" and "qdrant" not in self.backends and self.backend != "qdrant":
+                    continue
+                if backend == "upstash" and "upstash" not in self.backends and self.backend != "upstash":
+                    continue
 
-        except Exception as e:
-            logger.error(f"Error querying vector store: {e}")
-            return []
+                # Execute query based on backend
+                if backend == self.backend:
+                    # Use current configuration
+                    results = self._execute_query(self.backend, query_embedding, n_results, filter, namespace)
+                else:
+                    # Context switch for fallback
+                    logger.info(f"Falling back to {backend}...")
+                    
+                    # Save current state
+                    original_backend = self.backend
+                    original_client = self.client
+                    original_collection = getattr(self, "collection", None)
+                    original_collection_name = self.collection_name
+                    
+                    try:
+                        # Setup fallback state
+                        self.backend = backend
+
+                        if backend == "chromadb":
+                            self.client = self.chromadb_client
+                        elif backend == "qdrant":
+                            self.client = self.backends["qdrant"]
+                        elif backend == "upstash":
+                            self.client = self.backends["upstash"]
+                            self.collection_name = original_collection_name
+
+                        # Execute query
+                        results = self._execute_query(backend, query_embedding, n_results, filter, namespace)
+                        
+                    finally:
+                        # Restore state
+                        self.backend = original_backend
+                        self.client = original_client
+                        if original_collection:
+                            self.collection = original_collection
+                        self.collection_name = original_collection_name
+                
+                if results:
+                    logger.info(f"Query successful using {backend}, found {len(results)} results")
+                    return results
+                
+            except Exception as e:
+                logger.warning(f"Query failed with {backend}: {e}")
+                continue
+        
+        logger.warning("All backends in fallback chain failed or returned no results")
+        return []
 
     def _execute_query(self, backend: str, query_embedding: List[float], n_results: int, filter: Optional[Dict], namespace: str) -> List[Dict]:
         """Helper to execute query on specific backend"""

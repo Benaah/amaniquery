@@ -12,7 +12,6 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage, System
 from langchain_core.tools import tool
 
 # Import AmaniQ components
-from Module4_NiruAPI.agents.amaniq_v2 import MoonshotClient, AmaniQConfig
 from Module4_NiruAPI.agents.tools.agentic_tools import get_agentic_tools
 
 # =============================================================================
@@ -72,7 +71,8 @@ def react_reasoning_node(state: Dict[str, Any]) -> Dict[str, Any]:
             {"role": "user", "content": query}
         ]
     
-    # Initialize client
+    # Initialize client (import locally to avoid circular import)
+    from Module4_NiruAPI.agents.amaniq_v2 import MoonshotClient, AmaniQConfig
     config = AmaniQConfig()
     client = MoonshotClient.get_client(config)
     

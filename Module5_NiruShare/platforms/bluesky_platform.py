@@ -8,18 +8,25 @@ class BlueskyPlatform(BasePlatform):
 
     def get_metadata(self) -> PlatformMetadata:
         return PlatformMetadata(
-            id="bluesky",
             name="Bluesky",
-            max_characters=300,
-            supported_media=["image"],
+            display_name="Bluesky",
+            char_limit=300,
+            supports_images=True,
             requires_auth=False 
         )
 
-    def format_content(self, request_data: Any) -> List[str]:
+    def format_post(
+        self,
+        answer: str,
+        sources: List[Dict],
+        query: Optional[str] = None,
+        include_hashtags: bool = True,
+        style: Optional[str] = None,
+    ) -> Dict:
         return self.formatter.format_post(
-            answer=request_data.answer,
-            sources=request_data.sources,
-            query=request_data.query
+            answer=answer,
+            sources=sources,
+            query=query
         )
 
     def generate_share_link(self, content: str, url: Optional[str] = None) -> str:

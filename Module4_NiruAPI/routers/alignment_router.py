@@ -97,7 +97,7 @@ async def check_constitutional_alignment(request: AlignmentRequest):
     try:
         start_time = time.time()
         
-        result = alignment_pipeline.analyze_alignment(
+        result = await alignment_pipeline.analyze_alignment(
             query=request.query,
             bill_top_k=request.bill_top_k,
             constitution_top_k=request.constitution_top_k,
@@ -136,7 +136,7 @@ async def quick_alignment_check(bill_name: str, constitutional_topic: str):
     alignment_pipeline = get_alignment_pipeline()
     
     try:
-        result = alignment_pipeline.quick_check(
+        result = await alignment_pipeline.quick_check(
             bill_name=bill_name,
             constitutional_topic=constitutional_topic,
         )

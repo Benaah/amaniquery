@@ -761,3 +761,45 @@ def get_cache_stats() -> Dict[str, Any]:
         "blazing_cache": _blazing_cache.get_stats(),
         "rag_cache": _rag_cache.get_stats()
     }
+
+class CacheManager:
+    """Compatibility wrapper for the old CacheManager interface to work with the new BlazingFastCache"""
+    def __init__(self, config_manager=None):
+        self.blazing_cache = _blazing_cache
+        self.redis_cache = RedisCache()
+        self.redis_client = self.redis_cache.client
+        
+    async def get_or_compute(self, key: str, compute_func: Callable, ttl_type: str = "default") -> Any:
+        """Get from cache or compute asynchronously"""
+        cache_key = f"rag_query:{hashlib.md5(key.encode()).hexdigest()}"
+        cached = self.blazing_cache.get(cache_key)
+        
+        if cached is not None:
+            logger.info(f"[INFO] Cache hit for compatibility layer: {key[:50]}...")
+            return cached
+            
+        result = await compute_func()
+        
+        ttl = AI_TTL_MAP.get(ttl_type, AI_TTL_MAP["default"])
+        self.blazing_cache.set(cache_key, result, ttl=ttl)
+        
+        return result
+        
+    def delete_pattern(self, pattern: str):
+        if self.redis_client:
+            try:
+                keys = self.redis_client.keys(pattern)
+                for k in keys:
+                    self.redis_client.delete(k)
+            except Exception as e:
+                logger.error(f"Failed to delete pattern {pattern}: {e}")
+
+# Keep track of global instance
+_cache_manager_instance = None
+
+def get_cache_manager(config_manager=None) -> CacheManager:
+    """Get the global CacheManager compatibility instance"""
+    global _cache_manager_instance
+    if _cache_manager_instance is None:
+        _cache_manager_instance = CacheManager(config_manager)
+    return _cache_manager_instance

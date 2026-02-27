@@ -594,7 +594,7 @@ async def lifespan(app: FastAPI):
         agent_config = AmaniQConfig(
             enable_caching=cache_manager is not None,
             enable_prefetch=True,
-            enable_telemetry=True,
+            enable_telemetry=False,
             enable_persistence=False,  # Disable persistence for faster startup
         )
         logger.info(f"  [OK] Config created (caching={cache_manager is not None})")

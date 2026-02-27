@@ -8,18 +8,26 @@ class ThreadsPlatform(BasePlatform):
 
     def get_metadata(self) -> PlatformMetadata:
         return PlatformMetadata(
-            id="threads",
             name="Threads",
-            max_characters=500,
-            supported_media=["image", "video"],
+            display_name="Threads",
+            char_limit=500,
+            supports_images=True,
+            supports_video=True,
             requires_auth=False  # For basic sharing via intents
         )
 
-    def format_content(self, request_data: Any) -> List[str]:
+    def format_post(
+        self,
+        answer: str,
+        sources: List[Dict],
+        query: Optional[str] = None,
+        include_hashtags: bool = True,
+        style: Optional[str] = None,
+    ) -> Dict:
         return self.formatter.format_post(
-            answer=request_data.answer,
-            sources=request_data.sources,
-            query=request_data.query
+            answer=answer,
+            sources=sources,
+            query=query
         )
 
     def generate_share_link(self, content: str, url: Optional[str] = None) -> str:

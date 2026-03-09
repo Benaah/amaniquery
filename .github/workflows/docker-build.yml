@@ -33,7 +33,7 @@ jobs:
 
       - name: Extract metadata for API Docker image
         id: meta-api
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ghcr.io/${{ github.repository }}/api
           tags: |
@@ -56,7 +56,7 @@ jobs:
 
       - name: Extract metadata for Frontend Docker image
         id: meta-frontend
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ghcr.io/${{ github.repository }}/frontend
           tags: |

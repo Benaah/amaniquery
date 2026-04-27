@@ -22,7 +22,7 @@ faiss-cpu  # Alternative: faiss-gpu for GPU support
 loguru
 elasticsearch  # For document storage and search
 upstash-redis  # For cache and vector storage
-redis>=5.0.0  # Standard Redis client for local caching
+redis>=7.4.0  # Standard Redis client for local caching
 
 upstash-vector  # For vector database
 qdrant-client  # Fallback vector store

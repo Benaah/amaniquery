@@ -8,7 +8,7 @@ import re
 
 # Import sentiment analyzer
 try:
-    from Module2_NiruParser.enrichers.sentiment_analyzer import SentimentAnalyzer
+    from .sentiment_analyzer import SentimentAnalyzer
     SENTIMENT_AVAILABLE = True
 except ImportError:
     SENTIMENT_AVAILABLE = False

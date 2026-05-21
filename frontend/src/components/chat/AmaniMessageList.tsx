@@ -7,9 +7,12 @@ import { MessageActions } from "./MessageActions"
 import { ThinkingIndicator, CompactThinkingIndicator } from "./ThinkingIndicator"
 import { SourcePanel, SourceSummary } from "./SourcePanel"
 import { WelcomeScreen } from "./WelcomeScreen"
-import { Loader2 } from "lucide-react"
+import { Loader2, Square, Search, Globe, Newspaper, Calculator, Link as LinkIcon, Youtube, Twitter, FileText, Mail, BookOpen, Hash, CheckCircle2, XCircle, Clock } from "lucide-react"
+import type { StreamToolEvent } from "./types"
+import ReactMarkdown from "react-markdown"
+import remarkGfm from "remark-gfm"
 import { ShareSheet } from "./ShareSheet"
-import type { Message, ShareSheetState, SharePlatform } from "./types"
+import type { Message, ShareSheetState, SharePlatform, Source } from "./types"
 
 interface AmaniMessageListProps {
   messages: Message[]
@@ -46,7 +49,69 @@ interface AmaniMessageListProps {
   onCopyFailedQuery?: (message: Message) => void
   onEditFailedQuery?: (message: Message) => void
   onResendFailedQuery?: (message: Message) => void
+  isStreaming?: boolean
+  streamingContent?: string
+  streamingSources?: Source[]
+  streamingTools?: StreamToolEvent[]
+  onAbortStream?: () => void
 }
+
+// =============================================================================
+// TOOL EVENT HELPERS
+// =============================================================================
+
+function ToolIcon({ toolName }: { toolName: string }) {
+  const iconClass = "w-3.5 h-3.5 text-muted-foreground"
+  switch (toolName) {
+    case "kb_search": return <BookOpen className={iconClass} />
+    case "web_search": return <Globe className={iconClass} />
+    case "news_search": return <Newspaper className={iconClass} />
+    case "calculator": case "fees_calculator": return <Calculator className={iconClass} />
+    case "url_fetch": return <LinkIcon className={iconClass} />
+    case "youtube_search": return <Youtube className={iconClass} />
+    case "twitter_search": return <Twitter className={iconClass} />
+    case "file_write": return <FileText className={iconClass} />
+    case "email_draft": return <Mail className={iconClass} />
+    case "bill_status": case "hansard": return <Hash className={iconClass} />
+    case "legal_citation": return <BookOpen className={iconClass} />
+    default: return <Search className={iconClass} />
+  }
+}
+
+function _getToolLabel(tool: StreamToolEvent): string {
+  if (tool.type === "tool_start") {
+    switch (tool.tool_name) {
+      case "kb_search": return "Searching knowledge base..."
+      case "web_search": return "Searching the web..."
+      case "news_search": return "Searching news..."
+      case "calculator": return "Calculating..."
+      case "fees_calculator": return "Computing fees..."
+      case "url_fetch": return "Fetching URL..."
+      case "youtube_search": return "Searching YouTube..."
+      case "twitter_search": return "Searching X/Twitter..."
+      case "file_write": return "Writing file..."
+      case "email_draft": return "Drafting email..."
+      case "bill_status": return "Looking up bill status..."
+      case "hansard": return "Retrieving debates..."
+      case "legal_citation": return "Formatting citation..."
+      default: return `Running ${tool.tool_name}...`
+    }
+  }
+  if (tool.type === "tool_result") {
+    if (tool.status === "success") return `${tool.tool_name} completed`
+    if (tool.status === "cached") return `${tool.tool_name} (cached)`
+    if (tool.status === "error") return `${tool.tool_name} failed`
+    if (tool.status === "timeout") return `${tool.tool_name} timed out`
+    return `${tool.tool_name} done`
+  }
+  return tool.tool_name
+}
+
+function _formatMs(ms: number): string {
+  if (ms < 1000) return `${Math.round(ms)}ms`
+  return `${(ms / 1000).toFixed(1)}s`
+}
+
 
 interface MessageGroup {
   id: string
@@ -89,7 +154,12 @@ export function AmaniMessageList({
   onStartEdit,
   onCopyFailedQuery,
   onEditFailedQuery,
-  onResendFailedQuery
+  onResendFailedQuery,
+  isStreaming = false,
+  streamingContent = "",
+  streamingSources = [],
+  streamingTools = [],
+  onAbortStream
 }: AmaniMessageListProps) {
   const [expandedSources, setExpandedSources] = useState<Record<string, boolean>>({})
   const [expandedThinking, setExpandedThinking] = useState<Record<string, boolean>>({})
@@ -287,25 +357,96 @@ export function AmaniMessageList({
                 </div>
               )}
 
-              {/* Loading State for Current Response */}
+              {/* Loading / Streaming State for Current Response */}
               {!group.hasAssistantResponse && isLoading && group === messageGroups[messageGroups.length - 1] && (
                 <div className="ml-12 space-y-3 animate-in fade-in duration-500">
                   {enableThinkingIndicator && (
-                    <ThinkingIndicator
-                      isActive={true}
-                      defaultExpanded={false}
-                      className="mb-3"
-                    />
+                    <CompactThinkingIndicator isActive={isThinking} />
                   )}
-                  <div className="flex items-center gap-3 p-4 bg-muted rounded-2xl">
-                    <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
-                      <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                  {/* Tool Execution Events (Gemini-style tool cards) */}
+                  {isStreaming && streamingTools.length > 0 && (
+                    <div className="space-y-2 mb-3">
+                      {streamingTools.map((tool, i) => (
+                        <div
+                          key={`${tool.tool_name}-${i}`}
+                          className="flex items-center gap-2.5 px-3 py-2 bg-muted/50 border border-border/50 rounded-lg animate-in fade-in slide-in-from-left-2 duration-200"
+                        >
+                          <ToolIcon toolName={tool.tool_name} />
+                          <span className="text-sm text-muted-foreground flex-1 truncate">{_getToolLabel(tool)}</span>
+                          {tool.type === "tool_start" && (
+                            <div className="w-3.5 h-3.5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                          )}
+                          {tool.type === "tool_result" && tool.status === "success" && (
+                            <CheckCircle2 className="w-3.5 h-3.5 text-green-500" />
+                          )}
+                          {tool.type === "tool_result" && tool.status === "error" && (
+                            <XCircle className="w-3.5 h-3.5 text-red-500" />
+                          )}
+                          {tool.type === "tool_result" && tool.latency_ms != null && (
+                            <span className="text-[11px] text-muted-foreground/60 tabular-nums">
+                              {_formatMs(tool.latency_ms)}
+                            </span>
+                          )}
+                        </div>
+                      ))}
                     </div>
-                    <div className="space-y-2 flex-1">
-                      <div className="h-3 bg-muted-foreground/20 rounded animate-pulse" />
-                      <div className="h-3 bg-muted-foreground/20 rounded animate-pulse w-3/4" />
+                  )}
+
+                  {isStreaming && streamingContent ? (
+                    <div className="flex items-start gap-3 p-4 bg-muted rounded-2xl animate-in fade-in duration-300">
+                      <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                        <div className="w-2 h-2 bg-primary rounded-full animate-pulse" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="prose prose-sm dark:prose-invert max-w-none">
+                          <ReactMarkdown
+                            remarkPlugins={[remarkGfm]}
+                            components={{
+                              p: ({ children }) => <span className="block mb-2 leading-7">{children}</span>,
+                              code: ({ children, className }) => {
+                                const match = /language-(\w+)/.exec(className || "")
+                                const isInline = !match && !String(children).includes("\n")
+                                return isInline ? (
+                                  <code className="bg-muted px-1 py-0.5 rounded text-sm font-mono">{children}</code>
+                                ) : (
+                                  <div className="my-2 rounded border border-border bg-muted/50 p-3 overflow-x-auto">
+                                    <code className="text-sm font-mono">{children}</code>
+                                  </div>
+                                )
+                              },
+                            }}
+                          >
+                            {streamingContent}
+                          </ReactMarkdown>
+                          <span className="inline-block w-2 h-4 bg-primary rounded-sm animate-pulse ml-0.5 align-text-bottom" />
+                        </div>
+                        {streamingSources.length > 0 && (
+                          <SourceSummary sources={streamingSources} className="mt-3" />
+                        )}
+                        {onAbortStream && (
+                          <div className="mt-3 flex justify-start">
+                            <button
+                              onClick={onAbortStream}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-foreground bg-background border border-border rounded-full hover:bg-muted-foreground/10 transition-colors"
+                            >
+                              <Square className="w-3 h-3 fill-current" />
+                              Stop generating
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  </div>
+                  ) : (
+                    <div className="flex items-center gap-3 p-4 bg-muted rounded-2xl">
+                      <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
+                        <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                      </div>
+                      <div className="space-y-2 flex-1">
+                        <div className="h-3 bg-muted-foreground/20 rounded animate-pulse" />
+                        <div className="h-3 bg-muted-foreground/20 rounded animate-pulse w-3/4" />
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -351,13 +492,30 @@ export function StreamingMessage({
           <div className="w-2 h-2 bg-primary rounded-full animate-pulse" />
         </div>
         <div className="flex-1 min-w-0">
-          <div className="prose prose-sm max-w-none">
-            <div 
-              className="whitespace-pre-wrap"
-              dangerouslySetInnerHTML={{ 
-                __html: content || '<span class="text-muted-foreground">Thinking...</span>' 
-              }}
-            />
+          <div className="prose prose-sm dark:prose-invert max-w-none">
+            {content ? (
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={{
+                  p: ({ children }) => <span className="block mb-2 leading-7">{children}</span>,
+                  code: ({ children, className }) => {
+                    const match = /language-(\w+)/.exec(className || "")
+                    const isInline = !match && !String(children).includes("\n")
+                    return isInline ? (
+                      <code className="bg-muted px-1 py-0.5 rounded text-sm font-mono">{children}</code>
+                    ) : (
+                      <div className="my-2 rounded border border-border bg-muted/50 p-3 overflow-x-auto">
+                        <code className="text-sm font-mono">{children}</code>
+                      </div>
+                    )
+                  },
+                }}
+              >
+                {content}
+              </ReactMarkdown>
+            ) : (
+              <span className="text-muted-foreground">Thinking...</span>
+            )}
           </div>
           {sources.length > 0 && (
             <SourceSummary sources={sources} className="mt-3" />

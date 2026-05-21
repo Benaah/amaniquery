@@ -110,6 +110,19 @@ class SessionResponse(BaseModel):
     user: UserResponse  # UserResponse now includes roles field
 
 
+class MFARequiredResponse(BaseModel):
+    """Response when MFA challenge is required"""
+    mfa_required: bool = True
+    mfa_token: str
+    message: str = "MFA verification required. Submit TOTP code to /api/v1/auth/mfa/challenge"
+
+
+class MFAChallengeRequest(BaseModel):
+    """MFA challenge completion request"""
+    mfa_token: str
+    totp_code: str = Field(..., min_length=6, max_length=6, description="6-digit TOTP code from authenticator app")
+
+
 # ==================== Role Models ====================
 
 class RoleResponse(BaseModel):

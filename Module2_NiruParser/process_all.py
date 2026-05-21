@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 from loguru import logger
 from tqdm import tqdm
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Add parent to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -57,8 +58,8 @@ def main():
         logger.info(f"Processing file: {jsonl_file.name}")
         print(f"\n[FILE] Processing: {jsonl_file.name}")
         
-        # Load raw documents
-        raw_docs = pipeline.load_raw_documents(jsonl_file)
+        # Stream raw documents (generator - memory efficient)
+        raw_docs = list(pipeline.load_raw_documents(jsonl_file))
         
         if not raw_docs:
             logger.warning(f"No documents found in {jsonl_file.name}")
@@ -75,11 +76,26 @@ def main():
                 logger.error(f"Failed to save raw documents to database: {e}")
                 print(f"   [ERROR] Failed to save raw documents to database")
         
-        # Process documents
+        # Process documents in parallel
         all_chunks = []
-        for doc in tqdm(raw_docs, desc="  Documents", leave=False):
-            chunks = pipeline.process_document(doc)
-            all_chunks.extend(chunks)
+        max_workers = min(config.MAX_WORKERS, len(raw_docs) or 1)
+        
+        if max_workers <= 1:
+            for doc in tqdm(raw_docs, desc="  Documents", leave=False):
+                chunks = pipeline.process_document(doc)
+                all_chunks.extend(chunks)
+        else:
+            progress = tqdm(total=len(raw_docs), desc="  Documents", leave=False)
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                future_map = {executor.submit(pipeline.process_document, doc): doc for doc in raw_docs}
+                for future in as_completed(future_map):
+                    try:
+                        chunks = future.result()
+                        all_chunks.extend(chunks)
+                    except Exception as e:
+                        logger.error(f"Error in parallel processing: {e}")
+                    progress.update(1)
+            progress.close()
         
         if all_chunks:
             # Determine output filename
@@ -116,6 +132,9 @@ def main():
     print("\n" + "=" * 60)
     print(f"[OK] Processing Complete!")
     print(f"[INFO] Total chunks created: {total_chunks}")
+    print(f"[INFO] Documents processed: {pipeline.documents_processed}")
+    print(f"[INFO] Documents succeeded: {pipeline.documents_succeeded}")
+    print(f"[INFO] Documents failed: {pipeline.documents_failed}")
     print(f"[INFO] Processed data saved to: {config.PROCESSED_DATA_PATH}")
     print("=" * 60)
 

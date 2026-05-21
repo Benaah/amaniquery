@@ -14,7 +14,8 @@ import {
   Check,
   Pencil,
   AlertTriangle,
-  RefreshCw
+  RefreshCw,
+  Square
 } from "lucide-react"
 import { Textarea } from "@/components/ui/textarea"
 import ReactMarkdown from "react-markdown"
@@ -195,6 +196,14 @@ export function AmaniMessage({
             </div>
         )}
 
+        {/* Stopped / Interrupted Message State */}
+        {message.stopped && (
+          <div className="flex items-center gap-2 mb-3 text-xs text-muted-foreground">
+            <Square className="w-3 h-3 fill-muted-foreground" />
+            <span>Generation stopped</span>
+          </div>
+        )}
+
         {!message.failed && (
           <div className="prose prose-sm md:prose-base dark:prose-invert max-w-none prose-p:leading-relaxed prose-pre:p-0 prose-pre:bg-transparent">
             {parts.map((part, i) => {
@@ -220,7 +229,6 @@ export function AmaniMessage({
                   remarkPlugins={[remarkGfm]}
                   rehypePlugins={[rehypeHighlight]}
                   components={{
-                    // Override paragraph to be inline-block for citation flow
                     p: ({ children }) => <span className="block mb-4 last:mb-0 leading-7">{children}</span>,
                     h1: ({ children }) => <h1 className="text-lg font-bold mb-3 mt-6">{children}</h1>,
                     h2: ({ children }) => <h2 className="text-base font-bold mb-2 mt-4">{children}</h2>,
@@ -233,28 +241,86 @@ export function AmaniMessage({
                         {children}
                       </blockquote>
                     ),
-                    code: ({ children, className, ...props }) => {
-                        // @ts-ignore
-                      const match = /language-(\w+)/.exec(className || "")
-                      // @ts-ignore
-                      const isInline = !match && !String(children).includes("\n")
-                      return isInline ? (
-                        <code className="bg-muted px-1.5 py-0.5 rounded text-sm font-mono text-foreground border border-border" {...props}>
+                    table: ({ children }) => (
+                      <div className="overflow-x-auto my-4 border border-border rounded-lg">
+                        <table className="min-w-full divide-y divide-border text-sm">
                           {children}
-                        </code>
-                      ) : (
+                        </table>
+                      </div>
+                    ),
+                    thead: ({ children }) => (
+                      <thead className="bg-muted/80">{children}</thead>
+                    ),
+                    th: ({ children }) => (
+                      <th className="px-4 py-2.5 text-left font-semibold text-foreground whitespace-nowrap">{children}</th>
+                    ),
+                    td: ({ children }) => (
+                      <td className="px-4 py-2 border-t border-border whitespace-nowrap">{children}</td>
+                    ),
+                    tr: ({ children }) => (
+                      <tr className="even:bg-muted/30">{children}</tr>
+                    ),
+                    img: ({ src, alt }) => (
+                      <img src={src} alt={alt || ""} className="max-w-full h-auto rounded-lg border border-border my-4" loading="lazy" />
+                    ),
+                    code: ({ children, className, ...props }) => {
+                      const match = /language-(\w+)/.exec(className || "")
+                      const isInline = !match && !String(children).includes("\n")
+                      const [copied, setCopied] = useState(false)
+
+                      const handleCopyCode = async () => {
+                        await navigator.clipboard.writeText(String(children).replace(/\n$/, ''))
+                        setCopied(true)
+                        setTimeout(() => setCopied(false), 2000)
+                      }
+
+                      if (isInline) {
+                        return (
+                          <code className="bg-muted px-1.5 py-0.5 rounded text-sm font-mono text-foreground border border-border" {...props}>
+                            {children}
+                          </code>
+                        )
+                      }
+
+                      return (
                         <div className="relative my-4 rounded-lg border border-border bg-muted/50 overflow-hidden">
-                           <div className="flex items-center justify-between px-3 py-1.5 bg-muted/80 border-b border-border text-xs text-muted-foreground font-mono">
-                               <span>{match?.[1] || 'code'}</span>
-                           </div>
-                           <div className="overflow-x-auto p-4">
-                                <code className={cn("text-sm font-mono block", className)} {...props}>
-                                    {children}
-                                </code>
-                           </div>
+                          <div className="flex items-center justify-between px-3 py-1.5 bg-muted/80 border-b border-border text-xs text-muted-foreground font-mono">
+                            <span>{match?.[1] || 'code'}</span>
+                            <button
+                              type="button"
+                              onClick={handleCopyCode}
+                              className="flex items-center gap-1 hover:text-foreground transition-colors"
+                            >
+                              {copied ? (
+                                <><Check className="w-3 h-3 text-green-500" /> Copied</>
+                              ) : (
+                                <><Copy className="w-3 h-3" /> Copy</>
+                              )}
+                            </button>
+                          </div>
+                          <div className="overflow-x-auto p-4">
+                            <code className={cn("text-sm font-mono block", className)} {...props}>
+                              {children}
+                            </code>
+                          </div>
                         </div>
                       )
                     },
+                    input: ({ type, checked, ...props }) => {
+                      if (type === "checkbox") {
+                        return (
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            readOnly
+                            className="accent-primary w-4 h-4 rounded border-border mr-2 -ml-5 mt-1"
+                            {...props}
+                          />
+                        )
+                      }
+                      return <input {...props} />
+                    },
+                    hr: () => <hr className="my-6 border-border" />,
                     a: ({ children, href }) => (
                       <a href={href} target="_blank" rel="noopener noreferrer" className="text-primary underline underline-offset-4 hover:text-primary/80 transition-colors">
                         {children}

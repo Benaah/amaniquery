@@ -2,7 +2,7 @@
 PDF Text Extractor using pdfplumber
 """
 import pdfplumber
-from typing import Dict, List
+from typing import Dict, List, Any
 from pathlib import Path
 from loguru import logger
 
@@ -16,7 +16,7 @@ class PDFExtractor:
             "y_tolerance": 3,
         }
     
-    def extract(self, pdf_path: str) -> Dict[str, any]:
+    def extract(self, pdf_path: str) -> Dict[str, Any]:
         """
         Extract text from PDF file
         

@@ -55,6 +55,9 @@ class EmbeddingDiffusionDenoiser(nn.Module):
         # Output projection (predicts noise in embedding space)
         self.output_norm = nn.LayerNorm(embed_dim)
         self.output_proj = nn.Linear(embed_dim, embed_dim)
+        
+        # Time embedding projection (created once, reused in forward)
+        self.time_emb_proj = nn.Linear(self.time_embed_dim, embed_dim)
     
     def forward(
         self,
@@ -77,7 +80,7 @@ class EmbeddingDiffusionDenoiser(nn.Module):
         
         # Time embedding
         time_emb = self.time_embed(timesteps)  # [batch_size, time_embed_dim]
-        time_emb_proj = nn.Linear(self.time_embed_dim, embed_dim).to(time_emb.device)(time_emb)
+        time_emb_proj = self.time_emb_proj(time_emb)
         time_emb_expanded = time_emb_proj.unsqueeze(1).expand(-1, seq_len, -1)
         
         # Add time embedding

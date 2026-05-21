@@ -320,26 +320,36 @@ class HybridRAGPipeline:
             context = self.base_rag._prepare_context(retrieved_docs) if hasattr(self.base_rag, '_prepare_context') else ""
             
             # Generate answer
-            answer = self.base_rag._generate_answer(
+            generated = self.base_rag._generate_answer(
                 query=query,
                 context=context,
                 temperature=temperature,
                 max_tokens=max_tokens
-            ) if hasattr(self.base_rag, '_generate_answer') else "Answer generation not available"
+            ) if hasattr(self.base_rag, '_generate_answer') else {"answer": "Answer generation not available"}
+            
+            # Extract answer text from dict response
+            if isinstance(generated, dict):
+                answer_text = generated.get("answer", "")
+                interactive_widgets = generated.get("interactive_widgets")
+                github_diff = generated.get("github_diff")
+            else:
+                answer_text = str(generated)
+                interactive_widgets = None
+                github_diff = None
             
             # Process with agents if enabled
             if use_agents and self.multi_agent:
                 try:
                     sources_list = self.base_rag._format_sources(retrieved_docs) if hasattr(self.base_rag, '_format_sources') else []
                     agent_result = self.multi_agent.process_with_agents(
-                        content=answer,
+                        content=answer_text,
                         sources=sources_list,
                         use_citer=True,
                         use_editor=True,
                         use_validator=True
                     )
                     if agent_result and 'final_result' in agent_result:
-                        answer = agent_result['final_result'].get('content', answer)
+                        answer_text = agent_result['final_result'].get('content', answer_text)
                         self.agent_processed_queries += 1
                 except Exception as e:
                     logger.warning(f"Agent processing failed: {e}")
@@ -364,7 +374,7 @@ class HybridRAGPipeline:
             
             # Build result
             result = {
-                "answer": answer,
+                "answer": answer_text,
                 "sources": sources,
                 "query_time": query_time,
                 "retrieved_chunks": len(retrieved_docs),
@@ -374,13 +384,17 @@ class HybridRAGPipeline:
                 "agents_used": use_agents,
                 "timestamp": datetime.utcnow().isoformat()
             }
+            if interactive_widgets:
+                result["interactive_widgets"] = interactive_widgets
+            if github_diff:
+                result["github_diff"] = github_diff
             
             # Return structured output if requested
             if return_structured and self.structured_outputs:
                 try:
                     structured = self.structured_outputs.create_dossier(
                         title=f"Research: {query[:50]}",
-                        summary=answer[:500],
+                        summary=answer_text[:500],
                         key_findings=[s.get('title', '')[:100] for s in sources[:5]],
                         sources=[{"title": s.get('title', ''), "url": s.get('url', '')} for s in sources],
                         recommendations=["Review sources", "Verify information"]
@@ -489,7 +503,7 @@ class HybridRAGPipeline:
             )
         
         # Prepare context
-        context = self.base_rag._prepare_context(retrieved_docs)
+        context = self.base_rag._prepare_context(retrieved_docs) if hasattr(self.base_rag, '_prepare_context') else ""
         
         # Generate streaming answer
         answer_stream = self.base_rag._generate_answer_stream(
@@ -497,10 +511,10 @@ class HybridRAGPipeline:
             context=context,
             temperature=temperature,
             max_tokens=max_tokens
-        )
+        ) if hasattr(self.base_rag, '_generate_answer_stream') else iter([])
         
         # Format sources
-        sources = self.base_rag._format_sources(retrieved_docs)
+        sources = self.base_rag._format_sources(retrieved_docs) if hasattr(self.base_rag, '_format_sources') else []
         
         query_time = time.time() - start_time
         
@@ -509,7 +523,7 @@ class HybridRAGPipeline:
             "sources": sources,
             "query_time": query_time,
             "retrieved_chunks": len(retrieved_docs),
-            "model_used": self.base_rag.model,
+            "model_used": getattr(self.base_rag, 'model', 'unknown'),
             "stream": True,
             "hybrid_used": use_hybrid
         }

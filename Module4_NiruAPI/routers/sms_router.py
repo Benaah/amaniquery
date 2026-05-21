@@ -1,7 +1,9 @@
 """
 SMS Router - SMS webhook and gateway endpoints for AmaniQuery
 """
-from fastapi import APIRouter, HTTPException, Request, Form
+import os
+import time
+from fastapi import APIRouter, HTTPException, Request, Form, Depends
 from loguru import logger
 
 router = APIRouter(tags=["SMS Gateway"])
@@ -13,6 +15,22 @@ router = APIRouter(tags=["SMS Gateway"])
 
 sms_pipeline = None
 sms_service = None
+
+# Simple in-memory rate limiter for SMS sending
+_sms_rate_limit_store: dict = {}
+_SMS_RATE_LIMIT = int(os.getenv("SMS_RATE_LIMIT_PER_MINUTE", "5"))
+
+
+async def sms_rate_limiter(request: Request):
+    """Rate limit SMS sending per IP (5 per minute default)"""
+    client_ip = request.client.host if request.client else "unknown"
+    now = time.time()
+    minute_ago = now - 60
+    _sms_rate_limit_store[client_ip] = [t for t in _sms_rate_limit_store.get(client_ip, []) if t > minute_ago]
+    if len(_sms_rate_limit_store[client_ip]) >= _SMS_RATE_LIMIT:
+        raise HTTPException(status_code=429, detail="Rate limit exceeded. Try again later.")
+    _sms_rate_limit_store[client_ip].append(now)
+    return True
 
 
 # =============================================================================
@@ -111,7 +129,7 @@ async def sms_webhook(
 
 
 @router.post("/sms-send")
-async def send_sms_manual(phone_number: str, message: str):
+async def send_sms_manual(phone_number: str, message: str, request: Request, _=Depends(sms_rate_limiter)):
     """
     Send SMS manually (for testing)
     

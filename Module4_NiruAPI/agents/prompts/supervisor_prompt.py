@@ -39,6 +39,12 @@ TOOL_DESCRIPTIONS: Dict[str, str] = {
     "url_fetch": "Fetch and extract content from a specific URL. Use for: reading specific legal documents, fetching gazette notices, accessing online legal resources.",
     "youtube_search": "Search YouTube for videos. Use for: legal education videos, court proceedings recordings, news reports, educational content.",
     "twitter_search": "Search Twitter/X for posts. Use for: public sentiment, breaking news, official government announcements, legal community discussions.",
+    "file_write": "Save research results and content to files. Use for: exporting search results, saving legal analyses, generating reports, creating document drafts for later reference.",
+    "email_draft": "Draft professional emails with templates. Use for: formal letters to MPs, legal queries, business correspondence, client communications, follow-up emails. Supports formal, legal, business templates.",
+    "bill_status": "Look up current status of Kenyan parliamentary bills including voting results and metadata. Use for: tracking bill progress, checking if a bill passed, finding vote counts.",
+    "hansard": "Retrieve Kenyan parliamentary debate transcripts (Hansard) by date or topic. Use for: researching parliamentary proceedings, finding MP statements, understanding debate context.",
+    "fees_calculator": "Calculate Kenyan statutory deductions and fees: Housing Levy (1.5%), SHIF (2.75%), NSSF (tiered), PAYE (income tax brackets), parking fees, KRA fines. Use for: any calculation of government fees, taxes, or statutory deductions.",
+    "legal_citation": "Format legal citations in proper Kenyan and international legal formats. Use for: generating proper case citations, statute references, constitutional article citations, and bibliography entries.",
 }
 
 
@@ -128,6 +134,12 @@ calculator      - Mathematical calculations (fees, penalties, interest)
 url_fetch       - Fetch content from specific URLs
 youtube_search  - Search YouTube for legal education videos
 twitter_search  - Search Twitter/X for public sentiment and announcements
+file_write      - Save research results and content to files for export/reports
+email_draft     - Draft professional emails with formal/legal/business templates
+bill_status     - Look up Kenyan parliamentary bill status and vote counts
+hansard         - Retrieve parliamentary debate transcripts by date or topic
+fees_calculator - Calculate Kenyan statutory deductions (Housing Levy, SHIF, NSSF, PAYE)
+legal_citation  - Format legal citations in proper Kenyan/international format
 ```
 
 ### Rule 3: PARALLEL TOOL EXECUTION
@@ -180,6 +192,12 @@ You MUST output ONLY valid JSON matching the SupervisorDecision schema. No markd
 | url_fetch | Reading specific legal documents, gazette notices, online legal resources |
 | youtube_search | Legal education videos, court proceedings, news reports |
 | twitter_search | Public sentiment, breaking news, government announcements |
+| file_write | Exporting research results and legal analyses to files for reports |
+| email_draft | Drafting formal/legal/business emails, letters to MPs, client communications |
+| bill_status | Tracking Kenyan parliamentary bills, vote counts, and legislative progress |
+| hansard | Researching parliamentary debates, finding MP statements, debate context |
+| fees_calculator | Computing Kenyan statutory deductions: Housing Levy, SHIF, NSSF, PAYE |
+| legal_citation | Formatting case citations, statute refs, constitutional articles |
 
 ## FEW-SHOT EXAMPLES
 

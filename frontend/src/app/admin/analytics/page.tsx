@@ -1,10 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { useRouter } from "next/navigation"
 import { useAuth } from "@/lib/auth-context"
-import { AdminSidebar } from "@/components/admin-sidebar"
-import { ThemeToggle } from "@/components/theme-toggle"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { toast } from "sonner"
@@ -137,17 +134,9 @@ function FeedbackTrainingMetrics() {
 
 export default function AdminAnalyticsPage() {
   const { isAuthenticated, isAdmin, loading } = useAuth()
-  const router = useRouter()
   const [analytics, setAnalytics] = useState<AnalyticsData | null>(null)
   const [loadingAnalytics, setLoadingAnalytics] = useState(true)
 
-  useEffect(() => {
-    if (!loading && !isAuthenticated) {
-      router.push("/auth/signin?redirect=/admin/analytics")
-    } else if (!loading && isAuthenticated && !isAdmin) {
-      router.push("/chat")
-    }
-  }, [isAuthenticated, isAdmin, loading, router])
 
   useEffect(() => {
     if (isAuthenticated && isAdmin) {
@@ -180,22 +169,9 @@ export default function AdminAnalyticsPage() {
     }
   }
 
-  if (loading || !isAuthenticated || !isAdmin) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-      </div>
-    )
-  }
 
   return (
-    <div className="min-h-screen bg-background flex">
-      <AdminSidebar />
-      <div className="flex-1 ml-0 md:ml-[20px] p-4 md:p-6">
-        <div className="absolute top-4 right-4 z-10">
-          <ThemeToggle />
-        </div>
-        <div className="max-w-7xl mx-auto space-y-6">
+    <div className="max-w-7xl mx-auto space-y-6">
           <div>
             <h1 className="text-3xl font-bold flex items-center gap-2">
               <BarChart3 className="w-8 h-8" />
@@ -356,8 +332,6 @@ export default function AdminAnalyticsPage() {
               </CardContent>
             </Card>
           )}
-        </div>
-      </div>
     </div>
   )
 }

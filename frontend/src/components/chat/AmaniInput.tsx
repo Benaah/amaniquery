@@ -233,7 +233,12 @@ export function AmaniInput({
             <Button
               variant="ghost"
               size="sm"
-              className={cn("h-8 px-2 text-muted-foreground hover:text-foreground", currentMode.color)}
+              className={cn(
+                "h-8 px-2 rounded-lg transition-all",
+                mode === "research" ? "text-emerald-600 bg-emerald-50 dark:bg-emerald-950/30 dark:text-emerald-400" :
+                mode === "hybrid" ? "text-purple-600 bg-purple-50 dark:bg-purple-950/30 dark:text-purple-400" :
+                "text-blue-600 bg-blue-50 dark:bg-blue-950/30 dark:text-blue-400"
+              )}
               onClick={() => setShowModeMenu(!showModeMenu)}
             >
               {currentMode.icon}
@@ -260,10 +265,24 @@ export function AmaniInput({
                     }}
                   >
                     {option.icon}
-                    <div>
-                      <div className="font-medium">{option.label}</div>
+                    <div className="flex-1">
+                      <div className={cn(
+                        "font-medium",
+                        mode === option.id && (
+                          option.id === "research" ? "text-emerald-600 dark:text-emerald-400" :
+                          option.id === "hybrid" ? "text-purple-600 dark:text-purple-400" :
+                          "text-blue-600 dark:text-blue-400"
+                        )
+                      )}>{option.label}</div>
                       <div className="text-xs text-muted-foreground">{option.description}</div>
                     </div>
+                    {mode === option.id && (
+                      <div className={`w-1.5 h-1.5 rounded-full ${
+                        option.id === "research" ? "bg-emerald-500" :
+                        option.id === "hybrid" ? "bg-purple-500" :
+                        "bg-blue-500"
+                      }`} />
+                    )}
                   </button>
                 ))}
               </div>

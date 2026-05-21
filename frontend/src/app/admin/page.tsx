@@ -1,14 +1,11 @@
 "use client"
 
-import React, { useState, useEffect, useCallback, useRef } from "react"
-import { useRouter } from "next/navigation"
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Input } from "@/components/ui/input"
-import { AdminSidebar } from "@/components/admin-sidebar"
-import { ThemeToggle } from "@/components/theme-toggle"
 import { useAuth } from "@/lib/auth-context"
 import { 
   Database, 
@@ -120,7 +117,6 @@ interface DatabaseStats {
 
 export default function AdminDashboard() {
   const { isAuthenticated, isAdmin, loading } = useAuth()
-  const router = useRouter()
   const [stats, setStats] = useState<Stats | null>(null)
   const [health, setHealth] = useState<Health | null>(null)
   const [crawlers, setCrawlers] = useState<Record<string, Crawler>>({})
@@ -142,13 +138,6 @@ export default function AdminDashboard() {
   const fetchCrawlersRef = useRef<(() => Promise<void>) | null>(null)
   const intervalSetupRef = useRef(false)
 
-  useEffect(() => {
-    if (!loading && !isAuthenticated) {
-      router.push("/auth/signin?redirect=/admin")
-    } else if (!loading && isAuthenticated && !isAdmin) {
-      router.push("/chat")
-    }
-  }, [isAuthenticated, isAdmin, loading, router])
 
   const fetchStats = async () => {
     try {
@@ -521,26 +510,50 @@ export default function AdminDashboard() {
     }
   }
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-      </div>
-    )
+  const formatRelativeTime = (dateStr: string): string => {
+    const date = new Date(dateStr)
+    const now = new Date()
+    const diffMs = now.getTime() - date.getTime()
+    const seconds = Math.floor(diffMs / 1000)
+    if (seconds < 0) return "Just now"
+    if (seconds < 60) return `${seconds}s ago`
+    const minutes = Math.floor(seconds / 60)
+    if (minutes < 60) return `${minutes}m ${seconds % 60}s ago`
+    const hours = Math.floor(minutes / 60)
+    if (hours < 24) return `${hours}h ${minutes % 60}m ago`
+    const days = Math.floor(hours / 24)
+    if (days === 1) return "Yesterday"
+    return `${days}d ago`
   }
 
-  if (!isAuthenticated || !isAdmin) {
-    return null
+  const formatUptime = (dateStr: string): string => {
+    const date = new Date(dateStr)
+    const now = new Date()
+    const diffMs = now.getTime() - date.getTime()
+    const seconds = Math.floor(diffMs / 1000)
+    if (seconds < 0) return "0s"
+    if (seconds < 60) return `${seconds}s`
+    const minutes = Math.floor(seconds / 60)
+    if (minutes < 60) return `${minutes}m ${seconds % 60}s`
+    const hours = Math.floor(minutes / 60)
+    return `${hours}h ${minutes % 60}m`
   }
+
+  const crawlerEntries = useMemo(() => {
+    return Object.entries(crawlers || {}).map(([name, crawler]) => ({
+      name,
+      status: crawler.status,
+      last_run: crawler.last_run,
+      start_time: crawler.start_time,
+      displayName: name.replace(/_/g, ' '),
+      relativeLastRun: crawler.last_run ? formatRelativeTime(crawler.last_run) : "Never",
+      uptime: crawler.start_time ? formatUptime(crawler.start_time) : null,
+    }))
+  }, [crawlers])
+
 
   return (
-    <div className="min-h-screen bg-background flex">
-      <AdminSidebar />
-      <div className="flex-1 ml-0 md:ml-[20px] p-4 md:p-6">
-        <div className="absolute top-4 right-4 z-10">
-          <ThemeToggle />
-        </div>
-        <div className="max-w-7xl mx-auto space-y-4 md:space-y-6">
+    <div className="max-w-7xl mx-auto space-y-4 md:space-y-6">
           {/* Header */}
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div>
@@ -629,6 +642,67 @@ export default function AdminDashboard() {
               </p>
             </CardContent>
           </Card>
+        </div>
+
+        {/* Crawler Status Overview */}
+        <div>
+          <h2 className="text-lg md:text-xl font-semibold mb-4 flex items-center">
+            <Activity className="w-5 h-5 mr-2" />
+            Crawler Status Overview
+          </h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {crawlerEntries.length > 0 ? (
+              crawlerEntries.map((entry) => (
+                <Card key={entry.name} className="relative overflow-hidden">
+                  {entry.status === "running" && (
+                    <div className="absolute bottom-0 left-0 right-0 h-1 bg-green-500 animate-pulse" />
+                  )}
+                  <CardContent className="p-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="font-medium capitalize text-sm truncate mr-2">
+                        {entry.displayName}
+                      </span>
+                      <div className="flex items-center space-x-1.5 flex-shrink-0">
+                        <span className={`w-2.5 h-2.5 rounded-full ${
+                          entry.status === "running" ? "bg-green-500 animate-pulse" :
+                          entry.status === "failed" ? "bg-red-500" : "bg-gray-400"
+                        }`} />
+                        <span className="text-xs text-muted-foreground capitalize">{entry.status}</span>
+                      </div>
+                    </div>
+                    <div className="space-y-1 text-xs text-muted-foreground">
+                      <div className="flex justify-between">
+                        <span>Last run:</span>
+                        <span>{entry.relativeLastRun}</span>
+                      </div>
+                      {entry.status === "running" && entry.uptime && (
+                        <div className="flex justify-between">
+                          <span>Uptime:</span>
+                          <span>{entry.uptime}</span>
+                        </div>
+                      )}
+                    </div>
+                    <div className="mt-3">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => runCrawler(entry.name)}
+                        disabled={entry.status === "running"}
+                        className="w-full h-7 text-xs"
+                      >
+                        <Play className="w-3 h-3 mr-1" />
+                        Run
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))
+            ) : (
+              <div className="col-span-full text-center text-muted-foreground py-8 text-sm">
+                No crawler data available
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Crawler Management */}
@@ -1137,8 +1211,6 @@ export default function AdminDashboard() {
             </div>
           </CardContent>
         </Card>
-        </div>
-      </div>
     </div>
   )
 }

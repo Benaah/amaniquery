@@ -14,18 +14,18 @@ import threading
 from functools import lru_cache
 
 from loguru import logger
-from sqlalchemy import create_engine, text, Index, event
-from sqlalchemy.orm import sessionmaker, scoped_session, Session
-from sqlalchemy.pool import QueuePool
+from sqlalchemy import text, Index
+from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError, OperationalError
+
+from Module3_NiruDB.connection_pool import pool_manager, EngineConfig
 
 # Async support
 try:
-    from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+    from sqlalchemy.ext.asyncio import AsyncSession
     ASYNC_AVAILABLE = True
 except ImportError:
     ASYNC_AVAILABLE = False
-    logger.warning("Async SQLAlchemy not available, using sync mode only")
 
 from Module3_NiruDB.chat_models import (
     ChatSession, ChatMessage, UserFeedback, Base,
@@ -89,111 +89,6 @@ class TTLCache:
 
 
 # =============================================================================
-# CONNECTION POOL MANAGER
-# =============================================================================
-
-class ConnectionPoolManager:
-    """Manages database connection pools for optimal performance"""
-    
-    _instance = None
-    _lock = threading.Lock()
-    
-    def __new__(cls):
-        if cls._instance is None:
-            with cls._lock:
-                if cls._instance is None:
-                    cls._instance = super().__new__(cls)
-                    cls._instance._initialized = False
-        return cls._instance
-    
-    def __init__(self):
-        if self._initialized:
-            return
-        
-        self._engines: Dict[str, Any] = {}
-        self._session_factories: Dict[str, Any] = {}
-        self._async_engines: Dict[str, Any] = {}
-        self._async_session_factories: Dict[str, Any] = {}
-        self._initialized = True
-    
-    def get_engine(self, database_url: str, pool_size: int = 20, max_overflow: int = 30):
-        """Get or create a connection pool for the given URL"""
-        if database_url not in self._engines:
-            # Optimize connection args based on database type
-            connect_args = {"connect_timeout": 10}
-            
-            # For PostgreSQL with Neon, add specific optimizations
-            if "neon.tech" in database_url:
-                connect_args["options"] = "-c statement_timeout=30000"
-            
-            engine = create_engine(
-                database_url,
-                poolclass=QueuePool,
-                pool_size=pool_size,
-                max_overflow=max_overflow,
-                pool_pre_ping=True,
-                pool_recycle=1800,  # Recycle every 30 minutes
-                pool_timeout=30,
-                echo=False,
-                connect_args=connect_args
-            )
-            
-            # Add connection event listeners for optimization
-            @event.listens_for(engine, "connect")
-            def set_search_path(dbapi_connection, connection_record):
-                """Set search path on connect for PostgreSQL"""
-                try:
-                    cursor = dbapi_connection.cursor()
-                    cursor.execute("SET timezone = 'UTC'")
-                    cursor.close()
-                except Exception:
-                    pass
-            
-            self._engines[database_url] = engine
-            self._session_factories[database_url] = scoped_session(
-                sessionmaker(bind=engine, expire_on_commit=False)
-            )
-        
-        return self._engines[database_url]
-    
-    def get_session_factory(self, database_url: str):
-        """Get session factory for the given URL"""
-        self.get_engine(database_url)  # Ensure engine exists
-        return self._session_factories[database_url]
-    
-    def get_async_engine(self, database_url: str, pool_size: int = 20):
-        """Get or create async engine"""
-        if not ASYNC_AVAILABLE:
-            raise RuntimeError("Async SQLAlchemy not available")
-        
-        if database_url not in self._async_engines:
-            # Convert sync URL to async
-            async_url = database_url.replace("postgresql://", "postgresql+asyncpg://")
-            async_url = async_url.replace("postgres://", "postgresql+asyncpg://")
-            
-            engine = create_async_engine(
-                async_url,
-                pool_size=pool_size,
-                max_overflow=30,
-                pool_pre_ping=True,
-                pool_recycle=1800,
-                echo=False
-            )
-            
-            self._async_engines[database_url] = engine
-            self._async_session_factories[database_url] = async_sessionmaker(
-                engine, class_=AsyncSession, expire_on_commit=False
-            )
-        
-        return self._async_engines[database_url]
-    
-    def get_async_session_factory(self, database_url: str):
-        """Get async session factory"""
-        self.get_async_engine(database_url)
-        return self._async_session_factories[database_url]
-
-
-# =============================================================================
 # HIGH-PERFORMANCE CHAT DATABASE MANAGER
 # =============================================================================
 
@@ -239,11 +134,18 @@ class ChatDatabaseManagerV2:
                     logger.info("Using unpooled Neon connection for chat database")
         
         self.database_url = database_url
-        self.pool_manager = ConnectionPoolManager()
         
-        # Get pooled engine and session factory
-        self.engine = self.pool_manager.get_engine(database_url, pool_size, max_overflow)
-        self.SessionFactory = self.pool_manager.get_session_factory(database_url)
+        # Use unified connection pool manager
+        self.engine_group = pool_manager.get_engine_group(
+            database_url=database_url,
+            config=EngineConfig(
+                pool_size=pool_size,
+                max_overflow=max_overflow,
+                pool_recycle=1800,
+            )
+        )
+        self.engine = self.engine_group.writer_engine
+        self.SessionFactory = self.engine_group.writer_session_factory
         
         # Initialize caches
         self._session_cache = TTLCache(maxsize=cache_size, ttl_seconds=cache_ttl)
@@ -256,8 +158,7 @@ class ChatDatabaseManagerV2:
         self._async_available = ASYNC_AVAILABLE
         if self._async_available:
             try:
-                self.async_engine = self.pool_manager.get_async_engine(database_url, pool_size)
-                self.AsyncSessionFactory = self.pool_manager.get_async_session_factory(database_url)
+                self.AsyncSessionFactory = pool_manager.get_async_session_factory(database_url)
             except Exception as e:
                 logger.warning(f"Async engine initialization failed: {e}")
                 self._async_available = False
@@ -1098,13 +999,10 @@ class ChatDatabaseManagerV2:
             with self._get_db_session() as db:
                 db.execute(text("SELECT 1"))
             
-            pool = self.engine.pool
+            pool_health = pool_manager.get_health()
             return {
                 "status": "healthy",
-                "pool_size": pool.size(),
-                "checked_in": pool.checkedin(),
-                "checked_out": pool.checkedout(),
-                "overflow": pool.overflow(),
+                **pool_health,
                 "cache_session_count": len(self._session_cache._cache),
                 "cache_message_count_count": len(self._message_count_cache._cache)
             }

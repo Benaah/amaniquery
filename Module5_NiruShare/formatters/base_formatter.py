@@ -103,7 +103,6 @@ class BaseFormatter(ABC):
             title = source.get('title', 'Untitled') or 'Untitled'
             url = source.get('url', '')
             
-            # Sanitize title
             title = str(title).strip()
             
             if url:
@@ -116,3 +115,21 @@ class BaseFormatter(ABC):
             return ""
         
         return "\n\n[DOCS] Sources:\n" + "\n".join(citations)
+
+    def _format_sources_plain(self, sources: List[Dict], max_sources: int = 3) -> str:
+        """Format source citations as plain text lines (no DOCS header)"""
+        if not sources:
+            return ""
+        
+        lines = []
+        for i, source in enumerate(sources[:max_sources], 1):
+            if not isinstance(source, dict):
+                continue
+            title = str(source.get('title', 'Untitled') or 'Untitled').strip()
+            url = str(source.get('url', '') or '').strip()
+            if url:
+                lines.append(f"{i}. {title} - {url}")
+            else:
+                lines.append(f"{i}. {title}")
+        
+        return "\n".join(lines)

@@ -76,15 +76,40 @@ AI_TTL_MAP = {
 
 class BlazingFastCache:
     """Multi-level caching system with AI-powered optimization"""
-    
+
+    # Module-level Redis client (shared across instances for cross-pod consistency)
+    _redis_cache: Optional['RedisCache'] = None
+    _redis_lock = threading.Lock()
+
+    @classmethod
+    def _get_redis_backend(cls) -> Optional['RedisCache']:
+        """Get or create shared Redis backend for L2 cache"""
+        if cls._redis_cache is None:
+            with cls._redis_lock:
+                if cls._redis_cache is None:
+                    try:
+                        cls._redis_cache = RedisCache()
+                        logger.info("Global Redis backend initialized for BlazingFastCache L2")
+                    except Exception as e:
+                        logger.warning(f"Failed to init Redis L2 backend: {e}")
+                        cls._redis_cache = None
+        return cls._redis_cache
+
+    # Lock namespacing for distributed locks
+    REDIS_LOCK_PREFIX = "bfcache:lock:"
+    REDIS_LOCK_TTL = 10  # seconds before lock auto-expires
+
     def __init__(self, config: CacheConfig = None):
         self.config = config or CacheConfig()
         
         # Multi-level cache storage
         self.l1_cache = OrderedDict()  # L1: Memory (fastest)
-        self.l2_cache = {}  # L2: Redis (fast)
+        self.l2_cache = {}  # L2: In-memory fallback when Redis is unavailable
         self.l3_cache = []  # L3: Semantic similarity
         self.l4_cache = []  # L4: Vector similarity
+
+        # Wire up Redis backend
+        self._redis = self._get_redis_backend()
         
         # Performance tracking
         self.stats = {
@@ -111,7 +136,7 @@ class BlazingFastCache:
         # Predictive cache for anticipated queries
         self.predictive_cache = OrderedDict()
         
-        logger.info(f"Cache initialized with {self.config.l1_capacity} L1, {self.config.l2_capacity} L2 capacity")
+        logger.info(f"Cache initialized with {self.config.l1_capacity} L1, L2={'Redis' if self._redis else 'dict fallback'}")
     
     def get_stats(self) -> Dict[str, Any]:
         """Get comprehensive cache statistics"""
@@ -169,28 +194,50 @@ class BlazingFastCache:
             self.stats["l1_misses"] += 1
         
         # 2. L2 Redis Cache (microseconds)
-        with self.locks["l2"]:
-            if key in self.l2_cache:
-                entry = self.l2_cache[key]
-                if self._is_entry_valid(entry):
-                    entry.access_count += 1
-                    entry.last_accessed = time.time()
-                    
+        hit = False
+        if self._redis:
+            try:
+                ser = self._redis.get(key)
+                if ser is not None:
+                    entry = CacheEntry(
+                        data=ser,
+                        timestamp=time.time(),
+                        ttl=AI_TTL_MAP["default"],
+                    )
+                    hit = True
                     # Promote to L1
                     self._promote_to_l1(key, entry)
-                    
                     with self.locks["stats"]:
                         self.stats["l2_hits"] += 1
-                    
                     self._update_avg_response_time(time.time() - start_time)
-                    logger.debug(f"[INFO] L2 cache hit for key: {key[:50]}...")
+                    logger.debug(f"[INFO] L2 Redis hit for key: {key[:50]}...")
                     return entry.data
+            except Exception as e:
+                logger.warning(f"L2 Redis get failed, falling back: {e}")
+
+        if not hit:
+            # Fallback to in-memory L2 dict
+            with self.locks["l2"]:
+                if key in self.l2_cache:
+                    entry = self.l2_cache[key]
+                    if self._is_entry_valid(entry):
+                        entry.access_count += 1
+                        entry.last_accessed = time.time()
+                        
+                        # Promote to L1
+                        self._promote_to_l1(key, entry)
+                        
+                        with self.locks["stats"]:
+                            self.stats["l2_hits"] += 1
+                        
+                        self._update_avg_response_time(time.time() - start_time)
+                        logger.debug(f"[INFO] L2 dict hit for key: {key[:50]}...")
+                        return entry.data
+                    else:
+                        del self.l2_cache[key]
                 else:
-                    # Expired entry
-                    del self.l2_cache[key]
-        
-        with self.locks["stats"]:
-            self.stats["l2_misses"] += 1
+                    with self.locks["stats"]:
+                        self.stats["l2_misses"] += 1
         
         # 3. L3 Semantic Cache (milliseconds)
         if query_embedding is not None:
@@ -254,13 +301,21 @@ class BlazingFastCache:
                 self.l1_cache.popitem(last=False)
         
         # 2. Store in L2 Redis Cache
+        if self._redis:
+            try:
+                self._redis.set(key, entry.data, ttl)
+            except Exception as e:
+                logger.warning(f"L2 Redis set failed, falling back to dict: {e}")
+                self._fallback_l2_set(key, entry)
+        else:
+            self._fallback_l2_set(key, entry)
+
+    def _fallback_l2_set(self, key: str, entry: CacheEntry):
+        """Fallback L2 store to in-memory dict when Redis is unavailable"""
         with self.locks["l2"]:
             self.l2_cache[key] = entry
-            
-            # Evict old entries if over capacity
             while len(self.l2_cache) > self.config.l2_capacity:
-                # Remove least recently used
-                lru_key = min(self.l2_cache.keys(), 
+                lru_key = min(self.l2_cache.keys(),
                              key=lambda k: self.l2_cache[k].last_accessed)
                 del self.l2_cache[lru_key]
         
@@ -426,7 +481,7 @@ class BlazingFastCache:
             for key in expired_keys:
                 del self.l1_cache[key]
         
-        # Clean L2 cache
+        # Clean L2 cache (Redis handles its own TTL, clean dict fallback)
         with self.locks["l2"]:
             expired_keys = [
                 key for key, entry in self.l2_cache.items()
@@ -763,26 +818,90 @@ def get_cache_stats() -> Dict[str, Any]:
     }
 
 class CacheManager:
-    """Compatibility wrapper for the old CacheManager interface to work with the new BlazingFastCache"""
+    """Compatibility wrapper with distributed lock and request coalescing"""
     def __init__(self, config_manager=None):
         self.blazing_cache = _blazing_cache
         self.redis_cache = RedisCache()
         self.redis_client = self.redis_cache.client
-        
+
+        # Request coalescing: tracks in-flight computations so duplicate requests
+        # wait for the first one to complete rather than all hitting the LLM.
+        self._in_flight: Dict[str, asyncio.Future] = {}
+        self._in_flight_lock = threading.Lock()
+
     async def get_or_compute(self, key: str, compute_func: Callable, ttl_type: str = "default") -> Any:
-        """Get from cache or compute asynchronously"""
+        """Get from cache or compute with distributed lock + request coalescing"""
         cache_key = f"rag_query:{hashlib.md5(key.encode()).hexdigest()}"
+
+        # 1. Try cache first
         cached = self.blazing_cache.get(cache_key)
-        
         if cached is not None:
-            logger.info(f"[INFO] Cache hit for compatibility layer: {key[:50]}...")
+            logger.debug(f"Cache hit: {key[:50]}...")
             return cached
-            
-        result = await compute_func()
-        
-        ttl = AI_TTL_MAP.get(ttl_type, AI_TTL_MAP["default"])
-        self.blazing_cache.set(cache_key, result, ttl=ttl)
-        
+
+        # 2. Request coalescing: check if same key is being computed by another request
+        with self._in_flight_lock:
+            if cache_key in self._in_flight:
+                future = self._in_flight[cache_key]
+                logger.info(f"Coalescing duplicate request: {key[:50]}...")
+            else:
+                future = None
+
+        if future is not None:
+            return await future
+
+        # 3. Distributed lock via Redis to prevent thundering herd across pods
+        lock_key = f"{BlazingFastCache.REDIS_LOCK_PREFIX}{cache_key}"
+        lock_acquired = False
+        lock_ttl = BlazingFastCache.REDIS_LOCK_TTL
+
+        if self.redis_client:
+            try:
+                # SET NX with TTL — atomic lock acquire
+                import secrets
+                lock_token = secrets.token_hex(16)
+                acquired = self.redis_cache.client.set(lock_key, lock_token, nx=True, ex=lock_ttl)
+                if acquired:
+                    lock_acquired = True
+            except Exception as e:
+                logger.warning(f"Distributed lock failed, proceeding without: {e}")
+
+        if not lock_acquired:
+            # Lock held by another pod — wait briefly and retry cache
+            await asyncio.sleep(0.05)
+            cached = self.blazing_cache.get(cache_key)
+            if cached is not None:
+                return cached
+
+        # 4. Create future for this computation (coalescing)
+        future = asyncio.get_event_loop().create_future()
+        with self._in_flight_lock:
+            self._in_flight[cache_key] = future
+
+        try:
+            result = await compute_func()
+
+            ttl = AI_TTL_MAP.get(ttl_type, AI_TTL_MAP["default"])
+            self.blazing_cache.set(cache_key, result, ttl=ttl)
+
+            # Resolve coalesced futures
+            future.set_result(result)
+        except Exception as e:
+            future.set_exception(e)
+            raise
+        finally:
+            with self._in_flight_lock:
+                self._in_flight.pop(cache_key, None)
+            # Release distributed lock
+            if lock_acquired and self.redis_client:
+                try:
+                    # Only delete if our token matches (safe release)
+                    current_val = self.redis_cache.client.get(lock_key)
+                    if current_val and current_val.decode() == lock_token:
+                        self.redis_cache.client.delete(lock_key)
+                except Exception:
+                    pass
+
         return result
         
     def delete_pattern(self, pattern: str):

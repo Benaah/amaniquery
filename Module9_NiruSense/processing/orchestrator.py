@@ -87,10 +87,22 @@ class ProcessingPipeline:
                 if isinstance(res, Exception):
                     logger.error(f"Core analysis agent {i} failed: {res}")
 
-            # 3. High-Level Analysis
-            bias_res = self.bias_detector.execute(normalized_text)
-            summary_res = self.summarizer.execute(normalized_text)
-            quality_res = self.quality_scorer.execute(normalized_text)
+            # 3. High-Level Analysis (run in thread pool to avoid blocking event loop)
+            bias_res, summary_res, quality_res = await asyncio.gather(
+                asyncio.to_thread(self.bias_detector.execute, normalized_text),
+                asyncio.to_thread(self.summarizer.execute, normalized_text),
+                asyncio.to_thread(self.quality_scorer.execute, normalized_text),
+                return_exceptions=True
+            )
+            if isinstance(bias_res, Exception):
+                bias_res = {}
+                logger.error(f"Bias detector failed: {bias_res}")
+            if isinstance(summary_res, Exception):
+                summary_res = {}
+                logger.error(f"Summarizer failed: {summary_res}")
+            if isinstance(quality_res, Exception):
+                quality_res = {}
+                logger.error(f"Quality scorer failed: {quality_res}")
             
             # 4. Generate Embedding
             embed_text = f"{normalized_text}\n\nSummary: {summary_res.get('summary', '')}"

@@ -6,8 +6,9 @@ import os
 import asyncio
 from typing import List, Dict, Optional, Any, AsyncGenerator
 import time
+import httpx
 from loguru import logger
-from openai import OpenAI
+from openai import OpenAI, AsyncOpenAI
 from anthropic import Anthropic
 from dotenv import load_dotenv
 import hashlib
@@ -30,6 +31,11 @@ try:
 except ImportError:
     RERANKER_AVAILABLE = False
     logger.warning("Reranker not available, using basic retrieval")
+
+# Global thread pools shared across ALL pipeline instances for 1M+ scale
+_global_query_pool = concurrent.futures.ThreadPoolExecutor(max_workers=10, thread_name_prefix="RAGQuery")
+_global_retrieval_pool = concurrent.futures.ThreadPoolExecutor(max_workers=5, thread_name_prefix="RAGRetrieval")
+_rag_pipeline_clients = {}  # Shared async HTTP clients
 
 
 class StreamingMode(Enum):
@@ -136,6 +142,40 @@ class RAGPipeline:
                     ) from e
                 else:
                     raise
+        elif llm_provider == "nvidia_nim":
+            api_key = self._get_secret("NVIDIA_NIM_API_KEY")
+            base_url = (
+                os.getenv("NVIDIA_NIM_BASE_URL")
+                or self._get_secret("NVIDIA_NIM_BASE_URL")
+                or "https://integrate.api.nvidia.com/v1"
+            )
+            if not api_key:
+                raise ValueError("NVIDIA_NIM_API_KEY not set in environment")
+
+            try:
+                self.client = OpenAI(
+                    api_key=api_key,
+                    base_url=base_url,
+                )
+                logger.info(f"Using NVIDIA NIM at {base_url}")
+
+                test_response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[{"role": "user", "content": "test"}],
+                    max_tokens=5
+                )
+                logger.info("NVIDIA NIM connection test successful")
+
+            except Exception as e:
+                error_msg = str(e)
+                if "401" in error_msg or "Invalid Authentication" in error_msg:
+                    raise ValueError(
+                        "NVIDIA NIM API key is invalid or expired. "
+                        "Check NVIDIA_NIM_API_KEY in your .env file"
+                    ) from e
+                else:
+                    logger.error(f"NVIDIA NIM connection failed: {type(e).__name__}")
+                    raise
         elif llm_provider == "moonshot":
             api_key = self._get_secret("MOONSHOT_API_KEY")
             base_url = (
@@ -165,12 +205,13 @@ class RAGPipeline:
             except Exception as e:
                 error_msg = str(e)
                 if "401" in error_msg or "Invalid Authentication" in error_msg:
+                    logger.error("Moonshot AI API key is invalid or expired")
                     raise ValueError(
                         "Moonshot AI API key is invalid or expired. "
-                        "Please get a new API key from https://platform.moonshot.ai/console "
-                        "and update MOONSHOT_API_KEY in your .env file"
+                        "Check MOONSHOT_API_KEY in your .env file"
                     ) from e
                 else:
+                    logger.error(f"Moonshot AI connection failed (check API key): {type(e).__name__}")
                     raise
         else:
             # Check for OpenRouter first for any other provider/model
@@ -220,8 +261,9 @@ class RAGPipeline:
         logger.info(f"🚀 Blazing Fast RAG Pipeline initialized with {self.llm_provider}/{self.model}")
         logger.info(f"📊 Cache capacity: {self.cache_max_size} | Workers: {self.query_executor._max_workers}")
         
-        # Initialize ensemble clients (for multi-model responses when context is limited)
-        self.ensemble_clients = self._initialize_ensemble_clients()
+        # Ensemble clients initialized lazily on first use (avoids 4x wasted API client creation)
+        self.ensemble_clients: Dict[str, Any] = {}
+        self._ensemble_initialized = False
         
         # Initialize reranker and query optimizer
         self.reranker = None
@@ -233,87 +275,75 @@ class RAGPipeline:
                 logger.info("Initialized intelligent reranker and query optimizer")
             except Exception as e:
                 logger.warning(f"Failed to initialize reranker: {e}")
+        else:
+            logger.info("Intelligent reranker not available")
 
-    def _initialize_ensemble_clients(self) -> Dict[str, Any]:
-        """Initialize all available model clients for ensemble responses"""
-        clients = {}
-        
-        # OpenAI
-        try:
-            api_key = self._get_secret("OPENAI_API_KEY")
-            if api_key:
-                clients["openai"] = {
-                    "client": OpenAI(api_key=api_key),
-                    "model": os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-                }
-                logger.info("Ensemble: OpenAI client initialized")
-        except Exception as e:
-            logger.warning(f"Ensemble: Failed to initialize OpenAI: {e}")
-        
-        # Moonshot
-        try:
-            api_key = self._get_secret("MOONSHOT_API_KEY")
-            if api_key:
-                base_url = os.getenv("MOONSHOT_BASE_URL") or "https://api.moonshot.ai/v1"
-                clients["moonshot"] = {
-                    "client": OpenAI(api_key=api_key, base_url=base_url),
-                    "model": os.getenv("MOONSHOT_MODEL", "moonshot-v1-8k")
-                }
-                logger.info("Ensemble: Moonshot client initialized")
-        except Exception as e:
-            logger.warning(f"Ensemble: Failed to initialize Moonshot: {e}")
-        
-        # Anthropic
-        try:
-            api_key = self._get_secret("ANTHROPIC_API_KEY")
-            if api_key:
-                clients["anthropic"] = {
-                    "client": Anthropic(api_key=api_key),
-                    "model": os.getenv("ANTHROPIC_MODEL", "claude-3-5-sonnet-20241022")
-                }
-                logger.info("Ensemble: Anthropic client initialized")
-        except Exception as e:
-            logger.warning(f"Ensemble: Failed to initialize Anthropic: {e}")
-        
-        # Gemini
-        try:
-            api_key = self._get_secret("GEMINI_API_KEY")
-            if api_key:
-                import google.generativeai as genai
-                genai.configure(api_key=api_key)
-                # Use gemini-2.5-flash as default (faster) or gemini-2.5-pro (more capable)
-                gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
-                # Fallback to gemini-2.5-pro if flash not available
-                if gemini_model == "gemini-2.5-pro":
-                    gemini_model = "gemini-2.5-flash"
-                clients["gemini"] = {
-                    "client": genai.GenerativeModel(gemini_model),
-                    "model": gemini_model
-                }
-                logger.info(f"Ensemble: Gemini client initialized with {gemini_model}")
-        except Exception as e:
-            logger.warning(f"Ensemble: Failed to initialize Gemini: {e}")
+    def _get_ensemble_clients(self) -> Dict[str, Any]:
+        """Lazy-init ensemble clients only when actually needed (context-limited queries)"""
+        if self._ensemble_initialized:
+            return self.ensemble_clients
 
-        # OpenRouter
-        try:
-            api_key = self._get_secret("OPENROUTER_API_KEY")
-            if api_key:
-                clients["openrouter"] = {
-                    "client": OpenAI(
-                        api_key=api_key, 
-                        base_url="https://openrouter.ai/api/v1",
-                        default_headers={
-                            "HTTP-Referer": "https://amaniquery.vercel.app",
-                            "X-Title": "AmaniQuery",
-                        }
-                    ),
-                    "model": os.getenv("OPENROUTER_MODEL", "meta-llama/llama-3-8b-instruct:free")
-                }
-                logger.info("Ensemble: OpenRouter client initialized")
-        except Exception as e:
-            logger.warning(f"Ensemble: Failed to initialize OpenRouter: {e}")
+        clients: Dict[str, Any] = {}
         
-        logger.info(f"Ensemble: {len(clients)} model(s) available for ensemble responses")
+        # Primary provider first - most likely to be used
+        try:
+            if self.llm_provider in ("openai", "moonshot", "nvidia_nim"):
+                api_key = None
+                base_url = None
+                if self.llm_provider == "openai":
+                    api_key = self._get_secret("OPENAI_API_KEY")
+                elif self.llm_provider == "moonshot":
+                    api_key = self._get_secret("MOONSHOT_API_KEY")
+                    base_url = os.getenv("MOONSHOT_BASE_URL") or "https://api.moonshot.ai/v1"
+                elif self.llm_provider == "nvidia_nim":
+                    api_key = self._get_secret("NVIDIA_NIM_API_KEY")
+                    base_url = os.getenv("NVIDIA_NIM_BASE_URL") or "https://integrate.api.nvidia.com/v1"
+                if api_key:
+                    clients[self.llm_provider] = {
+                        "client": OpenAI(api_key=api_key, base_url=base_url) if base_url else OpenAI(api_key=api_key),
+                        "model": self.model,
+                    }
+        except Exception:
+            pass
+
+        # Secondary providers only when primary is functional
+        if clients:
+            if "openai" not in clients:
+                try:
+                    api_key = self._get_secret("OPENAI_API_KEY")
+                    if api_key:
+                        clients["openai"] = {"client": OpenAI(api_key=api_key), "model": os.getenv("OPENAI_MODEL", "gpt-4o-mini")}
+                except Exception:
+                    pass
+            
+            if "moonshot" not in clients:
+                try:
+                    api_key = self._get_secret("MOONSHOT_API_KEY")
+                    if api_key:
+                        base_url = os.getenv("MOONSHOT_BASE_URL") or "https://api.moonshot.ai/v1"
+                        clients["moonshot"] = {"client": OpenAI(api_key=api_key, base_url=base_url), "model": os.getenv("MOONSHOT_MODEL", "moonshot-v1-8k")}
+                except Exception:
+                    pass
+
+            if "nvidia_nim" not in clients:
+                try:
+                    api_key = self._get_secret("NVIDIA_NIM_API_KEY")
+                    if api_key:
+                        base_url = os.getenv("NVIDIA_NIM_BASE_URL") or "https://integrate.api.nvidia.com/v1"
+                        clients["nvidia_nim"] = {"client": OpenAI(api_key=api_key, base_url=base_url), "model": os.getenv("NVIDIA_NIM_MODEL", "meta/llama-3.1-70b-instruct")}
+                except Exception:
+                    pass
+
+            try:
+                api_key = self._get_secret("ANTHROPIC_API_KEY")
+                if api_key:
+                    clients["anthropic"] = {"client": Anthropic(api_key=api_key), "model": os.getenv("ANTHROPIC_MODEL", "claude-3-5-sonnet-20241022")}
+            except Exception:
+                pass
+
+        self.ensemble_clients = clients
+        self._ensemble_initialized = True
+        logger.info(f"Lazy ensemble: {len(clients)} model(s) available")
         return clients
 
     def _is_context_limited(self, retrieved_docs: List[Dict], min_relevance: float = 0.5) -> bool:
@@ -892,7 +922,7 @@ class RAGPipeline:
             )
         
         # Fallback to ensemble if no documents found
-        if len(self.ensemble_clients) > 0:
+        if len(self._get_ensemble_clients()) > 0:
             logger.info("Using ensemble fallback")
             return self._query_with_ensemble(query, temperature, max_tokens, start_time)
         
@@ -982,7 +1012,7 @@ class RAGPipeline:
         use_ensemble = self._is_context_limited(retrieved_docs)
         
         if not retrieved_docs or use_ensemble:
-            if use_ensemble and len(self.ensemble_clients) > 0:
+            if use_ensemble and len(self._get_ensemble_clients()) > 0:
                 logger.info("Context limited - using multi-model ensemble")
                 return self._query_with_ensemble(query, temperature, max_tokens, start_time)
             else:
@@ -1375,7 +1405,7 @@ Provide a concise answer based on your knowledge of Kenyan law and current affai
                 client = client_info["client"]
                 model = client_info["model"]
                 
-                if provider in ["openai", "moonshot"]:
+                if provider in ["openai", "moonshot", "nvidia_nim", "openrouter"]:
                     response = client.chat.completions.create(
                         model=model,
                         messages=[
@@ -1408,28 +1438,16 @@ Provide a concise answer based on your knowledge of Kenyan law and current affai
                         )
                     )
                     return response.text
-
-                elif provider == "openrouter":
-                    response = client.chat.completions.create(
-                        model=model,
-                        messages=[
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": user_prompt}
-                        ],
-                        temperature=temperature,
-                        max_tokens=max_tokens
-                    )
-                    return response.choices[0].message.content
                 
             except Exception as e:
                 logger.warning(f"Ensemble: {provider} failed: {e}")
                 return None
         
         # Query all models in parallel
-        with concurrent.futures.ThreadPoolExecutor(max_workers=len(self.ensemble_clients)) as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(self._get_ensemble_clients())) as executor:
             futures = {
                 executor.submit(query_model, provider, client_info): provider
-                for provider, client_info in self.ensemble_clients.items()
+                for provider, client_info in self._get_ensemble_clients().items()
             }
             
             for future in concurrent.futures.as_completed(futures):
@@ -1450,15 +1468,19 @@ Provide a concise answer based on your knowledge of Kenyan law and current affai
             return list(responses.values())[0]
         
         # Use the primary model to synthesize responses
-        if self.llm_provider in ["openai", "moonshot"] and self.llm_provider in responses:
+        nim_like = ["openai", "moonshot", "nvidia_nim"]
+        if self.llm_provider in nim_like and self.llm_provider in responses:
             synthesizer = self.client
             model = self.model
         elif "openai" in responses:
-            synthesizer = self.ensemble_clients["openai"]["client"]
-            model = self.ensemble_clients["openai"]["model"]
+            synthesizer = self._get_ensemble_clients()["openai"]["client"]
+            model = self._get_ensemble_clients()["openai"]["model"]
         elif "moonshot" in responses:
-            synthesizer = self.ensemble_clients["moonshot"]["client"]
-            model = self.ensemble_clients["moonshot"]["model"]
+            synthesizer = self._get_ensemble_clients()["moonshot"]["client"]
+            model = self._get_ensemble_clients()["moonshot"]["model"]
+        elif "nvidia_nim" in responses:
+            synthesizer = self._get_ensemble_clients()["nvidia_nim"]["client"]
+            model = self._get_ensemble_clients()["nvidia_nim"]["model"]
         else:
             # Fallback: return the longest response
             return max(responses.values(), key=len)
@@ -1678,7 +1700,7 @@ Combined Response:"""
             # Check if context is limited - use ensemble if so
             use_ensemble = self._is_context_limited(retrieved_docs)
             
-            if use_ensemble and len(self.ensemble_clients) > 0:
+            if use_ensemble and len(self._get_ensemble_clients()) > 0:
                 logger.info("Context limited - using multi-model ensemble with streaming")
                 return self._query_stream_with_ensemble(
                     query=query,
@@ -1868,8 +1890,8 @@ Provide a concise answer. If the query is quantitative (taxes/levies), output JS
 
         try:
             raw_answer = ""
-            if self.llm_provider in ["openai", "moonshot"]:
-                # Both OpenAI and Moonshot use the same API format
+            if self.llm_provider in ["openai", "moonshot", "nvidia_nim"]:
+                # OpenAI-compatible API (OpenAI, Moonshot, NVIDIA NIM)
                 response = self.client.chat.completions.create(
                     model=self.model,
                     messages=[

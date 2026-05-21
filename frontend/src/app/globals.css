@@ -111,8 +111,8 @@
   --sidebar-ring: #EDEDED;
 }
 
-/* Kimi-like Clean Theme */
 [data-theme="savanna-tech"] {
+  --radius: 0.625rem;
   --background: #FFFFFF;
   --foreground: #171717;
   --card: #FFFFFF;
@@ -121,18 +121,66 @@
   --popover-foreground: #171717;
   --primary: #5D5FEF;
   --primary-foreground: #FFFFFF;
-  --secondary: #F3F4F6;
+  --secondary: #F4F4F9;
   --secondary-foreground: #171717;
-  --muted: #F3F4F6;
-  --muted-foreground: #737373;
-  --accent: #F3F4F6;
+  --muted: #F4F4F9;
+  --muted-foreground: #6B7280;
+  --accent: #EEF2FF;
   --accent-foreground: #171717;
   --destructive: #EF4444;
-  --border: #E5E5E5;
-  --input: #E5E5E5;
+  --destructive-foreground: #FFFFFF;
+  --border: #E5E7EB;
+  --input: #E5E7EB;
   --ring: #5D5FEF;
-  --sidebar: #F9F9F9;
+  --chart-1: #5D5FEF;
+  --chart-2: #7C3AED;
+  --chart-3: #2563EB;
+  --chart-4: #06B6D4;
+  --chart-5: #10B981;
+  --sidebar: #F9FAFB;
   --sidebar-foreground: #171717;
+  --sidebar-primary: #5D5FEF;
+  --sidebar-primary-foreground: #FFFFFF;
+  --sidebar-accent: #EEF2FF;
+  --sidebar-accent-foreground: #171717;
+  --sidebar-border: #E5E7EB;
+  --sidebar-ring: #5D5FEF;
+}
+
+.dark[data-theme="savanna-tech"] {
+  --radius: 0.625rem;
+  --background: #0F0F1A;
+  --foreground: #EDEDED;
+  --card: #1A1A2E;
+  --card-foreground: #EDEDED;
+  --popover: #1A1A2E;
+  --popover-foreground: #EDEDED;
+  --primary: #7C7EFF;
+  --primary-foreground: #FFFFFF;
+  --secondary: #252540;
+  --secondary-foreground: #EDEDED;
+  --muted: #252540;
+  --muted-foreground: #9CA3AF;
+  --accent: #1E1E3A;
+  --accent-foreground: #EDEDED;
+  --destructive: #CF6679;
+  --destructive-foreground: #FFFFFF;
+  --border: #2E2E4A;
+  --input: #2E2E4A;
+  --ring: #7C7EFF;
+  --chart-1: #7C7EFF;
+  --chart-2: #8B5CF6;
+  --chart-3: #3B82F6;
+  --chart-4: #22D3EE;
+  --chart-5: #34D399;
+  --sidebar: #12122A;
+  --sidebar-foreground: #EDEDED;
+  --sidebar-primary: #7C7EFF;
+  --sidebar-primary-foreground: #FFFFFF;
+  --sidebar-accent: #1E1E3A;
+  --sidebar-accent-foreground: #EDEDED;
+  --sidebar-border: #2E2E4A;
+  --sidebar-ring: #7C7EFF;
 }
 
 @layer base {

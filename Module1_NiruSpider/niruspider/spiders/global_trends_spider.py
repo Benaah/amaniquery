@@ -4,6 +4,7 @@ Fetches international news that is relevant to Kenya (Kenya-specific or Africa p
 Enhanced with robust extraction and Kenya-specific filtering
 """
 import scrapy
+from scrapy.exceptions import CloseSpider
 import feedparser
 import re
 from datetime import datetime
@@ -18,6 +19,11 @@ class GlobalTrendsSpider(scrapy.Spider):
     def __init__(self, *args, **kwargs):
         super(GlobalTrendsSpider, self).__init__(*args, **kwargs)
         self.article_extractor = ArticleExtractor()
+        self.consecutive_errors = 0
+        self.max_consecutive_errors = 10
+        self.total_articles_fetched = 0
+        self.total_articles_skipped = 0
+        self.total_articles_filtered = 0
     
     # Global news, geopolitics, and policy RSS feeds
     rss_feeds = [
@@ -334,6 +340,16 @@ class GlobalTrendsSpider(scrapy.Spider):
     def errback_article(self, failure):
         """Handle failed article fetches"""
         self.logger.error(f"Failed to fetch article: {failure.request.url}")
+        self.consecutive_errors += 1
+        self.total_articles_skipped += 1
+        
+        if self.consecutive_errors >= self.max_consecutive_errors:
+            self.logger.critical(
+                f"{self.consecutive_errors} consecutive errors — aborting crawl"
+            )
+            raise CloseSpider(
+                f"Too many consecutive errors ({self.consecutive_errors})"
+            )
         
         # Still yield the RSS item with summary only
         rss_item = failure.request.meta.get("rss_item")

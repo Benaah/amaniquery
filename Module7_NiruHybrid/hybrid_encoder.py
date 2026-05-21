@@ -7,15 +7,11 @@ for global context, optimized for streaming with quantized attention.
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Optional, Tuple, List
-import sys
-from pathlib import Path
+from typing import Optional, Tuple, List, Any
 
-sys.path.insert(0, str(Path(__file__).parent))
-
-from quantization.quantized_attention import QuantizedMultiHeadAttention, QuantizedFeedForward
-from quantization.attention_streaming import StreamingAttention
-from config import HybridEncoderConfig, default_config
+from Module7_NiruHybrid.quantization.quantized_attention import QuantizedMultiHeadAttention, QuantizedFeedForward
+from Module7_NiruHybrid.quantization.attention_streaming import StreamingAttention
+from Module7_NiruHybrid.config import HybridEncoderConfig, default_config
 
 
 class ConvolutionalBlock(nn.Module):
@@ -423,6 +419,7 @@ class HybridEncoder(nn.Module):
         text: Optional[str] = None,
         embeddings: Optional[torch.Tensor] = None,
         input_ids: Optional[torch.Tensor] = None,
+        tokenizer: Optional[Any] = None,
         return_pooled: bool = True
     ) -> torch.Tensor:
         """
@@ -432,11 +429,19 @@ class HybridEncoder(nn.Module):
             text: Input text (requires tokenizer)
             embeddings: Pre-computed embeddings
             input_ids: Token IDs
+            tokenizer: Tokenizer to convert text to input_ids
             return_pooled: Return pooled (mean) embedding or full sequence
         
         Returns:
             embeddings: [batch_size, output_dim] or [batch_size, seq_len, output_dim]
         """
+        if text is not None and tokenizer is not None:
+            encoded = tokenizer(text, return_tensors="pt", truncation=True, max_length=self.max_seq_length, padding=True)
+            input_ids = encoded["input_ids"].to(next(self.parameters()).device)
+            if "attention_mask" in encoded:
+                pass
+        
+        was_training = self.training
         self.eval()
         with torch.no_grad():
             output = self.forward(
@@ -445,8 +450,9 @@ class HybridEncoder(nn.Module):
             )
             
             if return_pooled:
-                # Mean pooling
                 output = output.mean(dim=1)
             
+            if was_training:
+                self.train()
             return output
 

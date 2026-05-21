@@ -387,7 +387,7 @@ class FileStoragePipeline:
     
     def __init__(self, raw_data_path):
         self.raw_data_path = Path(raw_data_path)
-        self.files = {}
+        self.files = {}  # Keyed by spider name (string), not spider object
     
     @classmethod
     def from_crawler(cls, crawler):
@@ -400,23 +400,36 @@ class FileStoragePipeline:
         self.spider_dir = self.raw_data_path / spider.name
         self.spider_dir.mkdir(parents=True, exist_ok=True)
         
-        # Create separate JSON file for this crawl session
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.output_file = self.spider_dir / f"{spider.name}_{timestamp}.jsonl"
-        self.files[spider] = open(self.output_file, "w", encoding="utf-8")
         
+        # Close existing handle for same spider name if it leaked
+        if spider.name in self.files:
+            try:
+                self.files[spider.name].close()
+            except Exception:
+                pass
+        
+        self.files[spider.name] = open(self.output_file, "w", encoding="utf-8")
         spider.logger.info(f"Saving data to: {self.output_file}")
     
     def close_spider(self, spider):
         """Close output file"""
-        if spider in self.files:
-            self.files[spider].close()
-            del self.files[spider]
+        fh = self.files.pop(spider.name, None)
+        if fh:
+            try:
+                fh.close()
+            except Exception as e:
+                logger.warning(f"Error closing file for {spider.name}: {e}")
     
     def process_item(self, item, spider):
         """Write item to JSONL file"""
+        fh = self.files.get(spider.name)
+        if not fh:
+            spider.logger.error(f"No open file handle for {spider.name}")
+            return item
         adapter = ItemAdapter(item)
         line = json.dumps(dict(item), ensure_ascii=False, default=str) + "\n"
-        self.files[spider].write(line)
+        fh.write(line)
         spider.logger.info(f"[SAVE] Saved to file: {adapter['title'][:50]}...")
         return item

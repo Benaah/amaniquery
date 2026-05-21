@@ -105,7 +105,7 @@ class TaskCluster:
         return cluster
 
 
-class BlazingFastTaskIdentificationEngine:
+class BlazingFastBlazingFastTaskIdentificationEngine:
     """🔥 High-performance task identification with predictive capabilities"""
 
     def __init__(self, log_directory: str = "logs", min_cluster_size: int = 5):
@@ -427,7 +427,7 @@ class BlazingFastTaskIdentificationEngine:
 class AdaptiveRetrievalEngine:
     """Engine for adaptive retrieval using task groups"""
 
-    def __init__(self, vector_store: VectorStore, task_engine: TaskIdentificationEngine):
+    def __init__(self, vector_store: VectorStore, task_engine: BlazingFastTaskIdentificationEngine):
         self.vector_store = vector_store
         self.task_engine = task_engine
         self.semantic_cache = {}
@@ -527,7 +527,7 @@ class AdaptiveRetrievalEngine:
 class ContinuousLearningEngine:
     """Engine for continuous learning and model adaptation"""
 
-    def __init__(self, task_engine: TaskIdentificationEngine, adaptation_interval_days: int = 7):
+    def __init__(self, task_engine: BlazingFastTaskIdentificationEngine, adaptation_interval_days: int = 7):
         self.task_engine = task_engine
         self.adaptation_interval_days = adaptation_interval_days
         self.last_adaptation = datetime.now() - timedelta(days=adaptation_interval_days + 1)
@@ -642,7 +642,7 @@ class AdaptiveRAGPipeline:
         self.metadata_manager = MetadataManager(self.vector_store)
 
         # Initialize components
-        self.task_engine = TaskIdentificationEngine()
+        self.task_engine = BlazingFastTaskIdentificationEngine()
         self.retrieval_engine = AdaptiveRetrievalEngine(self.vector_store, self.task_engine)
         self.learning_engine = ContinuousLearningEngine(self.task_engine)
 
@@ -753,5 +753,3 @@ class AdaptiveRAGPipeline:
 
     def force_continuous_learning(self):
         """Force run continuous learning cycle"""
-        self.learning_engine.run_continuous_learning()</content>
-<parameter name="filePath">c:\Users\barne\OneDrive\Desktop\AmaniQuery\Module4_NiruAPI\adaptive_rag_pipeline.py

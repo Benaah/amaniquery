@@ -6,20 +6,20 @@ Allows per-spider optimization of concurrency, delays, and retry logic
 # Spider-specific settings override
 SPIDER_CONFIGS = {
     "news_rss": {
-        "CONCURRENT_REQUESTS": 100,  # RSS feeds can handle more
-        "CONCURRENT_REQUESTS_PER_DOMAIN": 20,
-        "DOWNLOAD_DELAY": 0.3,
-        "RETRY_TIMES": 3,  # RSS feeds are usually reliable
+        "CONCURRENT_REQUESTS": 30,  # Reduced from 100 — many RSS sources rate-limit
+        "CONCURRENT_REQUESTS_PER_DOMAIN": 8,
+        "DOWNLOAD_DELAY": 1.0,
+        "RETRY_TIMES": 3,
         "DOWNLOAD_TIMEOUT": 30,
-        "AUTOTHROTTLE_TARGET_CONCURRENCY": 20.0,
+        "AUTOTHROTTLE_TARGET_CONCURRENCY": 8.0,
     },
     "global_trends": {
-        "CONCURRENT_REQUESTS": 80,  # International sources
-        "CONCURRENT_REQUESTS_PER_DOMAIN": 15,
-        "DOWNLOAD_DELAY": 0.5,
+        "CONCURRENT_REQUESTS": 24,  # Reduced from 80 — international sources are aggressive with rate limits
+        "CONCURRENT_REQUESTS_PER_DOMAIN": 6,
+        "DOWNLOAD_DELAY": 1.5,
         "RETRY_TIMES": 4,
-        "DOWNLOAD_TIMEOUT": 45,  # International sources may be slower
-        "AUTOTHROTTLE_TARGET_CONCURRENCY": 15.0,
+        "DOWNLOAD_TIMEOUT": 45,
+        "AUTOTHROTTLE_TARGET_CONCURRENCY": 6.0,
     },
     "parliament": {
         "CONCURRENT_REQUESTS": 16,  # Government site - be polite
@@ -54,6 +54,30 @@ SPIDER_CONFIGS = {
         "RETRY_TIMES": 5,
         "DOWNLOAD_TIMEOUT": 60,
         "AUTOTHROTTLE_TARGET_CONCURRENCY": 2.0,
+    },
+    "kenya_gazette": {
+        "CONCURRENT_REQUESTS": 8,
+        "CONCURRENT_REQUESTS_PER_DOMAIN": 3,
+        "DOWNLOAD_DELAY": 2.0,
+        "RETRY_TIMES": 5,
+        "DOWNLOAD_TIMEOUT": 60,
+        "AUTOTHROTTLE_TARGET_CONCURRENCY": 3.0,
+    },
+    "fact_check": {
+        "CONCURRENT_REQUESTS": 10,
+        "CONCURRENT_REQUESTS_PER_DOMAIN": 4,
+        "DOWNLOAD_DELAY": 1.5,
+        "RETRY_TIMES": 4,
+        "DOWNLOAD_TIMEOUT": 45,
+        "AUTOTHROTTLE_TARGET_CONCURRENCY": 4.0,
+    },
+    "africa_analysis": {
+        "CONCURRENT_REQUESTS": 10,
+        "CONCURRENT_REQUESTS_PER_DOMAIN": 4,
+        "DOWNLOAD_DELAY": 1.5,
+        "RETRY_TIMES": 4,
+        "DOWNLOAD_TIMEOUT": 45,
+        "AUTOTHROTTLE_TARGET_CONCURRENCY": 4.0,
     },
 }
 

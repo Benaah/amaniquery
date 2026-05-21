@@ -67,8 +67,8 @@ if PYDANTIC_AVAILABLE:
             """Validate provider lists"""
             if not v:
                 raise ValueError("At least one provider must be specified")
-            valid_stt = ["openai", "assemblyai", "deepgram"]
-            valid_tts = ["openai", "silero", "elevenlabs"]
+            valid_stt = ["openai", "assemblyai", "deepgram", "nvidia_nim"]
+            valid_tts = ["openai", "silero", "elevenlabs", "nvidia_nim"]
             # Check if all providers are valid (relaxed for future providers)
             return v
         

@@ -4,8 +4,9 @@ Handles user registration, login, password management
 """
 import secrets
 import hashlib
+import time
 from datetime import datetime, timedelta
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Dict
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
 import bcrypt
@@ -13,6 +14,14 @@ from loguru import logger
 
 from ..models.auth_models import User
 from ..config import config
+from ..services.password_validator import PasswordValidator
+from ..services.security_audit import SecurityAudit
+
+
+# IP-based brute force tracking (in-memory, backed by shared dict)
+_ip_failures: Dict[str, list] = {}
+_ip_lockout: Dict[str, float] = {}
+PROGRESSIVE_DELAYS = [0, 1, 2, 5, 10, 30, 60]  # seconds delay per attempt
 
 
 class UserAuthProvider:
@@ -34,14 +43,17 @@ class UserAuthProvider:
             return False
     
     @staticmethod
-    def create_user(db: Session, email: str, password: str, name: Optional[str] = None, phone_number: Optional[str] = None) -> User:
+    def create_user(db: Session, email: str, password: str, name: Optional[str] = None, phone_number: Optional[str] = None, ip_address: Optional[str] = None) -> User:
         """Create a new user"""
-        # Check if user already exists
         existing_user = db.query(User).filter(User.email == email.lower()).first()
         if existing_user:
+            SecurityAudit.suspicious_activity(None, ip_address, f"duplicate_registration:{email}")
             raise ValueError("User with this email already exists")
-        
-        # Normalize phone number if provided
+
+        password_validation = PasswordValidator.validate(password)
+        if not password_validation:
+            raise ValueError(f"Weak password: {'; '.join(password_validation.errors)}")
+
         normalized_phone = None
         if phone_number:
             phone = phone_number.strip().replace(" ", "").replace("-", "")
@@ -51,14 +63,10 @@ class UserAuthProvider:
                 normalized_phone = "+254" + phone
             else:
                 normalized_phone = phone
-        
-        # Hash password
+
         password_hash = UserAuthProvider.hash_password(password)
-        
-        # Generate email verification token
         verification_token = secrets.token_urlsafe(32)
-        
-        # Create user (status pending_verification until phone is verified)
+
         user = User(
             email=email.lower(),
             password_hash=password_hash,
@@ -66,7 +74,8 @@ class UserAuthProvider:
             phone_number=normalized_phone,
             phone_verified=False,
             email_verification_token=verification_token,
-            status="pending_verification",  # Require phone verification
+            status="pending_verification",
+            last_login_ip=ip_address,
         )
         
         db.add(user)
@@ -77,35 +86,75 @@ class UserAuthProvider:
         return user
     
     @staticmethod
+    def _check_ip_rate_limit(ip_address: Optional[str]) -> Tuple[bool, float]:
+        """Check if IP is rate-limited due to too many failures.
+        Returns (blocked, wait_seconds).
+        """
+        if not ip_address:
+            return False, 0
+
+        now = time.time()
+        locked_until = _ip_lockout.get(ip_address, 0)
+        if locked_until > now:
+            return True, locked_until - now
+
+        failures = _ip_failures.get(ip_address, [])
+        failures = [t for t in failures if now - t < 900]
+        _ip_failures[ip_address] = failures
+
+        if len(failures) >= config.MAX_LOGIN_ATTEMPTS * 3:
+            _ip_lockout[ip_address] = now + 600
+            logger.warning(f"IP {ip_address} locked out for 10 min ({len(failures)} failures)")
+            return True, 600
+
+        attempt = len(failures)
+        if attempt < len(PROGRESSIVE_DELAYS):
+            delay = PROGRESSIVE_DELAYS[attempt]
+        else:
+            delay = PROGRESSIVE_DELAYS[-1]
+        if delay > 0:
+            return True, delay
+
+        return False, 0
+
+    @staticmethod
     def authenticate_user(db: Session, email: str, password: str, ip_address: Optional[str] = None) -> Optional[User]:
         """Authenticate user with email and password"""
+        blocked, wait = UserAuthProvider._check_ip_rate_limit(ip_address)
+        if blocked:
+            raise ValueError(f"Too many attempts from this IP. Please wait {wait:.0f} seconds.")
+
         user = db.query(User).filter(User.email == email.lower()).first()
-        
+
         if not user:
-            # Don't reveal if user exists
+            if ip_address:
+                _ip_failures.setdefault(ip_address, []).append(time.time())
             return None
-        
-        # Check if account is locked
+
         if user.locked_until and user.locked_until > datetime.utcnow():
-            raise ValueError("Account is temporarily locked due to too many failed login attempts")
-        
-        # Verify password
+            remaining = (user.locked_until - datetime.utcnow()).total_seconds()
+            raise ValueError(f"Account is locked. Try again in {remaining:.0f} seconds.")
+
         if not UserAuthProvider.verify_password(password, user.password_hash):
-            # Increment failed attempts
             user.failed_login_attempts += 1
             if user.failed_login_attempts >= config.MAX_LOGIN_ATTEMPTS:
                 user.locked_until = datetime.utcnow() + timedelta(minutes=config.LOCKOUT_DURATION_MINUTES)
-                logger.warning(f"Account locked for {user.email} due to too many failed attempts")
+                logger.warning(f"Account locked for {user.email} ({user.failed_login_attempts} failures)")
+            if ip_address:
+                _ip_failures.setdefault(ip_address, []).append(time.time())
             db.commit()
             return None
-        
-        # Successful login - reset failed attempts and update last login
+
         user.failed_login_attempts = 0
         user.locked_until = None
         user.last_login = datetime.utcnow()
         user.last_login_ip = ip_address
         db.commit()
-        
+
+        if ip_address and ip_address in _ip_failures:
+            _ip_failures.pop(ip_address, None)
+            _ip_lockout.pop(ip_address, None)
+
         logger.info(f"User authenticated: {user.email}")
         return user
     

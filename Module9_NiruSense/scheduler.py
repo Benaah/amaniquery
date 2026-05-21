@@ -120,7 +120,7 @@ class NiruSenseScheduler:
         """Process a batch of pending documents from the queue"""
         try:
             logger.info("[STATS] Running scheduled batch processing...")
-            from .processing.monitoring import metrics
+            from Module9_NiruSense.processing.monitoring import metrics
             
             # Get current stats
             stats = metrics.get_metrics()
@@ -140,7 +140,7 @@ class NiruSenseScheduler:
         try:
             logger.info("[CLEAN] Running scheduled cleanup...")
             import asyncio
-            from .processing.storage.postgres import postgres
+            from Module9_NiruSense.processing.storage.postgres import postgres
             
             # Delete analysis results older than configured days
             cleanup_days = int(os.getenv("NIRUSENSE_CLEANUP_DAYS", "90"))
@@ -163,7 +163,7 @@ class NiruSenseScheduler:
     def _update_metrics(self):
         """Update and log metrics"""
         try:
-            from .processing.monitoring import metrics
+            from Module9_NiruSense.processing.monitoring import metrics
             
             stats = metrics.get_metrics()
             logger.info(f"📊 Metrics: {stats['documents_processed']} processed, "
@@ -178,8 +178,7 @@ class NiruSenseScheduler:
         try:
             logger.info("[SYNC] Running scheduled reprocessing of failed documents...")
             import asyncio
-            from .processing.storage.postgres import postgres
-            from .processing.orchestrator import process_document
+            from Module9_NiruSense.processing.storage.postgres import postgres
             
             # Get failed documents (documents without analysis results)
             failed_docs = await postgres.get_failed_documents(limit=50)
@@ -194,7 +193,9 @@ class NiruSenseScheduler:
             success_count = 0
             for doc_data in failed_docs:
                 try:
-                    result = await process_document(doc_data)
+                    # Re-process via pipeline directly
+                    from Module9_NiruSense.processing.orchestrator import pipeline
+                    result = await pipeline.process(doc_data)
                     if result.get("status") == "success":
                         success_count += 1
                 except Exception as e:

@@ -6,109 +6,97 @@ httpx
 scrapy
 requests
 beautifulsoup4
-feedparser  # RSS feed parsing
+feedparser
 lxml
-celery
 
 # Module 2: NiruParser (ETL & Embedding)
-trafilatura  # HTML text extraction
-newspaper3k  # Alternative article extraction
+trafilatura
+newspaper3k
 PyPDF2
 pdfplumber
-pdf2image  # PDF to image conversion for Vision RAG
+pdf2image
 langchain
 langchain-community
 sentence-transformers>=2.2.0
 huggingface-hub>=0.20.0
 sentencepiece>=0.1.99
 protobuf>=4.0.0
-tiktoken  # Token counting
-textblob  # Sentiment analysis
-youtube-transcript-api  # YouTube transcript extraction
-cohere  # Cohere Embed-4 for multimodal embeddings
+tiktoken
+textblob
+youtube-transcript-api
+cohere
 
 # Module 3: NiruDB (Vector Store)
 chromadb
-faiss-cpu  # Alternative: faiss-gpu for GPU support
+faiss-cpu
 loguru
-elasticsearch  # For document storage and search
-upstash-redis  # For cache and vector storage
-upstash-vector  # For vector database
-qdrant-client  # Fallback vector store
-cryptography  # For encrypting API keys
-redis  # For rate limiting and caching
-weaviate-client  # Fallback vector store
+elasticsearch
+upstash-redis
+upstash-vector
+qdrant-client
+cryptography
+redis
+weaviate-client
 
-# Database (PostgreSQL for sessions, feedback, chat history)
+# Database (PostgreSQL)
 psycopg2-binary
 asyncpg
 sqlalchemy
-alembic  # Database migrations
+alembic
 
 # Module 4: NiruAPI (RAG Interface)
 fastapi
 uvicorn[standard]
 pydantic
 python-multipart
-africastalking  # SMS gateway for Kenya
-cloudinary  # Cloud storage for chat attachments
-langgraph-checkpoint-sqlite  # LangGraph SQLite checkpointing
+africastalking
+cloudinary
+langgraph-checkpoint-sqlite
 
 # Module 8: NiruAuth (Authentication & Authorization)
-PyJWT>=2.8.0  # JWT token handling
-bcrypt>=4.0.0  # Password hashing
-email-validator>=2.0.0  # Email validation for Pydantic
-# Note: Uses built-in smtplib for email sending (no additional package needed)
+PyJWT>=2.8.0
+bcrypt>=4.0.0
+email-validator>=2.0.0
 
 # LLM Integration
-openai # For OpenAI models and Moonshot AI (compatible API)
-anthropic  # For Claude
-google-generativeai  # For Gemini AI
-# huggingface-hub is already specified above
+openai
+anthropic
+google-generativeai
 
 # Utilities
 pyyaml
 pandas
 numpy
 tqdm
-schedule  # For automated crawling
-celery  # Async task queue
-apscheduler>=3.10.0  # Advanced scheduler (standalone, no Redis required)
-colorama  # Colored terminal output
-loguru  # Advanced logging
-psutil  # System monitoring
+schedule
+celery
+apscheduler>=3.10.0
+colorama
+psutil
 reportlab
 python-docx
 
-# Module 6: NiruVoice (Real-time Communication)
+# Module 6: NiruVoice
+tenacity>=8.2.0
+circuitbreaker>=1.4.0
+prometheus-client>=0.19.0
+deepgram-sdk>=3.0.0
+elevenlabs>=0.2.0
 
-tenacity>=8.2.0  # Retry logic with exponential backoff
-circuitbreaker>=1.4.0  # Circuit breaker pattern
-prometheus-client>=0.19.0  # Prometheus metrics (optional)
-deepgram-sdk>=3.0.0  # Deepgram STT
-elevenlabs>=0.2.0  # ElevenLabs TTS
-
-# VibeVoice TTS Dependencies
+# ML/AI Dependencies (shared across modules)
 torch>=2.0.0
-transformers==4.53.0
-accelerate==1.6.0
+transformers>=4.30.0
+accelerate>=1.0.0
 diffusers
 scipy
 librosa
+bitsandbytes
+einops
 
-# OpenTelemetry - pin compatible versions for livekit-agents
+# OpenTelemetry
 opentelemetry-api>=1.39.0
 opentelemetry-sdk>=1.39.1
 opentelemetry-exporter-otlp>=1.39.1
-
-# Module 7: NiruHybrid - Hybrid Conv-Transformer Pipeline
-torch # PyTorch for neural networks
-transformers>=4.30.0  # Hugging Face transformers (compatible with huggingface-hub>=0.20.0)
-bitsandbytes  # Quantization support
-accelerate  # Mixed precision training
-diffusers  # Diffusion model framework
-einops # Tensor operations
-streamlit  # Optional: for monitoring dashboard
 
 # Agentic AI & LangGraph
 langgraph>=0.2.0
@@ -126,15 +114,12 @@ pytest
 black
 flake8
 
-# Module 9: NiruSense (Kenyan NLP Processing Pipeline)
+# Module 9: NiruSense
 minio
 playwright
 playwright-stealth
 pydantic-settings>=2.1.0
 python-json-logger>=2.0.7
 huggingface_hub[hf_xet]
-# Note: transformers, torch, sentence-transformers already required by Module 7
-# Note: asyncpg already required above
-# Note: redis, qdrant-client already required above
-# Note: tenacity already required by Module 6
+streamlit
 

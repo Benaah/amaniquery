@@ -43,6 +43,7 @@ import asyncio
 import os
 import time
 import json
+import threading
 from typing import Dict, Any, List, Optional, Literal, TypedDict, Annotated
 from datetime import datetime
 from uuid import uuid4
@@ -151,9 +152,17 @@ from .tools.agentic_tools import initialize_agentic_tools, get_agentic_tools
 class AmaniQConfig:
     """Configuration for AmaniQ v2 agent"""
     
+    # LLM provider selection
+    llm_provider: str = field(default_factory=lambda: os.getenv("AMANIQ_LLM_PROVIDER", "moonshot"))
+    
     # Moonshot AI settings
     moonshot_api_key: str = field(default_factory=lambda: os.getenv("MOONSHOT_API_KEY", ""))
     moonshot_base_url: str = field(default_factory=lambda: os.getenv("MOONSHOT_BASE_URL", "https://api.moonshot.ai/v1"))
+    
+    # NVIDIA NIM settings
+    nvidia_nim_api_key: str = field(default_factory=lambda: os.getenv("NVIDIA_NIM_API_KEY", ""))
+    nvidia_nim_base_url: str = field(default_factory=lambda: os.getenv("NVIDIA_NIM_BASE_URL", "https://integrate.api.nvidia.com/v1"))
+    nvidia_nim_model: str = field(default_factory=lambda: os.getenv("NVIDIA_NIM_MODEL", "meta/llama-3.1-70b-instruct"))
     
     # Model settings
     supervisor_model: str = "moonshot-v1-32k"
@@ -265,30 +274,169 @@ class AmaniQState(TypedDict, total=False):
 # MOONSHOT CLIENT
 # =============================================================================
 
+class CircuitBreaker:
+    """Circuit breaker for LLM API calls to prevent cascading failures"""
+    STATE_CLOSED = "closed"
+    STATE_OPEN = "open"
+    STATE_HALF_OPEN = "half_open"
+
+    def __init__(self, threshold: int = 5, recovery_timeout: float = 30.0, half_open_max_requests: int = 1):
+        self.threshold = threshold
+        self.recovery_timeout = recovery_timeout
+        self.half_open_max_requests = half_open_max_requests
+        self.state = self.STATE_CLOSED
+        self.failure_count = 0
+        self.success_count = 0
+        self.last_failure_time = 0.0
+        self.half_open_requests = 0
+        self._lock = threading.Lock()
+
+    def record_success(self):
+        with self._lock:
+            if self.state == self.STATE_HALF_OPEN:
+                self.half_open_requests -= 1
+                self.success_count += 1
+                if self.success_count >= 2:
+                    self.state = self.STATE_CLOSED
+                    self.failure_count = 0
+                    self.success_count = 0
+                    logger.info("Circuit breaker reset to CLOSED")
+            elif self.state == self.STATE_CLOSED:
+                self.failure_count = max(0, self.failure_count - 1)
+
+    def record_failure(self):
+        with self._lock:
+            self.failure_count += 1
+            self.last_failure_time = time.time()
+            if self.state == self.STATE_HALF_OPEN:
+                self.state = self.STATE_OPEN
+                self.half_open_requests = 0
+                logger.warning(f"Circuit breaker returned to OPEN (half-open failure)")
+            elif self.state == self.STATE_CLOSED and self.failure_count >= self.threshold:
+                self.state = self.STATE_OPEN
+                logger.warning(f"Circuit breaker OPEN after {self.failure_count} failures")
+
+    def allow_request(self) -> bool:
+        with self._lock:
+            if self.state == self.STATE_CLOSED:
+                return True
+            if self.state == self.STATE_OPEN:
+                if time.time() - self.last_failure_time >= self.recovery_timeout:
+                    self.state = self.STATE_HALF_OPEN
+                    self.half_open_requests = 0
+                    self.success_count = 0
+                    logger.info("Circuit breaker HALF_OPEN (attempting recovery)")
+                    return True
+                return False
+            if self.state == self.STATE_HALF_OPEN:
+                if self.half_open_requests < self.half_open_max_requests:
+                    self.half_open_requests += 1
+                    return True
+                return False
+            return True
+
+
+class TokenBucketRateLimiter:
+    """Simple token bucket rate limiter for API calls"""
+    def __init__(self, rate: float = 10.0, burst: int = 20):
+        self.rate = rate
+        self.burst = burst
+        self.tokens = burst
+        self.last_refill = time.monotonic()
+        self._lock = threading.Lock()
+
+    def acquire(self, tokens: int = 1) -> float:
+        with self._lock:
+            now = time.monotonic()
+            elapsed = now - self.last_refill
+            self.tokens = min(self.burst, self.tokens + elapsed * self.rate)
+            self.last_refill = now
+            if self.tokens >= tokens:
+                self.tokens -= tokens
+                return 0.0
+            deficit = tokens - self.tokens
+            wait = deficit / self.rate
+            self.tokens = 0.0
+            return wait
+
+
 class MoonshotClient:
-    """Singleton Moonshot AI client"""
+    """Singleton client for OpenAI-compatible APIs (Moonshot, NVIDIA NIM, etc.)
     
-    _instance: Optional[OpenAI] = None
+    Supports multiple OpenAI-compatible backends via AmaniQConfig.llm_provider.
+    Features: connection pooling, rate limiting, circuit breaker.
+    """
+
+    _instances: Dict[str, OpenAI] = {}
+    _async_client: Optional['httpx.AsyncClient'] = None
     _config: Optional[AmaniQConfig] = None
-    
+    _rate_limiter: TokenBucketRateLimiter = TokenBucketRateLimiter(rate=10.0, burst=20)
+    _circuit_breaker: CircuitBreaker = CircuitBreaker(threshold=5, recovery_timeout=30.0)
+
     @classmethod
     def get_client(cls, config: Optional[AmaniQConfig] = None) -> OpenAI:
-        """Get or create Moonshot client"""
-        if cls._instance is None or config != cls._config:
-            cfg = config or AmaniQConfig()
+        """Get or create client for the configured provider (Moonshot, NVIDIA NIM, etc.)"""
+        if not cls._circuit_breaker.allow_request():
+            raise RuntimeError("LLM API circuit breaker is OPEN. Please try again later.")
+
+        cfg = config or AmaniQConfig()
+        provider = cfg.llm_provider
+        provider_key = f"{provider}:{cfg.moonshot_base_url if provider == 'moonshot' else cfg.nvidia_nim_base_url}"
+
+        if provider_key not in cls._instances or config != cls._config:
             cls._config = cfg
-            cls._instance = OpenAI(
-                api_key=cfg.moonshot_api_key,
-                base_url=cfg.moonshot_base_url,
+            if provider == "nvidia_nim":
+                cls._instances[provider_key] = OpenAI(
+                    api_key=cfg.nvidia_nim_api_key,
+                    base_url=cfg.nvidia_nim_base_url,
+                    http_client=cls._get_http_client(),
+                )
+                logger.info(f"NVIDIA NIM client initialized: {cfg.nvidia_nim_base_url} ({cfg.nvidia_nim_model})")
+            else:
+                # Default: Moonshot
+                cls._instances[provider_key] = OpenAI(
+                    api_key=cfg.moonshot_api_key,
+                    base_url=cfg.moonshot_base_url,
+                    http_client=cls._get_http_client(),
+                )
+                logger.info(f"Moonshot client initialized: {cfg.moonshot_base_url}")
+        return cls._instances[provider_key]
+
+    @classmethod
+    def _get_http_client(cls) -> Any:
+        """Get or create shared httpx client with connection pooling"""
+        import httpx
+        if cls._async_client is None:
+            cls._async_client = httpx.AsyncClient(
+                limits=httpx.Limits(max_keepalive_connections=20, max_connections=100),
+                timeout=httpx.Timeout(30.0, connect=5.0),
             )
-            logger.info(f"Moonshot client initialized: {cfg.moonshot_base_url}")
-        return cls._instance
-    
+        return cls._async_client
+
+    @classmethod
+    def rate_limit(cls):
+        """Block until rate limit allows the request"""
+        wait = cls._rate_limiter.acquire()
+        if wait > 0:
+            logger.debug(f"Rate limited, waiting {wait:.2f}s")
+            time.sleep(wait)
+
+    @classmethod
+    def record_success(cls):
+        cls._circuit_breaker.record_success()
+
+    @classmethod
+    def record_failure(cls):
+        cls._circuit_breaker.record_failure()
+
     @classmethod
     def reset(cls):
-        """Reset client (for testing)"""
-        cls._instance = None
+        """Reset all clients (for testing)"""
+        cls._instances.clear()
+        cls._async_client = None
         cls._config = None
+        cls._rate_limiter = TokenBucketRateLimiter(rate=10.0, burst=20)
+        cls._circuit_breaker = CircuitBreaker(threshold=5, recovery_timeout=30.0)
 
 
 # =============================================================================
@@ -378,11 +526,17 @@ async def entry_node(state: AmaniQState) -> AmaniQState:
                 """
                 
                 
-                response = client.chat.completions.create(
-                    model="moonshot-v1-8k",
-                    messages=[{"role": "user", "content": profile_prompt}],
-                    response_format={"type": "json_object"}
-                )
+                MoonshotClient.rate_limit()
+                try:
+                    response = client.chat.completions.create(
+                        model="moonshot-v1-8k",
+                        messages=[{"role": "user", "content": profile_prompt}],
+                        response_format={"type": "json_object"}
+                    )
+                    MoonshotClient.record_success()
+                except Exception:
+                    MoonshotClient.record_failure()
+                    raise
                 
                 user_profile = json.loads(response.choices[0].message.content)
                 updates["user_profile"] = user_profile
@@ -455,19 +609,25 @@ async def supervisor_node(state: AmaniQState) -> AmaniQState:
                 "intent": "ESCALATE",
             }
         
-        # Call Moonshot
+        # Call Moonshot with rate limiting and circuit breaker
         config = AmaniQConfig()
+        MoonshotClient.rate_limit()
         client = MoonshotClient.get_client(config)
         moonshot_config = get_moonshot_config()
         
         start_time = time.time()
-        response = client.chat.completions.create(
-            model=moonshot_config["model"],
-            messages=supervisor_messages,
-            temperature=moonshot_config["temperature"],
-            max_tokens=moonshot_config["max_tokens"],
-            response_format=moonshot_config["response_format"],
-        )
+        try:
+            response = client.chat.completions.create(
+                model=moonshot_config["model"],
+                messages=supervisor_messages,
+                temperature=moonshot_config["temperature"],
+                max_tokens=moonshot_config["max_tokens"],
+                response_format=moonshot_config["response_format"],
+            )
+            MoonshotClient.record_success()
+        except Exception as e:
+            MoonshotClient.record_failure()
+            raise
         latency_ms = (time.time() - start_time) * 1000
         
         # Parse response
@@ -680,17 +840,23 @@ async def responder_node(state: AmaniQState) -> AmaniQState:
     try:
         # Call Moonshot with large context model
         config = AmaniQConfig()
+        MoonshotClient.rate_limit()
         client = MoonshotClient.get_client(config)
         responder_config = get_responder_config()
         
         start_time = time.time()
-        response = client.chat.completions.create(
-            model=responder_config["model"],
-            messages=responder_messages,
-            temperature=responder_config["temperature"],
-            max_tokens=responder_config["max_tokens"],
-            stream=False,  # For now, non-streaming
-        )
+        try:
+            response = client.chat.completions.create(
+                model=responder_config["model"],
+                messages=responder_messages,
+                temperature=responder_config["temperature"],
+                max_tokens=responder_config["max_tokens"],
+                stream=False,  # For now, non-streaming
+            )
+            MoonshotClient.record_success()
+        except Exception as e:
+            MoonshotClient.record_failure()
+            raise
         latency_ms = (time.time() - start_time) * 1000
         
         response_text = response.choices[0].message.content
@@ -1192,11 +1358,14 @@ class AmaniQAgent:
         }
         
         try:
-            # Run graph
+            # Run graph with 60-second timeout
             start_time = time.time()
             
             logger.info(f"[AmaniQ v2] Invoking graph for: {message[:100]}...")
-            result = await self.graph.ainvoke(initial_state)
+            result = await asyncio.wait_for(
+                self.graph.ainvoke(initial_state),
+                timeout=60.0
+            )
             
             total_latency_ms = (time.time() - start_time) * 1000
             
@@ -1249,9 +1418,12 @@ class AmaniQAgent:
         }
         
         try:
-            result = await self.graph.ainvoke(
-                resume_state,
-                config={"configurable": {"thread_id": thread_id}}
+            result = await asyncio.wait_for(
+                self.graph.ainvoke(
+                    resume_state,
+                    config={"configurable": {"thread_id": thread_id}}
+                ),
+                timeout=60.0
             )
             return self._format_response(result, 0)
             

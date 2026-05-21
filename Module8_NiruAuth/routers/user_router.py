@@ -10,12 +10,16 @@ from pathlib import Path
 from ..models.pydantic_models import (
     UserRegister, UserLogin, UserResponse, UserProfileUpdate,
     PasswordChange, PasswordResetRequest, PasswordReset, PasswordResetRequestResponse,
-    EmailVerificationRequest, SessionResponse
+    EmailVerificationRequest, SessionResponse, MFARequiredResponse, MFAChallengeRequest
 )
 from ..providers.user_auth_provider import UserAuthProvider
 from ..providers.session_provider import SessionProvider
 from ..dependencies import get_db, get_current_user
 from ..models.auth_models import User
+from ..services.mfa_service import get_mfa_service
+
+# In-memory MFA challenge store: mfa_token -> {user_id, expires_at}
+_mfa_challenges: dict = {}
 
 router = APIRouter(prefix="/api/v1/auth", tags=["Authentication"])
 
@@ -65,7 +69,7 @@ async def register(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
-@router.post("/login", response_model=SessionResponse)
+@router.post("/login", response_model=None)
 async def login(
     login_data: UserLogin,
     request: Request,
@@ -84,6 +88,19 @@ async def login(
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid email or password"
+            )
+        
+        # Check if MFA is required
+        if user.mfa_enabled:
+            import secrets
+            mfa_token = secrets.token_urlsafe(32)
+            _mfa_challenges[mfa_token] = {
+                "user_id": user.id,
+                "expires_at": __import__('datetime').datetime.utcnow() + __import__('datetime').timedelta(minutes=5),
+            }
+            return MFARequiredResponse(
+                mfa_token=mfa_token,
+                message="MFA verification required. Submit TOTP code to /api/v1/auth/mfa/challenge"
             )
         
         # Create session
@@ -131,6 +148,66 @@ async def login(
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
+
+
+@router.post("/login/mfa-challenge", response_model=SessionResponse)
+async def mfa_challenge(
+    challenge_data: MFAChallengeRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Complete MFA challenge and create session"""
+    from datetime import datetime, timedelta
+
+    challenge = _mfa_challenges.pop(challenge_data.mfa_token, None)
+    if not challenge:
+        raise HTTPException(status_code=400, detail="Invalid or expired MFA token. Please login again.")
+
+    if datetime.utcnow() > challenge["expires_at"]:
+        raise HTTPException(status_code=400, detail="MFA token expired. Please login again.")
+
+    user = db.query(User).filter(User.id == challenge["user_id"]).first()
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+
+    mfa = get_mfa_service()
+    if not mfa.verify_token(user.mfa_secret, challenge_data.totp_code):
+        from ..services.security_audit import SecurityAudit
+        SecurityAudit.suspicious_activity(
+            user.id, request.client.host if request.client else None,
+            "mfa_challenge_failed"
+        )
+        raise HTTPException(status_code=400, detail="Invalid TOTP code")
+
+    session_token, session = SessionProvider.create_session(
+        db=db,
+        user=user,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+    )
+
+    from ..authorization.role_manager import RoleManager
+    user_roles = RoleManager.get_user_roles(db, user.id)
+    role_names = [role.name for role in user_roles]
+
+    user_response = UserResponse(
+        id=user.id,
+        email=user.email,
+        name=user.name,
+        status=user.status,
+        email_verified=user.email_verified,
+        last_login=user.last_login,
+        profile_image_url=user.profile_image_url,
+        created_at=user.created_at,
+        updated_at=user.updated_at,
+        roles=role_names,
+    )
+
+    return SessionResponse(
+        session_token=session_token,
+        expires_at=session.expires_at,
+        user=user_response,
+    )
 
 
 @router.post("/logout")

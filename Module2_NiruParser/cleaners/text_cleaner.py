@@ -5,6 +5,12 @@ import re
 import unicodedata
 from loguru import logger
 
+try:
+    import ftfy
+    FTFY_AVAILABLE = True
+except ImportError:
+    FTFY_AVAILABLE = False
+
 
 class TextCleaner:
     """Clean and normalize text"""
@@ -18,10 +24,6 @@ class TextCleaner:
             "newlines": re.compile(r'\n{3,}'),
             # HTML entities
             "html_entities": re.compile(r'&[a-zA-Z]+;'),
-            # URLs (optional - keep for context)
-            # "urls": re.compile(r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+'),
-            # Email addresses (optional - keep for context)
-            # "emails": re.compile(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'),
         }
     
     def clean(self, text: str, aggressive: bool = False) -> str:
@@ -88,6 +90,16 @@ class TextCleaner:
             r'Share this article',
             r'Follow us on',
             r'Advertisement',
+            r'All rights reserved',
+            r'Copyright \d{4}',
+            r'Click here',
+            r'Read more',
+            r'Related Articles?',
+            r'You might also like',
+            r'This article was originally published',
+            r'Send us your stories',
+            r'For more information',
+            r'Contact us',
         ]
         
         for phrase in boilerplate_phrases:
@@ -96,8 +108,14 @@ class TextCleaner:
         return text
     
     def fix_encoding(self, text: str) -> str:
-        """Fix common encoding issues"""
-        # Common encoding fixes
+        """Fix common encoding issues using ftfy (fallback to manual map)"""
+        if FTFY_AVAILABLE:
+            try:
+                return ftfy.fix_text(text)
+            except Exception as e:
+                logger.warning(f"ftfy failed, falling back to manual fix: {e}")
+        
+        # Manual mojibake replacements (fallback when ftfy unavailable)
         replacements = {
             'â€™': "'",
             'â€œ': '"',
@@ -107,6 +125,11 @@ class TextCleaner:
             'Ã©': 'é',
             'Ã¨': 'è',
             'Ã¡': 'á',
+            'Ã¢': 'â',
+            'Ã¼': 'ü',
+            'Ã¶': 'ö',
+            'Ã¤': 'ä',
+            'Ã ': 'à',
         }
         
         for wrong, right in replacements.items():

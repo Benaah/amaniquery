@@ -38,6 +38,7 @@ class QuantizedLinear(nn.Module):
                 out_features,
                 has_fp16_weights=False
             )
+            self.bias = nn.Parameter(torch.zeros(out_features))
         else:
             # Standard linear layer with manual quantization
             self.weight = nn.Parameter(torch.randn(out_features, in_features))
@@ -130,13 +131,14 @@ class QuantizedMultiHeadAttention(nn.Module):
         batch_size, seq_len, _ = query.shape
         
         # Project to Q, K, V (with quantization if enabled)
-        # Convert to FP16 for activations
-        if query.dtype != torch.float16:
-            query = query.half()
-        if key.dtype != torch.float16:
-            key = key.half()
-        if value.dtype != torch.float16:
-            value = value.half()
+        # Convert to FP16 for activations (only on CUDA)
+        if query.device.type != 'cpu':
+            if query.dtype != torch.float16:
+                query = query.half()
+            if key.dtype != torch.float16:
+                key = key.half()
+            if value.dtype != torch.float16:
+                value = value.half()
         
         Q = self.q_proj(query)  # [batch_size, seq_len, embed_dim]
         K = self.k_proj(key)
@@ -227,8 +229,8 @@ class QuantizedFeedForward(nn.Module):
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass"""
-        # Convert to FP16 for activations
-        if x.dtype != torch.float16:
+        # Convert to FP16 for activations (only on CUDA)
+        if x.device.type != 'cpu' and x.dtype != torch.float16:
             x = x.half()
         
         x = self.fc1(x)

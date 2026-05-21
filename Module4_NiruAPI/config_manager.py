@@ -45,10 +45,8 @@ class ConfigManager:
         if encryption_key is None:
             encryption_key = os.getenv("CONFIG_ENCRYPTION_KEY")
             if not encryption_key:
-                # Generate a new key if not provided
                 encryption_key = Fernet.generate_key().decode()
-                logger.warning(f"Generated new encryption key: {encryption_key}")
-                logger.warning("Store this key securely in CONFIG_ENCRYPTION_KEY environment variable")
+                logger.warning("Generated new encryption key (set CONFIG_ENCRYPTION_KEY to persist)")
         
         try:
             self.cipher = Fernet(encryption_key.encode())

@@ -33,10 +33,14 @@ class CrawlTask(Task):
     autoretry_for = (Exception,)
     retry_kwargs = {'max_retries': 3}
     retry_backoff = True
-    retry_backoff_max = 600  # Max 10 minutes between retries
+    retry_backoff_max = 600
     retry_jitter = True
     
     def on_failure(self, exc, task_id, args, kwargs, einfo):
+        # Do NOT retry on SoftTimeLimitExceeded (task ran too long)
+        if isinstance(exc, SoftTimeLimitExceeded):
+            logger.error(f"Task {task_id} exceeded time limit — not retrying")
+            return
         crawler_name = args[0] if args else "unknown"
         logger.error(f"Task {task_id} ({crawler_name}) failed: {exc}")
         logger.error(f"Exception info: {einfo}")
@@ -82,11 +86,15 @@ class CrawlTask(Task):
 
 # Spider name mapping
 SPIDER_MAPPING = {
-    "kenya_law": "kenya_law_new",  # Maps to kenya_law_new_spider.py
+    "kenya_law": "kenya_law_new",
     "parliament": "parliament",
     "parliament_videos": "parliament_videos",
     "news_rss": "news_rss",
     "global_trends": "global_trends",
+    "constitution": "constitution",
+    "kenya_gazette": "kenya_gazette",
+    "fact_check": "fact_check",
+    "africa_analysis": "africa_analysis",
 }
 
 # Timeout settings per crawler (in seconds)
@@ -96,6 +104,10 @@ CRAWLER_TIMEOUTS = {
     "parliament_videos": 2700,  # 45 minutes
     "news_rss": 1800,        # 30 minutes
     "global_trends": 1800,   # 30 minutes
+    "constitution": 3600,    # 60 minutes
+    "kenya_gazette": 1800,   # 30 minutes
+    "fact_check": 1800,      # 30 minutes
+    "africa_analysis": 1800, # 30 minutes
 }
 
 
@@ -587,21 +599,15 @@ def populate_vector_stores(backend: Optional[str] = None, namespace: Optional[st
         return {"status": "failed", "error": str(e)}
 
 
+# update_vector_store removed — duplicate of populate_vector_stores.
+# Use populate_vector_stores directly.
 @celery_app.task(
     name="update_vector_store",
     soft_time_limit=1800,
     time_limit=2100
 )
 def update_vector_store(incremental: bool = True):
-    """
-    Update the vector store with new documents (legacy task - use populate_vector_stores)
-    
-    Args:
-        incremental: If True, only add new documents. If False, rebuild entirely.
-    
-    Returns:
-        Dictionary with update results
-    """
+    """Legacy alias for populate_vector_stores"""
     return populate_vector_stores.apply()
 
 

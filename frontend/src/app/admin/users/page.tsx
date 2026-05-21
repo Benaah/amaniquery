@@ -1,10 +1,9 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { useRouter } from "next/navigation"
+
 import { useAuth } from "@/lib/auth-context"
-import { AdminSidebar } from "@/components/admin-sidebar"
-import { ThemeToggle } from "@/components/theme-toggle"
+
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -52,6 +51,9 @@ import {
   ShieldCheck,
   Activity,
   Filter,
+  Shield,
+  Plus,
+  X,
 } from "lucide-react"
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
@@ -76,9 +78,19 @@ interface AdminStats {
   unverified_users: number
 }
 
+interface Role {
+  id: string
+  name: string
+  description: string | null
+  role_type: string
+  permissions: string[] | null
+  is_system: boolean
+  created_at: string
+}
+
 export default function AdminUsersPage() {
   const { isAuthenticated, isAdmin, loading } = useAuth()
-  const router = useRouter()
+
   const [users, setUsers] = useState<User[]>([])
   const [stats, setStats] = useState<AdminStats | null>(null)
   const [loadingUsers, setLoadingUsers] = useState(true)
@@ -96,13 +108,16 @@ export default function AdminUsersPage() {
   const [editFormData, setEditFormData] = useState({ name: "", email: "", status: "" })
   const [actionLoading, setActionLoading] = useState(false)
 
-  useEffect(() => {
-    if (!loading && !isAuthenticated) {
-      router.push("/auth/signin?redirect=/admin/users")
-    } else if (!loading && isAuthenticated && !isAdmin) {
-      router.push("/chat")
-    }
-  }, [isAuthenticated, isAdmin, loading, router])
+  // Role management state
+  const [roles, setRoles] = useState<Role[]>([])
+  const [roleFilter, setRoleFilter] = useState<string>("all")
+  const [manageRolesDialogOpen, setManageRolesDialogOpen] = useState(false)
+  const [manageRolesUser, setManageRolesUser] = useState<User | null>(null)
+  const [selectedRoleId, setSelectedRoleId] = useState<string>("")
+  const [roleAssignmentLoading, setRoleAssignmentLoading] = useState(false)
+  const [newRoleName, setNewRoleName] = useState("")
+  const [newRoleDescription, setNewRoleDescription] = useState("")
+  const [createRoleLoading, setCreateRoleLoading] = useState(false)
 
   useEffect(() => {
     if (isAuthenticated && isAdmin) {
@@ -110,7 +125,14 @@ export default function AdminUsersPage() {
       fetchStats()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, statusFilter, verificationFilter, isAuthenticated, isAdmin])
+  }, [page, statusFilter, verificationFilter, roleFilter, isAuthenticated, isAdmin])
+
+  useEffect(() => {
+    if (isAuthenticated && isAdmin) {
+      fetchRoles()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated, isAdmin])
 
   const fetchStats = async () => {
     try {
@@ -129,6 +151,23 @@ export default function AdminUsersPage() {
     }
   }
 
+  const fetchRoles = async () => {
+    try {
+      const sessionToken = localStorage.getItem("session_token")
+      const response = await fetch(`${API_URL}/api/v1/auth/admin/roles`, {
+        headers: {
+          "X-Session-Token": sessionToken || "",
+        },
+      })
+      if (response.ok) {
+        const data = await response.json()
+        setRoles(data)
+      }
+    } catch {
+      // Roles fetch is optional
+    }
+  }
+
   const fetchUsers = async () => {
     setLoadingUsers(true)
     try {
@@ -141,6 +180,7 @@ export default function AdminUsersPage() {
       if (searchQuery) params.append("search", searchQuery)
       if (statusFilter !== "all") params.append("status", statusFilter)
       if (verificationFilter !== "all") params.append("email_verified", verificationFilter)
+      if (roleFilter !== "all") params.append("role", roleFilter)
       
       const response = await fetch(
         `${API_URL}/api/v1/auth/admin/users?${params}`,
@@ -321,6 +361,144 @@ export default function AdminUsersPage() {
     }
   }
 
+  const handleOpenManageRoles = (user: User) => {
+    setManageRolesUser(user)
+    setSelectedRoleId("")
+    setNewRoleName("")
+    setNewRoleDescription("")
+    setManageRolesDialogOpen(true)
+  }
+
+  const assignRole = async (userId: string, roleId: string) => {
+    setRoleAssignmentLoading(true)
+    try {
+      const sessionToken = localStorage.getItem("session_token")
+      const response = await fetch(
+        `${API_URL}/api/v1/auth/admin/users/${userId}/roles`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Session-Token": sessionToken || "",
+          },
+          body: JSON.stringify({ role_id: roleId }),
+        }
+      )
+
+      if (response.ok) {
+        const data = await response.json()
+        toast.success(`Role "${data.name}" assigned`)
+        setManageRolesUser((prev) =>
+          prev ? { ...prev, roles: [...(prev.roles || []), data.name] } : null
+        )
+        setSelectedRoleId("")
+        fetchUsers()
+      } else {
+        const error = await response.json()
+        toast.error(error.detail || "Failed to assign role")
+      }
+    } catch {
+      toast.error("Failed to assign role")
+    } finally {
+      setRoleAssignmentLoading(false)
+    }
+  }
+
+  const removeRole = async (userId: string, roleId: string) => {
+    setRoleAssignmentLoading(true)
+    try {
+      const sessionToken = localStorage.getItem("session_token")
+      const response = await fetch(
+        `${API_URL}/api/v1/auth/admin/users/${userId}/roles/${roleId}`,
+        {
+          method: "DELETE",
+          headers: {
+            "X-Session-Token": sessionToken || "",
+          },
+        }
+      )
+
+      if (response.ok) {
+        const roleName = roles.find((r) => r.id === roleId)?.name
+        toast.success("Role removed")
+        setManageRolesUser((prev) =>
+          prev
+            ? {
+                ...prev,
+                roles: (prev.roles || []).filter((r) => r !== roleName),
+              }
+            : null
+        )
+        fetchUsers()
+      } else {
+        const error = await response.json()
+        toast.error(error.detail || "Failed to remove role")
+      }
+    } catch {
+      toast.error("Failed to remove role")
+    } finally {
+      setRoleAssignmentLoading(false)
+    }
+  }
+
+  const createRole = async () => {
+    if (!newRoleName.trim() || !manageRolesUser) return
+
+    setCreateRoleLoading(true)
+    try {
+      const sessionToken = localStorage.getItem("session_token")
+      const createResponse = await fetch(`${API_URL}/api/v1/auth/admin/roles`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Session-Token": sessionToken || "",
+        },
+        body: JSON.stringify({
+          name: newRoleName.trim(),
+          description: newRoleDescription.trim() || null,
+        }),
+      })
+
+      if (!createResponse.ok) {
+        const error = await createResponse.json()
+        toast.error(error.detail || "Failed to create role")
+        return
+      }
+
+      const newRole = await createResponse.json()
+      toast.success(`Role "${newRole.name}" created`)
+      setRoles((prev) => [...prev, newRole])
+
+      const assignResponse = await fetch(
+        `${API_URL}/api/v1/auth/admin/users/${manageRolesUser.id}/roles`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Session-Token": sessionToken || "",
+          },
+          body: JSON.stringify({ role_id: newRole.id }),
+        }
+      )
+
+      if (assignResponse.ok) {
+        const assignData = await assignResponse.json()
+        toast.success(`Role "${assignData.name}" assigned`)
+        setManageRolesUser((prev) =>
+          prev ? { ...prev, roles: [...(prev.roles || []), assignData.name] } : null
+        )
+      }
+
+      setNewRoleName("")
+      setNewRoleDescription("")
+      fetchUsers()
+    } catch {
+      toast.error("Failed to create role")
+    } finally {
+      setCreateRoleLoading(false)
+    }
+  }
+
 
   const filteredUsers = users.filter(
     (user) =>
@@ -330,22 +508,10 @@ export default function AdminUsersPage() {
 
   const totalPages = Math.ceil(total / pageSize)
 
-  if (loading || !isAuthenticated || !isAdmin) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-      </div>
-    )
-  }
+
 
   return (
-    <div className="min-h-screen bg-background flex">
-      <AdminSidebar />
-      <div className="flex-1 ml-0 md:ml-[20px] p-4 md:p-6">
-        <div className="absolute top-4 right-4 z-10">
-          <ThemeToggle />
-        </div>
-        <div className="max-w-7xl mx-auto space-y-6">
+    <div className="max-w-7xl mx-auto space-y-6">
           <div>
             <h1 className="text-3xl font-bold flex items-center gap-2">
               <Users className="w-8 h-8" />
@@ -385,7 +551,7 @@ export default function AdminUsersPage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <div className="relative md:col-span-1">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-4 h-4" />
                   <Input
@@ -415,6 +581,19 @@ export default function AdminUsersPage() {
                     <SelectItem value="all">All Users</SelectItem>
                     <SelectItem value="true">Verified Only</SelectItem>
                     <SelectItem value="false">Unverified Only</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select value={roleFilter} onValueChange={setRoleFilter}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Filter by role" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Roles</SelectItem>
+                    {roles.map((role) => (
+                      <SelectItem key={role.id} value={role.name}>
+                        {role.name}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -508,6 +687,10 @@ export default function AdminUsersPage() {
                                       <Edit className="w-4 h-4 mr-2" />
                                       Edit User
                                     </DropdownMenuItem>
+                                    <DropdownMenuItem onClick={() => handleOpenManageRoles(user)}>
+                                      <Shield className="w-4 h-4 mr-2" />
+                                      Manage Roles
+                                    </DropdownMenuItem>
                                     <DropdownMenuItem onClick={() => handleVerifyEmail(user.id, !user.email_verified)}>
                                       {user.email_verified ? (
                                         <>
@@ -591,9 +774,6 @@ export default function AdminUsersPage() {
               )}
             </CardContent>
           </Card>
-        </div>
-      </div>
-
       {/* Edit User Dialog */}
       <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
         <DialogContent>
@@ -705,7 +885,119 @@ export default function AdminUsersPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Manage Roles Dialog */}
+      <Dialog open={manageRolesDialogOpen} onOpenChange={setManageRolesDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Manage Roles</DialogTitle>
+            <DialogDescription>
+              {manageRolesUser?.email && `Manage roles for ${manageRolesUser.email}`}
+            </DialogDescription>
+          </DialogHeader>
+          {manageRolesUser && (
+            <div className="space-y-6 py-4">
+              <div className="space-y-2">
+                <Label>Current Roles</Label>
+                <div className="flex gap-2 flex-wrap">
+                  {manageRolesUser.roles && manageRolesUser.roles.length > 0 ? (
+                    manageRolesUser.roles.map((roleName) => {
+                      const role = roles.find((r) => r.name === roleName)
+                      return (
+                        <Badge key={roleName} variant="secondary" className="gap-1 pr-1">
+                          {roleName}
+                          {role && (
+                            <button
+                              onClick={() => removeRole(manageRolesUser.id, role.id)}
+                              disabled={roleAssignmentLoading}
+                              className="ml-1 hover:text-destructive transition-colors"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          )}
+                        </Badge>
+                      )
+                    })
+                  ) : (
+                    <span className="text-sm text-muted-foreground">No roles assigned</span>
+                  )}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Add Role</Label>
+                <div className="flex gap-2">
+                  <Select value={selectedRoleId} onValueChange={setSelectedRoleId}>
+                    <SelectTrigger className="flex-1">
+                      <SelectValue placeholder="Select a role" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {roles
+                        .filter((r) => !manageRolesUser.roles?.includes(r.name))
+                        .map((role) => (
+                          <SelectItem key={role.id} value={role.id}>
+                            {role.name}
+                          </SelectItem>
+                        ))}
+                      {roles.filter((r) => !manageRolesUser.roles?.includes(r.name)).length ===
+                        0 && (
+                        <SelectItem value="__none__" disabled>
+                          No available roles
+                        </SelectItem>
+                      )}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    onClick={() => assignRole(manageRolesUser.id, selectedRoleId)}
+                    disabled={!selectedRoleId || roleAssignmentLoading}
+                  >
+                    {roleAssignmentLoading ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <>
+                        <Plus className="w-4 h-4 mr-2" />
+                        Add
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+
+              <div className="space-y-2 pt-4 border-t">
+                <Label>Create New Role</Label>
+                <div className="space-y-2">
+                  <Input
+                    placeholder="Role name"
+                    value={newRoleName}
+                    onChange={(e) => setNewRoleName(e.target.value)}
+                  />
+                  <Input
+                    placeholder="Description (optional)"
+                    value={newRoleDescription}
+                    onChange={(e) => setNewRoleDescription(e.target.value)}
+                  />
+                  <Button
+                    onClick={createRole}
+                    disabled={!newRoleName.trim() || createRoleLoading}
+                  >
+                    {createRoleLoading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Creating...
+                      </>
+                    ) : (
+                      <>
+                        <Plus className="w-4 h-4 mr-2" />
+                        Create & Add
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
-

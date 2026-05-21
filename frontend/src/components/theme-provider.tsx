@@ -28,6 +28,18 @@ const initialState: ThemeProviderState = {
 
 const ThemeProviderContext = React.createContext<ThemeProviderState>(initialState)
 
+function getInitialTheme(defaultTheme: Theme, defaultMode: Mode, storageKey: string): { theme: Theme; mode: Mode } {
+  if (typeof window !== "undefined") {
+    const storedTheme = localStorage.getItem(`${storageKey}-theme`) as Theme | null
+    const storedMode = localStorage.getItem(`${storageKey}-mode`) as Mode | null
+    return {
+      theme: storedTheme || defaultTheme,
+      mode: storedMode || defaultMode,
+    }
+  }
+  return { theme: defaultTheme, mode: defaultMode }
+}
+
 export function ThemeProvider({
   children,
   defaultTheme = "judicial-suede",
@@ -35,16 +47,8 @@ export function ThemeProvider({
   storageKey = "ui-theme",
   ...props
 }: ThemeProviderProps) {
-  const [theme, setTheme] = React.useState<Theme>(defaultTheme)
-  const [mode, setMode] = React.useState<Mode>(defaultMode)
-
-  React.useEffect(() => {
-    const storedTheme = localStorage.getItem(`${storageKey}-theme`) as Theme
-    const storedMode = localStorage.getItem(`${storageKey}-mode`) as Mode
-    
-    if (storedTheme) setTheme(storedTheme)
-    if (storedMode) setMode(storedMode)
-  }, [storageKey])
+  const [state, setState] = React.useState<{ theme: Theme; mode: Mode }>(() => getInitialTheme(defaultTheme, defaultMode, storageKey))
+  const { theme, mode } = state
 
   React.useEffect(() => {
     const root = window.document.documentElement
@@ -66,11 +70,11 @@ export function ThemeProvider({
     mode,
     setTheme: (theme: Theme) => {
       localStorage.setItem(`${storageKey}-theme`, theme)
-      setTheme(theme)
+      setState(prev => ({ ...prev, theme }))
     },
     setMode: (mode: Mode) => {
       localStorage.setItem(`${storageKey}-mode`, mode)
-      setMode(mode)
+      setState(prev => ({ ...prev, mode }))
     },
   }
 

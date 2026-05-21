@@ -2,8 +2,33 @@
 YouTube Transcript Extractor
 Fetches transcripts with timestamps for YouTube videos
 """
+import time
+import functools
 from typing import Dict, List, Optional
 from loguru import logger
+
+
+def retry(max_attempts: int = 3, delay: float = 1.0, backoff: float = 2.0, exceptions: tuple = (Exception,)):
+    """Simple retry decorator with exponential backoff"""
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            last_exc = None
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    return func(*args, **kwargs)
+                except exceptions as e:
+                    last_exc = e
+                    if attempt < max_attempts:
+                        wait = delay * (backoff ** (attempt - 1))
+                        logger.warning(f"Retry {attempt}/{max_attempts} for {func.__name__}: {e}. Waiting {wait:.1f}s")
+                        time.sleep(wait)
+                    else:
+                        logger.error(f"All {max_attempts} attempts failed for {func.__name__}: {e}")
+                        raise
+            raise last_exc
+        return wrapper
+    return decorator
 
 
 class TranscriptExtractor:
@@ -28,6 +53,7 @@ class TranscriptExtractor:
             logger.warning("youtube-transcript-api not installed. Transcript extraction disabled.")
             self.available = False
     
+    @retry(max_attempts=2, delay=1.0)
     def extract_transcript(
         self,
         video_id: str,
@@ -240,47 +266,45 @@ class TranscriptExtractor:
             return []
         
         chunks = []
-        current_chunk_text = []
         current_chunk_start = segments[0]['start']
-        current_duration = 0
+        seg_index = 0
+        n_segments = len(segments)
         
-        for segment in segments:
-            current_chunk_text.append(segment['text'])
-            current_duration = segment['end'] - current_chunk_start
+        while seg_index < n_segments:
+            chunk_text = []
+            chunk_duration_actual = 0
+            chunk_end = current_chunk_start
             
-            # Create chunk if duration threshold reached
-            if current_duration >= chunk_duration:
-                chunk = {
-                    'text': " ".join(current_chunk_text),
-                    'start_time': current_chunk_start,
-                    'end_time': segment['end'],
-                    'duration': current_duration,
-                    'video_id': transcript_data['video_id'],
-                    'timestamp_url': f"https://www.youtube.com/watch?v={transcript_data['video_id']}&t={int(current_chunk_start)}s",
-                    'timestamp_formatted': self._format_timestamp(current_chunk_start),
-                }
-                chunks.append(chunk)
-                
-                # Start new chunk with overlap
-                overlap_start = segment['start'] - overlap_duration
-                current_chunk_text = [
-                    seg['text'] for seg in segments
-                    if seg['start'] >= overlap_start and seg['start'] <= segment['end']
-                ]
-                current_chunk_start = max(current_chunk_start, overlap_start)
-                current_duration = 0
-        
-        # Add final chunk if there's remaining text
-        if current_chunk_text:
+            # Walk forward building the chunk
+            idx = seg_index
+            while idx < n_segments:
+                seg = segments[idx]
+                seg_end = seg['start'] + seg['duration']
+                chunk_duration_actual = seg_end - current_chunk_start
+                if chunk_duration_actual > chunk_duration and chunk_text:
+                    break
+                chunk_text.append(seg['text'])
+                chunk_end = seg_end
+                idx += 1
+            
             chunks.append({
-                'text': " ".join(current_chunk_text),
+                'text': " ".join(chunk_text),
                 'start_time': current_chunk_start,
-                'end_time': segments[-1]['end'],
-                'duration': segments[-1]['end'] - current_chunk_start,
+                'end_time': chunk_end,
+                'duration': chunk_end - current_chunk_start,
                 'video_id': transcript_data['video_id'],
                 'timestamp_url': f"https://www.youtube.com/watch?v={transcript_data['video_id']}&t={int(current_chunk_start)}s",
                 'timestamp_formatted': self._format_timestamp(current_chunk_start),
             })
+            
+            # Advance to next chunk start with overlap
+            overlap_target = chunk_end - overlap_duration
+            while seg_index < n_segments and segments[seg_index]['end'] < overlap_target:
+                seg_index += 1
+            if seg_index < n_segments:
+                current_chunk_start = segments[seg_index]['start']
+            else:
+                break
         
         logger.info(f"Created {len(chunks)} chunks from transcript")
         return chunks

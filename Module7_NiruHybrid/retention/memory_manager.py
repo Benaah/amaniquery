@@ -109,7 +109,7 @@ class MemoryManager:
         
         # Base score from embedding norm (more informative patterns)
         if isinstance(embeddings, torch.Tensor):
-            norm = torch.norm(embeddings).item()
+            norm = torch.norm(embeddings, p='fro').item()
             score += min(norm / 10.0, 1.0) * 0.3  # Normalize and weight
         
         # Query similarity (if provided)

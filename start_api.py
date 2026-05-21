@@ -115,7 +115,8 @@ def start_api():
     auth_enabled = os.getenv("ENABLE_AUTH", "false").lower() == "true"
     
     # Check voice configuration
-    vibevoice_enabled = os.getenv("VIBEVOICE_MODEL_PATH", "") != "" or True  # Always enabled
+    vibevoice_enabled = os.getenv("VIBEVOICE_MODEL_PATH", "") != ""
+    vibevoice_enabled = vibevoice_enabled or os.getenv("ENABLE_VIBEVOICE", "false").lower() == "true"
     
     logger.info(f"[URL] API Server: http://{host}:{port}")
     logger.info(f"[DOCS] API Docs: http://{host}:{port}/docs")
@@ -212,36 +213,13 @@ def main():
     else:
         print("\n[INFO] Scheduler disabled (set ENABLE_SCHEDULER=true to enable)")
 
-    # Start NiruSense Orchestrator (Background Service)
+    # NiruSense is now managed by the FastAPI lifespan in api.py
     enable_nirusense = os.getenv("ENABLE_NIRUSENSE", "false").lower() == "true"
     if enable_nirusense:
-        print("\n[AI] Starting NiruSense Orchestrator...")
-        try:
-            from Module9_NiruSense.nirusense_service import start_nirusense_thread
-            
-            # Start NiruSense in a separate thread
-            nirusense_thread = threading.Thread(
-                target=start_nirusense_thread,
-                daemon=True,
-                name="NiruSenseOrchestrator"
-            )
-            nirusense_thread.start()
-            logger.info("[OK] NiruSense orchestrator thread started")
-            
-            # Check if it's running
-            import time
-            time.sleep(1.0)
-            if nirusense_thread.is_alive():
-                logger.info("[OK] NiruSense orchestrator is running")
-            else:
-                logger.error("[ERROR] NiruSense thread died immediately - check logs")
-                
-        except ImportError as e:
-            logger.error(f"[ERROR] Failed to import NiruSense: {e}")
-        except Exception as e:
-            logger.error(f"[ERROR] Failed to start NiruSense: {e}")
+        print("\n[INFO] NiruSense will start with the API server (managed by FastAPI lifespan)")
+        print("   Orchestrator, agents, and scheduler all managed by api.py lifespan")
     else:
-        logger.info("[INFO] NiruSense disabled (set ENABLE_NIRUSENSE=true to enable)")
+        print("\n[INFO] NiruSense disabled (set ENABLE_NIRUSENSE=true to enable)")
 
     
     print("=" * 60)

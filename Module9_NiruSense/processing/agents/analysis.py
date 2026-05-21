@@ -60,9 +60,6 @@ class EntityExtractor(BaseAgent):
 class SentimentAnalyzer(BaseAgent):
     def __init__(self):
         super().__init__("sentiment_analyzer")
-        # Using a model fine-tuned for African languages/context if available, otherwise standard multilingual
-        self.model_name = "Davlan/afro-xlmr-mini" # Note: This might need a specific fine-tuned version for sentiment, using generic for now or standard
-        # Better alternative for general sentiment if specific one isn't ready: "lxyuan/distilbert-base-multilingual-cased-sentiments-student"
         self.model_name = "lxyuan/distilbert-base-multilingual-cased-sentiments-student"
         try:
             self.pipe = pipeline("text-classification", model=self.model_name, return_all_scores=True, device=0 if torch.cuda.is_available() else -1)

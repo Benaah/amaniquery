@@ -41,6 +41,10 @@ class User(Base):
     locked_until = Column(DateTime, nullable=True)
     extra_data = Column(JSON, nullable=True)  # Additional user data (renamed from metadata to avoid SQLAlchemy conflict)
     profile_image_url = Column(String, nullable=True)  # Cloudinary URL for profile image
+    mfa_secret = Column(String, nullable=True)
+    mfa_enabled = Column(Boolean, default=False, nullable=False)
+    mfa_backup_codes = Column(Text, nullable=True)
+    mfa_method = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 

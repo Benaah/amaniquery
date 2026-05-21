@@ -13,6 +13,10 @@ from .calculator import CalculatorTool
 from .file_writer import FileWriterTool
 from .email_drafter import EmailDrafterTool
 from .kb_search import KnowledgeBaseSearchTool
+from .bill_status import BillStatusTool
+from .hansard_tool import HansardTool
+from .fees_calculator import FeesCalculatorTool
+from .legal_citation import LegalCitationTool
 
 
 
@@ -75,8 +79,37 @@ class ToolRegistry:
             self.register_tool("kb_search", KnowledgeBaseSearchTool())
         except Exception as e:
             logger.warning(f"Failed to register kb_search tool: {e}")
-        
 
+        # New tools
+        try:
+            self.register_tool("file_write", FileWriterTool())
+        except Exception as e:
+            logger.warning(f"Failed to register file_write tool: {e}")
+
+        try:
+            self.register_tool("email_draft", EmailDrafterTool())
+        except Exception as e:
+            logger.warning(f"Failed to register email_draft tool: {e}")
+
+        try:
+            self.register_tool("bill_status", BillStatusTool())
+        except Exception as e:
+            logger.warning(f"Failed to register bill_status tool: {e}")
+
+        try:
+            self.register_tool("hansard", HansardTool())
+        except Exception as e:
+            logger.warning(f"Failed to register hansard tool: {e}")
+
+        try:
+            self.register_tool("fees_calculator", FeesCalculatorTool())
+        except Exception as e:
+            logger.warning(f"Failed to register fees_calculator tool: {e}")
+
+        try:
+            self.register_tool("legal_citation", LegalCitationTool())
+        except Exception as e:
+            logger.warning(f"Failed to register legal_citation tool: {e}")
         
         logger.info(f"Registered {len(self.tools)} tools")
     

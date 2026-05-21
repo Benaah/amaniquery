@@ -1,3 +1,4 @@
+import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { History, Search, Sparkles, Share2, Home } from "lucide-react"
@@ -14,6 +15,7 @@ interface ChatHeaderProps {
   onToggleSidebar?: () => void
   onShare: () => void
   HistoryIcon?: LucideIcon
+  mode?: "chat" | "hybrid" | "research"
 }
 
 export function ChatHeader({
@@ -24,7 +26,8 @@ export function ChatHeader({
   onToggleHistory,
   onToggleSidebar,
   onShare,
-  HistoryIcon
+  HistoryIcon,
+  mode = "chat"
 }: ChatHeaderProps) {
   return (
     <div className="border-b border-border bg-background flex-shrink-0 relative z-30 h-14 flex items-center">
@@ -48,15 +51,24 @@ export function ChatHeader({
             
             <div className="min-w-0 flex items-center gap-2">
               <span className="font-semibold text-sm md:text-base truncate">AmaniQuery</span>
-              {isResearchMode && (
-                <Badge variant="secondary" className="text-xs font-normal bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 border-0">
-                  Research
-                </Badge>
-              )}
-              {useHybrid && !isResearchMode && (
-                <Badge variant="secondary" className="text-xs font-normal bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300 border-0">
-                  Hybrid
-                </Badge>
+              {/* Mode Indicator */}
+              {mode && (
+                <div className="flex items-center gap-1.5 px-2 py-1 bg-muted/60 rounded-lg border border-border/50">
+                  <div className={`w-2 h-2 rounded-full ${
+                    mode === "research" ? "bg-emerald-500" :
+                    mode === "hybrid" ? "bg-purple-500" :
+                    "bg-blue-500"
+                  }`} />
+                  <span className={`text-xs font-medium ${
+                    mode === "research" ? "text-emerald-600 dark:text-emerald-400" :
+                    mode === "hybrid" ? "text-purple-600 dark:text-purple-400" :
+                    "text-blue-600 dark:text-blue-400"
+                  }`}>
+                    {mode === "research" ? "Deep Research" :
+                     mode === "hybrid" ? "Hybrid RAG" :
+                     "Standard Chat"}
+                  </span>
+                </div>
               )}
             </div>
           </div>

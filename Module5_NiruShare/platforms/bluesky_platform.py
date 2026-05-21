@@ -11,8 +11,12 @@ class BlueskyPlatform(BasePlatform):
             name="Bluesky",
             display_name="Bluesky",
             char_limit=300,
+            supports_threads=False,
             supports_images=True,
-            requires_auth=False 
+            supports_video=False,
+            posting_supported=False,
+            requires_auth=False,
+            features=["hashtags", "links"],
         )
 
     def format_post(
@@ -23,11 +27,15 @@ class BlueskyPlatform(BasePlatform):
         include_hashtags: bool = True,
         style: Optional[str] = None,
     ) -> Dict:
-        return self.formatter.format_post(
+        result = self.formatter.format_post(
             answer=answer,
             sources=sources,
-            query=query
+            query=query,
+            include_hashtags=include_hashtags,
         )
+        if style:
+            result["style"] = style
+        return result
 
     def generate_share_link(self, content: str, url: Optional[str] = None) -> str:
         # Bluesky intent URL scheme

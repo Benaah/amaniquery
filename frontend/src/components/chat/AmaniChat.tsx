@@ -6,8 +6,8 @@ import { toast } from "sonner"
 import { AmaniMessageList } from "./AmaniMessageList"
 import { AmaniInput } from "./AmaniInput"
 import { ChatHeader } from "./ChatHeader"
-import { StreamingMessage } from "./AmaniMessageList"
-import type { Source } from "./types"
+
+import type { Source, StreamToolEvent } from "./types"
 import type {
   Message,
   ChatSession,
@@ -68,6 +68,7 @@ export function AmaniChat({
   const [isVoiceActive, setIsVoiceActive] = useState(false)
   const [streamingContent, setStreamingContent] = useState("")
   const [streamingSources, setStreamingSources] = useState<Source[]>([])
+  const [streamingTools, setStreamingTools] = useState<StreamToolEvent[]>([])
   const [showHistory, setShowHistory] = useState(false)
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
   const [editingContent, setEditingContent] = useState("")
@@ -93,6 +94,9 @@ export function AmaniChat({
   
   const autocompleteTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const messagesContainerRef = useRef<HTMLDivElement | null>(null)
+  const abortControllerRef = useRef<AbortController | null>(null)
+  const streamingContentRef = useRef("")
+  const streamingSourcesRef = useRef<Source[]>([])
 
   const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
   const ENABLE_AUTOCOMPLETE = process.env.NEXT_PUBLIC_ENABLE_AUTOCOMPLETE !== "false"
@@ -367,7 +371,7 @@ export function AmaniChat({
       id: Date.now().toString(),
       session_id: sessionId,
       role: "user",
-      content: input,
+      content: contentToSend,
       created_at: new Date().toISOString(),
       attachments: selectedFiles.length > 0 ? selectedFiles.map(file => ({
         id: file.name,
@@ -386,15 +390,22 @@ export function AmaniChat({
     setIsThinking(true)
     setStreamingContent("")
     setStreamingSources([])
+    setStreamingTools([])
+    streamingContentRef.current = ""
+    streamingSourcesRef.current = []
+
+    const abortController = new AbortController()
+    abortControllerRef.current = abortController
 
     try {
       const headers = { "Content-Type": "application/json", ...getAuthHeaders() }
       const response = await fetch(`${API_BASE_URL}/api/v1/chat/completions`, {
         method: "POST",
         headers,
+        signal: abortController.signal,
         body: JSON.stringify({
           session_id: sessionId,
-          message: input,
+          message: contentToSend,
           use_hybrid: useHybrid,
           is_research: isResearchMode,
           attachments: selectedFiles.length > 0 ? selectedFiles.map(file => ({
@@ -425,6 +436,8 @@ export function AmaniChat({
         for (const line of lines) {
           if (line.startsWith('data: ')) {
             const data = line.slice(6)
+
+            // Legacy [DONE] signal
             if (data === '[DONE]') {
               setIsThinking(false)
               continue
@@ -432,12 +445,50 @@ export function AmaniChat({
 
             try {
               const parsed = JSON.parse(data)
+
+              // New format: events have a "type" field
+              if (parsed.type === "tool_start") {
+                setStreamingTools(prev => [...prev, { type: "tool_start", tool_name: parsed.tool_name, query: parsed.query }])
+                continue
+              }
+              if (parsed.type === "tool_result") {
+                setStreamingTools(prev => [...prev, { type: "tool_result", tool_name: parsed.tool_name, status: parsed.status, latency_ms: parsed.latency_ms }])
+                continue
+              }
+              if (parsed.type === "sources") {
+                sources = parsed.sources || []
+                streamingSourcesRef.current = sources
+                setStreamingSources(sources)
+                continue
+              }
+              if (parsed.type === "done") {
+                if (parsed.full_answer) {
+                  assistantContent = parsed.full_answer
+                  streamingContentRef.current = assistantContent
+                  setStreamingContent(assistantContent)
+                }
+                if (parsed.sources) {
+                  sources = parsed.sources
+                  streamingSourcesRef.current = sources
+                  setStreamingSources(sources)
+                }
+                setIsThinking(false)
+                continue
+              }
+              if (parsed.type === "error") {
+                console.error("SSE error:", parsed.error)
+                continue
+              }
+
+              // Backward-compat: no type field → treat as content chunk
               if (parsed.content) {
                 assistantContent += parsed.content
+                streamingContentRef.current = assistantContent
                 setStreamingContent(assistantContent)
               }
               if (parsed.sources) {
                 sources = parsed.sources
+                streamingSourcesRef.current = sources
                 setStreamingSources(sources)
               }
               if (parsed.metadata) {
@@ -450,20 +501,39 @@ export function AmaniChat({
         }
       }
 
-      const assistantMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        session_id: sessionId,
-        role: "assistant",
-        content: assistantContent,
-        created_at: new Date().toISOString(),
-        sources: sources,
-        token_count: metadata.token_count,
-        model_used: metadata.model_used
-      }
+      if (assistantContent.trim()) {
+        const assistantMessage: Message = {
+          id: (Date.now() + 1).toString(),
+          session_id: sessionId,
+          role: "assistant",
+          content: assistantContent,
+          created_at: new Date().toISOString(),
+          sources: sources,
+          token_count: metadata.token_count,
+          model_used: metadata.model_used
+        }
 
-      setMessages(prev => [...prev, assistantMessage])
+        setMessages(prev => [...prev, assistantMessage])
+      }
       
     } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        const partialContent = streamingContentRef.current
+        if (partialContent.trim()) {
+          const partialMessage: Message = {
+            id: (Date.now() + 1).toString(),
+            session_id: sessionId,
+            role: "assistant",
+            content: partialContent,
+            created_at: new Date().toISOString(),
+            sources: streamingSourcesRef.current,
+            stopped: true
+          }
+          setMessages(prev => [...prev, partialMessage])
+        }
+        return
+      }
+
       console.error("Failed to send message:", error)
       toast.error("Failed to send message")
       
@@ -482,8 +552,16 @@ export function AmaniChat({
       setIsThinking(false)
       setStreamingContent("")
       setStreamingSources([])
+      abortControllerRef.current = null
     }
   }, [input, isLoading, currentSessionId, createNewSession, useHybrid, isResearchMode, selectedFiles, API_BASE_URL, getAuthHeaders])
+
+  // Abort streaming
+  const handleAbortStream = useCallback(() => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
+    }
+  }, [])
 
   // Handle message actions
   const handleCopy = useCallback(async (content: string) => {
@@ -1116,80 +1194,42 @@ export function AmaniChat({
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto overflow-x-hidden" ref={messagesContainerRef}>
-        {streamingContent ? (
-            <div className="h-full">
-              <AmaniMessageList
-                messages={messages}
-                isLoading={isLoading}
-                isThinking={isThinking}
-                onSendMessage={sendMessage}
-                onRegenerate={handleRegenerate}
-                onFeedback={handleFeedback}
-                onCopy={handleCopy}
-                onShare={handleShare}
-                showWelcomeScreen={showWelcomeScreen && messages.length === 0}
-                enableThinkingIndicator={enableThinkingIndicator}
-                showInlineSources={showInlineSources}
-                shareSheet={shareSheet}
-                onCloseShareSheet={() => setShareSheet(null)}
-                onChangeSharePlatform={changeSharePlatform}
-                onCopyShareContent={copyShareContent}
-                onGenerateShareImage={generateShareImage}
-                onOpenShareIntent={openShareIntent}
-                onAuthenticatePlatform={initiateAuth}
-                onPostDirectly={postDirectly}
-                platformTokens={platformTokens}
-                editingMessageId={editingMessageId}
-                editingContent={editingContent}
-                setEditingContent={setEditingContent}
-                onSaveEdit={saveEditedMessage}
-                onCancelEdit={cancelEditing}
-                onStartEdit={startEditingMessage}
-                onCopyFailedQuery={copyFailedQuery}
-                onEditFailedQuery={editFailedQuery}
-                onResendFailedQuery={resendFailedQuery}
-              />
-              <div className="px-4 pb-6">
-                <StreamingMessage
-                  content={streamingContent}
-                  isThinking={isThinking}
-                  sources={streamingSources}
-                />
-              </div>
-            </div>
-          ) : (
-            <AmaniMessageList
-              messages={messages}
-              isLoading={isLoading}
-              isThinking={isThinking}
-              onSendMessage={sendMessage}
-              onRegenerate={handleRegenerate}
-              onFeedback={handleFeedback}
-              onCopy={handleCopy}
-              onShare={handleShare}
-              showWelcomeScreen={showWelcomeScreen && messages.length === 0}
-              enableThinkingIndicator={enableThinkingIndicator}
-              showInlineSources={showInlineSources}
-              shareSheet={shareSheet}
-              onCloseShareSheet={() => setShareSheet(null)}
-              onChangeSharePlatform={changeSharePlatform}
-              onCopyShareContent={copyShareContent}
-              onGenerateShareImage={generateShareImage}
-              onOpenShareIntent={openShareIntent}
-              onAuthenticatePlatform={initiateAuth}
-              onPostDirectly={postDirectly}
-              platformTokens={platformTokens}
-              editingMessageId={editingMessageId}
-              editingContent={editingContent}
-              setEditingContent={setEditingContent}
-              onSaveEdit={saveEditedMessage}
-              onCancelEdit={cancelEditing}
-              onStartEdit={startEditingMessage}
-              onCopyFailedQuery={copyFailedQuery}
-              onEditFailedQuery={editFailedQuery}
-              onResendFailedQuery={resendFailedQuery}
-            />
-          )}
+        <AmaniMessageList
+          messages={messages}
+          isLoading={isLoading}
+          isThinking={isThinking}
+          onSendMessage={sendMessage}
+          onRegenerate={handleRegenerate}
+          onFeedback={handleFeedback}
+          onCopy={handleCopy}
+          onShare={handleShare}
+          showWelcomeScreen={showWelcomeScreen && messages.length === 0}
+          enableThinkingIndicator={enableThinkingIndicator}
+          showInlineSources={showInlineSources}
+          shareSheet={shareSheet}
+          onCloseShareSheet={() => setShareSheet(null)}
+          onChangeSharePlatform={changeSharePlatform}
+          onCopyShareContent={copyShareContent}
+          onGenerateShareImage={generateShareImage}
+          onOpenShareIntent={openShareIntent}
+          onAuthenticatePlatform={initiateAuth}
+          onPostDirectly={postDirectly}
+          platformTokens={platformTokens}
+          editingMessageId={editingMessageId}
+          editingContent={editingContent}
+          setEditingContent={setEditingContent}
+          onSaveEdit={saveEditedMessage}
+          onCancelEdit={cancelEditing}
+          onStartEdit={startEditingMessage}
+          onCopyFailedQuery={copyFailedQuery}
+          onEditFailedQuery={editFailedQuery}
+          onResendFailedQuery={resendFailedQuery}
+          isStreaming={!!streamingContent && isLoading}
+          streamingContent={streamingContent}
+          streamingSources={streamingSources}
+          streamingTools={streamingTools}
+          onAbortStream={handleAbortStream}
+        />
       </div>
 
       {/* Input */}

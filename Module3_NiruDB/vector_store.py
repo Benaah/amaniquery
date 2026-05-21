@@ -21,6 +21,7 @@ from functools import lru_cache
 import numpy as np
 from dataclasses import dataclass
 from typing import Tuple
+import threading
 
 # Load environment variables
 load_dotenv()
@@ -42,6 +43,7 @@ class VectorStore:
     _query_cache = {}
     _connection_pools = {}
     _cache_stats = {"hits": 0, "misses": 0, "total_queries": 0}
+    _cache_lock = threading.RLock()
     
     def __init__(
         self,
@@ -140,19 +142,25 @@ class VectorStore:
         logger.info(f"[STATS] Primary backend: {self.backend} | Cloud backends: {list(self.backends.keys())}")
         logger.info(f"[FAST] Caching: {enable_caching} | Pool size: {connection_pool_size} | Timeout: {query_timeout}s")
     
+    # Module-level global thread pools shared across instances
+    _global_query_pool: Optional[concurrent.futures.ThreadPoolExecutor] = None
+    _global_embedding_pool: Optional[concurrent.futures.ThreadPoolExecutor] = None
+
     def _init_connection_pools(self):
         """Initialize connection pools for parallel operations"""
-        # Thread pool for parallel queries
-        self.query_executor = concurrent.futures.ThreadPoolExecutor(
-            max_workers=self.connection_pool_size,
-            thread_name_prefix="VectorQuery"
-        )
-        
-        # Dedicated pool for embedding operations
-        self.embedding_executor = concurrent.futures.ThreadPoolExecutor(
-            max_workers=4,
-            thread_name_prefix="VectorEmbedding"
-        )
+        if VectorStore._global_query_pool is None:
+            VectorStore._global_query_pool = concurrent.futures.ThreadPoolExecutor(
+                max_workers=self.connection_pool_size,
+                thread_name_prefix="VectorQuery"
+            )
+        self.query_executor = VectorStore._global_query_pool
+
+        if VectorStore._global_embedding_pool is None:
+            VectorStore._global_embedding_pool = concurrent.futures.ThreadPoolExecutor(
+                max_workers=4,
+                thread_name_prefix="VectorEmbedding"
+            )
+        self.embedding_executor = VectorStore._global_embedding_pool
     
     def get_stats(self) -> Dict[str, Any]:
         """Get performance statistics"""
@@ -165,13 +173,14 @@ class VectorStore:
     
     def clear_cache(self):
         """Clear all caches"""
-        self._embedding_cache.clear()
-        self._query_cache.clear()
+        with self._cache_lock:
+            self._embedding_cache.clear()
+            self._query_cache.clear()
         self.query_stats["cache_hits"] = 0
         self.query_stats["cache_misses"] = 0
         logger.info("[CLEAN] All caches cleared")
     
-    @lru_cache(maxsize=1000)
+    @lru_cache(maxsize=100000)
     def _get_cached_embedding(self, text: str) -> np.ndarray:
         """Get cached embedding for text (LRU cache)"""
         return self.embedding_model.encode(text)
@@ -1247,23 +1256,24 @@ class VectorStore:
     def _get_query_embedding(self, query_text: str) -> List[float]:
         """Fast embedding generation with caching"""
         # Use cached embedding if available
-        if self.enable_caching and query_text in self._embedding_cache:
-            return self._embedding_cache[query_text]
+        if self.enable_caching:
+            with self._cache_lock:
+                if query_text in self._embedding_cache:
+                    return self._embedding_cache[query_text]
         
         # Generate embedding
         try:
             embedding = self.embedding_model.encode(query_text).tolist()
             
-            # Cache the embedding
+            # Cache the embedding (thread-safe)
             if self.enable_caching:
-                self._embedding_cache[query_text] = embedding
-                
-                # Prevent cache from growing too large
-                if len(self._embedding_cache) > 10000:
-                    # Remove oldest entries
-                    oldest_keys = list(self._embedding_cache.keys())[:1000]
-                    for key in oldest_keys:
-                        del self._embedding_cache[key]
+                with self._cache_lock:
+                    self._embedding_cache[query_text] = embedding
+                    # Prevent cache from growing too large
+                    if len(self._embedding_cache) > 10000:
+                        oldest_keys = list(self._embedding_cache.keys())[:1000]
+                        for key in oldest_keys:
+                            del self._embedding_cache[key]
             
             return embedding
             
@@ -1326,6 +1336,9 @@ class VectorStore:
                     # If we have enough results, return early (speed optimization)
                     if len(all_results) >= n_results * 2:  # Get extra for better ranking
                         logger.info(f"✅ Early return from {backend_name} with {len(results)} results")
+                        # Cancel remaining futures to avoid abandoned work
+                        for _, remaining_future in query_futures[completed_backends:]:
+                            remaining_future.cancel()
                         break
                         
             except concurrent.futures.TimeoutError:
@@ -1430,30 +1443,28 @@ class VectorStore:
         return hashlib.md5(key_str.encode()).hexdigest()
     
     def _get_query_cache(self, cache_key: str) -> Optional[List[Dict]]:
-        """Get cached query results"""
-        if cache_key in self._query_cache:
-            entry = self._query_cache[cache_key]
-            if time.time() - entry.timestamp < entry.ttl:
-                return entry.results
-            else:
-                # Expired, remove from cache
-                del self._query_cache[cache_key]
+        """Get cached query results (thread-safe)"""
+        with self._cache_lock:
+            if cache_key in self._query_cache:
+                entry = self._query_cache[cache_key]
+                if time.time() - entry.timestamp < entry.ttl:
+                    return entry.results
+                else:
+                    del self._query_cache[cache_key]
         return None
     
     def _set_query_cache(self, cache_key: str, results: List[Dict]):
-        """Cache query results"""
-        self._query_cache[cache_key] = QueryCacheEntry(
-            query_embedding=np.array([]),  # Not needed for result cache
-            results=results,
-            timestamp=time.time()
-        )
-        
-        # Prevent cache from growing too large
-        if len(self._query_cache) > 5000:  # Max 5000 cached queries
-            # Remove oldest entries
-            oldest_keys = list(self._query_cache.keys())[:1000]
-            for key in oldest_keys:
-                del self._query_cache[key]
+        """Cache query results (thread-safe)"""
+        with self._cache_lock:
+            self._query_cache[cache_key] = QueryCacheEntry(
+                query_embedding=np.array([]),
+                results=results,
+                timestamp=time.time()
+            )
+            if len(self._query_cache) > 5000:
+                oldest_keys = list(self._query_cache.keys())[:1000]
+                for key in oldest_keys:
+                    del self._query_cache[key]
     
     def _fallback_query(self, query_text: str, n_results: int, filter: Optional[Dict], namespace: str) -> List[Dict]:
         """🔄 Fallback query method when optimized query fails"""

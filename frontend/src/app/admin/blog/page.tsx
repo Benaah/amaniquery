@@ -1,15 +1,14 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { useRouter } from "next/navigation"
+
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { AdminSidebar } from "@/components/admin-sidebar"
-import { ThemeToggle } from "@/components/theme-toggle"
+
 import { BlogEditor } from "@/components/blog-editor"
 import { useAuth } from "@/lib/auth-context"
 import {
@@ -90,7 +89,7 @@ interface Tag {
 
 export default function AdminBlogPage() {
   const { isAuthenticated, isAdmin, loading } = useAuth()
-  const router = useRouter()
+
   const [posts, setPosts] = useState<BlogPost[]>([])
   const [categories, setCategories] = useState<Category[]>([])
   const [tags, setTags] = useState<Tag[]>([])
@@ -129,13 +128,7 @@ export default function AdminBlogPage() {
     slug: "",
   })
 
-  useEffect(() => {
-    if (!loading && !isAuthenticated) {
-      router.push("/auth/signin?redirect=/admin/blog")
-    } else if (!loading && isAuthenticated && !isAdmin) {
-      router.push("/chat")
-    }
-  }, [isAuthenticated, isAdmin, loading, router])
+
 
   useEffect(() => {
     if (isAuthenticated && isAdmin) {
@@ -446,22 +439,10 @@ export default function AdminBlogPage() {
     }
   }
 
-  if (loading || !isAuthenticated || !isAdmin) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-      </div>
-    )
-  }
+
 
   return (
-    <div className="min-h-screen bg-background flex">
-      <AdminSidebar />
-      <div className="flex-1 ml-0 md:ml-[20px] p-4 md:p-6">
-        <div className="absolute top-4 right-4 z-10">
-          <ThemeToggle />
-        </div>
-        <div className="max-w-7xl mx-auto space-y-6">
+    <div className="max-w-7xl mx-auto space-y-6">
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-3xl font-bold">Blog Management</h1>
@@ -999,8 +980,6 @@ export default function AdminBlogPage() {
               </Card>
             </div>
           )}
-        </div>
-      </div>
     </div>
   )
 }

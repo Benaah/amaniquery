@@ -72,7 +72,7 @@ class DiffusionNoiseScheduler:
         elif schedule == "cosine":
             # Cosine schedule
             s = 0.008
-            steps = torch.arange(num_steps, dtype=torch.float32)
+            steps = torch.arange(num_steps + 1, dtype=torch.float32)
             alphas_cumprod = torch.cos(((steps / num_steps) + s) / (1 + s) * math.pi * 0.5) ** 2
             alphas_cumprod = alphas_cumprod / alphas_cumprod[0]
             betas = 1 - (alphas_cumprod[1:] / alphas_cumprod[:-1])

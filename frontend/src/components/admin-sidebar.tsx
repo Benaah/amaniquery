@@ -22,6 +22,7 @@ import {
   Database,
   Sparkles,
   Zap,
+  CalendarClock,
 } from "lucide-react"
 import { Button } from "./ui/button"
 import { cn } from "@/lib/utils"
@@ -58,6 +59,7 @@ export function AdminSidebar() {
     { href: "/admin/blog", icon: FileText, label: "Blog" },
     { href: "/admin/analytics", icon: Activity, label: "Analytics" },
     { href: "/admin/training", icon: ArrowBigUp, label: "Training" },
+    { href: "/admin/scheduler", icon: CalendarClock, label: "Scheduler" },
     { href: "/admin/agent-monitoring", icon: Brain, label: "Agent Monitoring" },
     { href: "/admin/settings", icon: Settings, label: "Settings" },
   ]

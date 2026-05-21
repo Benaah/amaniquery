@@ -132,6 +132,18 @@ class ToolExecutor:
             return {"url": query}
         elif tool_name == "calculator":
             return {"expression": query}
+        elif tool_name == "file_write":
+            return {"filename": f"research_{int(time.time())}.md", "content": query}
+        elif tool_name == "email_draft":
+            return {"to": "", "subject": query[:80], "body": query}
+        elif tool_name == "bill_status":
+            return {"bill_name": query}
+        elif tool_name == "hansard":
+            return {"topic": query}
+        elif tool_name == "fees_calculator":
+            return {"query": query}
+        elif tool_name == "legal_citation":
+            return {"query": query}
         return {"query": query}
     
     async def _execute_one(self, tool_name: str, query: str) -> ToolResult:

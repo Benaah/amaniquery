@@ -7,8 +7,9 @@ from typing import List, Dict, Optional
 from datetime import datetime
 from pathlib import Path
 from loguru import logger
-from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, JSON, Boolean, LargeBinary
+from sqlalchemy import Column, Integer, String, Text, DateTime, JSON, Boolean, LargeBinary
 from sqlalchemy.orm import sessionmaker, Session, declarative_base
+from Module3_NiruDB.connection_pool import pool_manager, EngineConfig
 
 Base = declarative_base()
 
@@ -73,20 +74,20 @@ class DatabaseStorage:
                 database_url = unpooled_url
 
         self.database_url = database_url
-        # Add connection pooling and SSL settings to prevent connection drops
-        self.engine = create_engine(
-            database_url,
-            echo=False,
-            pool_pre_ping=True,  # Verify connections before using
-            pool_recycle=300,    # Recycle connections every 5 minutes
-            pool_size=5,         # Maintain 5 connections
-            max_overflow=10,     # Allow up to 10 overflow connections
-            connect_args={
-                "connect_timeout": 10,
-                "sslmode": "require" if "neon.tech" in database_url or "postgres" in database_url else None,
-            } if "postgres" in database_url or "neon" in database_url else {}
+        # Use unified connection pool manager for all DB connections
+        self.engine_group = pool_manager.get_engine_group(
+            database_url=database_url,
+            config=EngineConfig(
+                pool_size=100,
+                max_overflow=200,
+                pool_recycle=300,
+                pool_pre_ping=True,
+                pool_timeout=30,
+                connect_timeout=10,
+            )
         )
-        self.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=self.engine)
+        self.engine = self.engine_group.writer_engine
+        self.SessionLocal = self.engine_group.writer_session_factory
 
         # Create tables
         Base.metadata.create_all(bind=self.engine)
@@ -177,64 +178,59 @@ class DatabaseStorage:
         retry_delay = 1
 
         for attempt in range(max_retries):
+            db = None
             try:
                 db = self.get_db_session()
-                try:
-                    for chunk in chunks:
-                        # Check if chunk already exists
-                        existing = db.query(ProcessedChunk).filter_by(chunk_id=chunk.get("chunk_id")).first()
-                        if existing:
-                            logger.debug(f"Chunk already exists: {chunk.get('chunk_id')}")
-                            continue
+                for chunk in chunks:
+                    existing = db.query(ProcessedChunk).filter_by(chunk_id=chunk.get("chunk_id")).first()
+                    if existing:
+                        continue
 
-                        # Create new processed chunk
-                        processed_chunk = ProcessedChunk(
-                            chunk_id=chunk.get("chunk_id", ""),
-                            doc_id=chunk.get("doc_id", ""),
-                            source_url=chunk.get("source_url", ""),
-                            title=chunk.get("title", "Untitled"),
-                            category=chunk.get("category", "Unknown"),
-                            source_name=chunk.get("source_name", "Unknown"),
-                            author=chunk.get("author"),
-                            publication_date=self._parse_date(chunk.get("publication_date")),
-                            crawl_date=self._parse_date(chunk.get("crawl_date")),
-                            content_type=chunk.get("content_type", "html"),
-                            text=chunk.get("text", ""),
-                            chunk_index=chunk.get("chunk_index", 0),
-                            total_chunks=chunk.get("total_chunks", 1),
-                            embedding=chunk.get("embedding", []),
-                            metadata_json=chunk.get("metadata", {})
-                        )
+                    processed_chunk = ProcessedChunk(
+                        chunk_id=chunk.get("chunk_id", ""),
+                        doc_id=chunk.get("doc_id", ""),
+                        source_url=chunk.get("source_url", ""),
+                        title=chunk.get("title", "Untitled"),
+                        category=chunk.get("category", "Unknown"),
+                        source_name=chunk.get("source_name", "Unknown"),
+                        author=chunk.get("author"),
+                        publication_date=self._parse_date(chunk.get("publication_date")),
+                        crawl_date=self._parse_date(chunk.get("crawl_date")),
+                        content_type=chunk.get("content_type", "html"),
+                        text=chunk.get("text", ""),
+                        chunk_index=chunk.get("chunk_index", 0),
+                        total_chunks=chunk.get("total_chunks", 1),
+                        embedding=chunk.get("embedding", []),
+                        metadata_json=chunk.get("metadata", {})
+                    )
+                    db.add(processed_chunk)
+                    saved_count += 1
 
-                        db.add(processed_chunk)
-                        saved_count += 1
-
-                    db.commit()
-                    logger.info(f"Saved {saved_count} processed chunks to database")
-                    return saved_count
-
-                except Exception as e:
-                    db.rollback()
-                    # Check if it's a connection error
-                    error_str = str(e).lower()
-                    if any(keyword in error_str for keyword in ['ssl', 'connection', 'closed', 'timeout', 'broken']):
-                        if attempt < max_retries - 1:
-                            logger.warning(f"Connection error (attempt {attempt + 1}/{max_retries}): {e}. Retrying...")
-                            import time
-                            time.sleep(retry_delay * (attempt + 1))  # Exponential backoff
-                            # Invalidate the connection pool
-                            self.engine.dispose()
-                            continue
-                    raise
-                finally:
-                    db.close()
+                db.commit()
+                logger.info(f"Saved {saved_count} processed chunks")
+                return saved_count
 
             except Exception as e:
-                if attempt == max_retries - 1:
-                    logger.error(f"Error saving processed chunks after {max_retries} attempts: {e}")
-                    raise
-                else:
-                    logger.warning(f"Retry {attempt + 1}/{max_retries} failed: {e}")
+                if db is not None:
+                    try:
+                        db.rollback()
+                    except Exception:
+                        pass
+                error_str = str(e).lower()
+                if any(k in error_str for k in ['ssl', 'connection', 'closed', 'timeout', 'broken']):
+                    if attempt < max_retries - 1:
+                        logger.warning(f"Conn error (attempt {attempt+1}/{max_retries}), retrying...")
+                        import time
+                        time.sleep(retry_delay * (attempt + 1))
+                        continue
+                logger.error(f"Save failed after {max_retries} attempts: {e}")
+                raise
+            finally:
+                if db is not None:
+                    try:
+                        db.close()
+                    except Exception:
+                        pass
 
         return saved_count
 

@@ -3,7 +3,8 @@ Main Processing Pipeline - Orchestrates ETL and embedding
 """
 import json
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Iterator
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from loguru import logger
 
 from .config import Config
@@ -46,6 +47,12 @@ class ProcessingPipeline:
         except Exception as e:
             logger.warning(f"Database storage not available: {e}")
             self.db_storage = None
+        
+        # Metrics
+        self.documents_processed = 0
+        self.documents_succeeded = 0
+        self.documents_failed = 0
+        self.total_chunks_created = 0
         
         logger.info("Pipeline initialized successfully")
     
@@ -103,6 +110,7 @@ class ProcessingPipeline:
             # 2. Clean text
             text = self.cleaner.clean(text, aggressive=False)
             text = self.cleaner.fix_encoding(text)
+            text = self.cleaner.remove_boilerplate(text)
             
             # 3. Prepare metadata
             metadata = {
@@ -138,24 +146,42 @@ class ProcessingPipeline:
             # 6. Generate embeddings
             chunks = self.embedder.embed_chunks(chunks)
             
+            self.documents_processed += 1
+            if chunks:
+                self.documents_succeeded += 1
+                self.total_chunks_created += len(chunks)
             logger.info(f"Pipeline completed: {len(chunks)} chunks created")
             return chunks
         except Exception as e:
             logger.error(f"Error processing document: {e}")
+            self.documents_processed += 1
+            self.documents_failed += 1
             return []
     
     def process_batch(self, raw_docs: List[Dict]) -> List[Dict]:
-        """Process multiple documents"""
+        """Process multiple documents in parallel using ThreadPoolExecutor"""
         all_chunks = []
+        max_workers = min(self.config.MAX_WORKERS, len(raw_docs) or 1)
         
-        for doc in raw_docs:
-            chunks = self.process_document(doc)
-            all_chunks.extend(chunks)
+        if max_workers <= 1 or len(raw_docs) <= 1:
+            for doc in raw_docs:
+                chunks = self.process_document(doc)
+                all_chunks.extend(chunks)
+            return all_chunks
+        
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_map = {executor.submit(self.process_document, doc): doc for doc in raw_docs}
+            for future in as_completed(future_map):
+                try:
+                    chunks = future.result()
+                    all_chunks.extend(chunks)
+                except Exception as e:
+                    logger.error(f"Error in parallel document processing: {e}")
         
         return all_chunks
     
     def save_chunks(self, chunks: List[Dict], output_file: Path):
-        """Save processed chunks to JSONL file"""
+        """Save processed chunks to JSONL file (streaming compatible)"""
         try:
             output_file.parent.mkdir(parents=True, exist_ok=True)
             
@@ -170,18 +196,19 @@ class ProcessingPipeline:
         except Exception as e:
             logger.error(f"Error saving chunks: {e}")
     
-    def load_raw_documents(self, jsonl_file: Path) -> List[Dict]:
-        """Load raw documents from JSONL file"""
+    def iter_raw_documents(self, jsonl_file: Path) -> Iterator[Dict]:
+        """Stream raw documents from JSONL file as a generator"""
         try:
-            docs = []
+            count = 0
             with open(jsonl_file, "r", encoding="utf-8") as f:
                 for line in f:
                     if line.strip():
-                        docs.append(json.loads(line))
-            
-            logger.info(f"Loaded {len(docs)} documents from {jsonl_file}")
-            return docs
-            
+                        yield json.loads(line)
+                        count += 1
+            logger.info(f"Streamed {count} documents from {jsonl_file}")
         except Exception as e:
-            logger.error(f"Error loading documents: {e}")
-            return []
+            logger.error(f"Error streaming documents: {e}")
+    
+    def load_raw_documents(self, jsonl_file: Path) -> List[Dict]:
+        """Load raw documents from JSONL file into memory"""
+        return list(self.iter_raw_documents(jsonl_file))

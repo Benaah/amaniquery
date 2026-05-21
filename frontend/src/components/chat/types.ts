@@ -45,8 +45,9 @@ export interface Message {
     attachments?: Attachment[]
     feedback_type?: "like" | "dislike"
     saved?: boolean
-    failed?: boolean
-    originalQuery?: string
+  failed?: boolean
+  stopped?: boolean
+  originalQuery?: string
     isEditing?: boolean
     isRegenerating?: boolean
     // AK-RAG structured response support
@@ -179,5 +180,14 @@ export interface ProcessingProgress {
     progress_percent?: number
     current_step?: string
     error_message?: string
+}
+
+export interface StreamToolEvent {
+    type: "tool_start" | "tool_result"
+    tool_name: string
+    query?: string
+    status?: string
+    latency_ms?: number
+    error?: string
 }
 

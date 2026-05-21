@@ -97,6 +97,15 @@ cache_manager: Optional[CacheManager] = None
 amaniq_v2_agent = None  # AmaniQ v2 agent instance
 tool_registry = None  # Global tool registry initialized once at startup
 
+# NiruSense service instances
+nirusense_pipeline = None
+nirusense_health_checker = None
+nirusense_metrics = None
+nirusense_scheduler = None
+nirusense_settings = None
+nirusense_orchestrator_task = None
+nirusense_orchestrator_thread = None
+
 
 # ============================================================
 # Dependency Injection Functions
@@ -215,6 +224,9 @@ async def lifespan(app: FastAPI):
     global notification_service, hybrid_rag_pipeline, autocomplete_tool
     global vision_storage, vision_rag_service, database_storage, cache_manager
     global amaniq_v2_agent, tool_registry
+    global nirusense_pipeline, nirusense_health_checker, nirusense_metrics
+    global nirusense_scheduler, nirusense_settings, nirusense_orchestrator_task
+    global nirusense_orchestrator_thread
     
     logger.info("Starting AmaniQuery API")
     
@@ -631,6 +643,51 @@ async def lifespan(app: FastAPI):
         logger.error("=" * 80)
         raise RuntimeError(f"Failed to initialize required AmaniQ v2 agent: {e}") from e
     
+    # ============================================================
+    # Initialize NiruSense Processing Pipeline (Optional)
+    # ============================================================
+    enable_nirusense = os.getenv("ENABLE_NIRUSENSE", "false").lower() == "true"
+    if enable_nirusense:
+        try:
+            logger.info("Initializing NiruSense processing pipeline...")
+            from Module9_NiruSense.processing.config import Settings
+            from Module9_NiruSense.processing.health import HealthChecker
+            from Module9_NiruSense.processing.monitoring import MetricsCollector
+            from Module9_NiruSense.scheduler import NiruSenseScheduler
+            
+            nirusense_settings = Settings()
+            nirusense_health_checker = HealthChecker()
+            nirusense_metrics = MetricsCollector()
+            
+            # Start NiruSense orchestrator in background thread
+            from Module9_NiruSense.nirusense_service import start_nirusense_thread
+            nirusense_orchestrator_thread = threading.Thread(
+                target=start_nirusense_thread,
+                daemon=True,
+                name="NiruSenseOrchestrator"
+            )
+            nirusense_orchestrator_thread.start()
+            logger.info("[OK] NiruSense orchestrator thread started")
+            
+            # Start scheduler if configured
+            nirusense_scheduler = NiruSenseScheduler()
+            if nirusense_scheduler.start():
+                logger.info("[OK] NiruSense scheduler started")
+            
+            # Initialize the pipeline reference (lazy - orchestrator handles actual processing)
+            from Module9_NiruSense.processing.orchestrator import pipeline as ns_pipeline
+            nirusense_pipeline = ns_pipeline
+            
+            logger.info("[OK] NiruSense processing pipeline initialized")
+        except Exception as e:
+            logger.warning(f"NiruSense pipeline not available: {e}")
+            nirusense_pipeline = None
+            nirusense_health_checker = None
+            nirusense_metrics = None
+            nirusense_scheduler = None
+    else:
+        logger.info("NiruSense disabled (set ENABLE_NIRUSENSE=true to enable)")
+    
     # Inject dependencies into routers
     _inject_router_dependencies()
     
@@ -641,6 +698,15 @@ async def lifespan(app: FastAPI):
     
     # Shutdown cleanup
     logger.info("Shutting down AmaniQuery API")
+    
+    # Stop NiruSense scheduler
+    if nirusense_scheduler is not None:
+        try:
+            nirusense_scheduler.stop()
+            logger.info("[OK] NiruSense scheduler stopped")
+        except Exception as e:
+            logger.warning(f"Failed to stop NiruSense scheduler: {e}")
+    
     logger.info("AmaniQuery API shutdown complete")
 
 
@@ -721,6 +787,22 @@ def _inject_router_dependencies():
     if database_storage:
         monitoring_router_module.db_session_factory = database_storage.SessionLocal
     
+    # Set dependencies on NiruSense router
+    try:
+        nirusense_router_module = sys.modules['Module4_NiruAPI.routers.nirusense_router']
+        nirusense_router_module._state.health_checker = nirusense_health_checker
+        nirusense_router_module._state.pipeline = nirusense_pipeline
+        nirusense_router_module._state.metrics = nirusense_metrics
+        nirusense_router_module._state.scheduler = nirusense_scheduler
+        nirusense_router_module._state.settings = nirusense_settings
+        # Actually check if thread is alive
+        nirusense_router_module._state.orchestrator_running = (
+            nirusense_orchestrator_thread is not None and nirusense_orchestrator_thread.is_alive()
+        )
+        logger.info("NiruSense dependencies injected")
+    except Exception as e:
+        logger.warning(f"Failed to inject NiruSense dependencies: {e}")
+    
     logger.info("Router dependencies injected")
 
 
@@ -764,7 +846,8 @@ if os.getenv("ENABLE_AUTH", "false").lower() == "true":
     # Include auth routers
     from Module8_NiruAuth.routers import (
         user_router, admin_router as auth_admin_router, integration_router,
-        api_key_router, oauth_router, analytics_router, blog_router
+        api_key_router, oauth_router, analytics_router, blog_router,
+        session_router, mfa_router,
     )
     from Module8_NiruAuth.routers.phone_verification_router import router as phone_verification_router
     
@@ -776,6 +859,8 @@ if os.getenv("ENABLE_AUTH", "false").lower() == "true":
     app.include_router(analytics_router)
     app.include_router(blog_router)
     app.include_router(phone_verification_router)
+    app.include_router(session_router)
+    app.include_router(mfa_router)
 
 # ============================================================
 # Include Routers

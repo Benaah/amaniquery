@@ -2,6 +2,8 @@
 Vision Embedder using Cohere Embed-4 for multimodal embeddings
 """
 import os
+import time
+import functools
 from typing import List, Union, Optional
 import numpy as np
 from pathlib import Path
@@ -18,21 +20,37 @@ except ImportError:
     logger.warning("Cohere package not available. Install with: pip install cohere")
 
 
+def retry(max_attempts: int = 3, delay: float = 1.0, backoff: float = 2.0, exceptions: tuple = (Exception,)):
+    """Simple retry decorator with exponential backoff"""
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            last_exc = None
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    return func(*args, **kwargs)
+                except exceptions as e:
+                    last_exc = e
+                    if attempt < max_attempts:
+                        wait = delay * (backoff ** (attempt - 1))
+                        logger.warning(f"Retry {attempt}/{max_attempts} for {func.__name__}: {e}. Waiting {wait:.1f}s")
+                        time.sleep(wait)
+                    else:
+                        logger.error(f"All {max_attempts} attempts failed for {func.__name__}: {e}")
+                        raise
+            raise last_exc
+        return wrapper
+    return decorator
+
+
 class VisionEmbedder:
     """Generate multimodal embeddings using Cohere Embed-4 API"""
     
     def __init__(
         self,
         api_key: Optional[str] = None,
-        model: str = "embed-english-v3.0",  # Cohere Embed v3 model (supports multimodal)
+        model: str = "embed-english-v3.0",
     ):
-        """
-        Initialize vision embedder
-        
-        Args:
-            api_key: Cohere API key (if None, reads from COHERE_API_KEY env var)
-            model: Cohere model name (embed-english-v3.0 or embed-multilingual-v3.0)
-        """
         if not COHERE_AVAILABLE:
             raise ImportError("Cohere package not available. Install with: pip install cohere")
         
@@ -42,8 +60,6 @@ class VisionEmbedder:
         
         self.model = model
         self.client = cohere.Client(api_key=self.api_key)
-        
-        # Embed v3 dimension is 1024 (for both english and multilingual)
         self.dimension = 1024
         
         logger.info(f"Vision embedder initialized with model: {model}")
@@ -79,6 +95,7 @@ class VisionEmbedder:
         
         return img_base64
     
+    @retry(max_attempts=3, delay=1.0)
     def embed_text(self, text: str) -> np.ndarray:
         """
         Generate embedding for text query
@@ -93,7 +110,7 @@ class VisionEmbedder:
             response = self.client.embed(
                 texts=[text],
                 model=self.model,
-                input_type="search_query",  # For query embeddings
+                input_type="search_query",
             )
             
             embedding = np.array(response.embeddings[0])
@@ -102,110 +119,70 @@ class VisionEmbedder:
             logger.error(f"Error generating text embedding: {e}")
             return np.zeros(self.dimension)
     
+    @retry(max_attempts=3, delay=1.0)
     def embed_image(self, image: Union[str, Path, Image.Image]) -> np.ndarray:
-        """
-        Generate embedding for image
+        if isinstance(image, (str, Path)):
+            image_path = Path(image)
+            if not image_path.exists():
+                raise FileNotFoundError(f"Image not found: {image_path}")
+            with open(image_path, "rb") as f:
+                image_bytes = f.read()
+        elif isinstance(image, Image.Image):
+            buffered = io.BytesIO()
+            if image.mode != "RGB":
+                image = image.convert("RGB")
+            image.save(buffered, format="JPEG", quality=85)
+            image_bytes = buffered.getvalue()
+        else:
+            raise ValueError(f"Unsupported image type: {type(image)}")
         
-        Args:
-            image: Image path (str/Path) or PIL Image object
-            
-        Returns:
-            Embedding vector as numpy array
-        """
+        mime_type = "image/jpeg"
+        if isinstance(image, (str, Path)):
+            ext = Path(image).suffix.lower()
+            if ext == ".png":
+                mime_type = "image/png"
+        elif isinstance(image, Image.Image):
+            if image.format == "PNG":
+                mime_type = "image/png"
+        
+        img_base64 = base64.b64encode(image_bytes).decode('utf-8')
+        data_uri = f"data:{mime_type};base64,{img_base64}"
+        
         try:
-            # Get image bytes
-            if isinstance(image, (str, Path)):
-                image_path = Path(image)
-                if not image_path.exists():
-                    raise FileNotFoundError(f"Image not found: {image_path}")
-                with open(image_path, "rb") as f:
-                    image_bytes = f.read()
-            elif isinstance(image, Image.Image):
-                # Convert PIL Image to bytes
-                buffered = io.BytesIO()
-                if image.mode != "RGB":
-                    image = image.convert("RGB")
-                image.save(buffered, format="JPEG", quality=85)
-                image_bytes = buffered.getvalue()
+            response = self.client.embed(
+                images=[data_uri],
+                model=self.model,
+                input_type="image",
+            )
+            return np.array(response.embeddings[0])
+        except Exception as api_error:
+            error_str = str(api_error)
+            if "not found" in error_str.lower() or "404" in error_str:
+                logger.warning(f"Model {self.model} not found, trying embed-multilingual-v3.0")
+                try:
+                    response = self.client.embed(
+                        images=[data_uri],
+                        model="embed-multilingual-v3.0",
+                        input_type="image",
+                    )
+                    embedding = np.array(response.embeddings[0])
+                    self.model = "embed-multilingual-v3.0"
+                    return embedding
+                except Exception as fallback_error:
+                    logger.error(f"Fallback model also failed: {fallback_error}")
+                    raise ValueError(f"Cohere embedding models not available: {api_error}")
             else:
-                raise ValueError(f"Unsupported image type: {type(image)}")
-            
-            # Use Cohere Embed API for images
-            # Cohere requires base64 data URI format: "data:image/jpeg;base64,{base64_string}"
-            import base64
-            
-            # Convert image bytes to base64 data URI
-            img_base64 = base64.b64encode(image_bytes).decode('utf-8')
-            # Determine MIME type based on image format
-            mime_type = "image/jpeg"  # Default
-            if isinstance(image, (str, Path)):
-                ext = Path(image).suffix.lower()
-                if ext == ".png":
-                    mime_type = "image/png"
-                elif ext in [".jpg", ".jpeg"]:
-                    mime_type = "image/jpeg"
-            elif isinstance(image, Image.Image):
-                if image.format == "PNG":
-                    mime_type = "image/png"
-            
-            # Create data URI format
-            data_uri = f"data:{mime_type};base64,{img_base64}"
-            
-            try:
-                # Cohere embed API expects base64 data URI in images parameter
-                response = self.client.embed(
-                    images=[data_uri],
-                    model=self.model,
-                    input_type="image",
-                )
-                embedding = np.array(response.embeddings[0])
-                return embedding
-            except Exception as api_error:
-                error_str = str(api_error)
-                # Check if it's a model not found error
-                if "not found" in error_str.lower() or "404" in error_str:
-                    # Try with embed-multilingual-v3.0 as fallback
-                    logger.warning(f"Model {self.model} not found, trying embed-multilingual-v3.0")
-                    try:
-                        response = self.client.embed(
-                            images=[data_uri],
-                            model="embed-multilingual-v3.0",
-                            input_type="image",
-                        )
-                        embedding = np.array(response.embeddings[0])
-                        self.model = "embed-multilingual-v3.0"  # Update model for future calls
-                        return embedding
-                    except Exception as fallback_error:
-                        logger.error(f"Fallback model also failed: {fallback_error}")
-                        raise ValueError(f"Cohere embedding models not available. Please check your API key and model access. Original error: {api_error}")
-                else:
-                    # Other API errors - might be format issue
-                    logger.error(f"Cohere embed API error: {api_error}")
-                    raise ValueError(f"Failed to generate image embedding with Cohere: {api_error}")
-        except Exception as e:
-            logger.error(f"Error generating image embedding: {e}")
-            return np.zeros(self.dimension)
+                logger.error(f"Cohere embed API error: {api_error}")
+                raise ValueError(f"Failed to generate image embedding: {api_error}")
     
+    @retry(max_attempts=3, delay=1.0)
     def embed_images_batch(self, images: List[Union[str, Path, Image.Image]]) -> np.ndarray:
-        """
-        Generate embeddings for batch of images
-        
-        Args:
-            images: List of image paths or PIL Image objects
-            
-        Returns:
-            Array of embeddings
-        """
         if not images:
             return np.array([])
         
         try:
-            import base64
-            
-            # Convert all images to base64 data URIs
             data_uri_list = []
             for img in images:
-                # Get image bytes
                 if isinstance(img, (str, Path)):
                     image_path = Path(img)
                     with open(image_path, "rb") as f:
@@ -222,34 +199,23 @@ class VisionEmbedder:
                 else:
                     raise ValueError(f"Unsupported image type: {type(img)}")
                 
-                # Convert to base64 data URI
                 img_base64 = base64.b64encode(image_bytes).decode('utf-8')
                 data_uri = f"data:{mime_type};base64,{img_base64}"
                 data_uri_list.append(data_uri)
             
-            # Batch embed
             response = self.client.embed(
                 images=data_uri_list,
                 model=self.model,
                 input_type="image",
             )
             
-            embeddings = np.array(response.embeddings)
-            return embeddings
+            return np.array(response.embeddings)
         except Exception as e:
             logger.error(f"Error generating batch image embeddings: {e}")
             return np.zeros((len(images), self.dimension))
     
+    @retry(max_attempts=3, delay=1.0)
     def embed_text_batch(self, texts: List[str]) -> np.ndarray:
-        """
-        Generate embeddings for batch of texts
-        
-        Args:
-            texts: List of texts to embed
-            
-        Returns:
-            Array of embeddings
-        """
         if not texts:
             return np.array([])
         
@@ -259,9 +225,7 @@ class VisionEmbedder:
                 model=self.model,
                 input_type="search_query",
             )
-            
-            embeddings = np.array(response.embeddings)
-            return embeddings
+            return np.array(response.embeddings)
         except Exception as e:
             logger.error(f"Error generating batch text embeddings: {e}")
             return np.zeros((len(texts), self.dimension))

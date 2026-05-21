@@ -5,7 +5,21 @@ Module 5: NiruShare - Social Media Sharing
 __version__ = "2.0.0"
 
 from .service import ShareService
-from .formatters import TwitterFormatter, LinkedInFormatter, FacebookFormatter
+from .formatters import (
+    BaseFormatter,
+    TwitterFormatter,
+    LinkedInFormatter,
+    FacebookFormatter,
+    NaturalFormatter,
+    BlueskyFormatter,
+    ThreadsFormatter,
+    TikTokFormatter,
+    InstagramFormatter,
+    MastodonFormatter,
+    RedditFormatter,
+    TelegramFormatter,
+    WhatsAppFormatter,
+)
 from .formatters.natural_formatter import NaturalFormatter
 from .image_generator import ImageGenerator
 from .platforms import (
@@ -20,14 +34,26 @@ from .platforms import (
     TelegramPlatform,
     WhatsAppPlatform,
     MastodonPlatform,
+    ThreadsPlatform,
+    BlueskyPlatform,
+    TikTokPlatform,
 )
 
 __all__ = [
     "ShareService",
+    "BaseFormatter",
     "TwitterFormatter",
     "LinkedInFormatter",
     "FacebookFormatter",
     "NaturalFormatter",
+    "BlueskyFormatter",
+    "ThreadsFormatter",
+    "TikTokFormatter",
+    "InstagramFormatter",
+    "MastodonFormatter",
+    "RedditFormatter",
+    "TelegramFormatter",
+    "WhatsAppFormatter",
     "ImageGenerator",
     "PlatformRegistry",
     "BasePlatform",
@@ -40,4 +66,7 @@ __all__ = [
     "TelegramPlatform",
     "WhatsAppPlatform",
     "MastodonPlatform",
+    "ThreadsPlatform",
+    "BlueskyPlatform",
+    "TikTokPlatform",
 ]

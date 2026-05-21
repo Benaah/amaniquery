@@ -8,6 +8,16 @@ from loguru import logger
 from tqdm import tqdm
 
 
+def _auto_detect_device() -> str:
+    """Auto-detect best device: CUDA > MPS > CPU"""
+    import torch
+    if torch.cuda.is_available():
+        return 'cuda'
+    if hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+        return 'mps'
+    return 'cpu'
+
+
 class TextEmbedder:
     """Generate vector embeddings for text"""
     
@@ -16,6 +26,7 @@ class TextEmbedder:
         model_name: str = "all-MiniLM-L6-v2",
         batch_size: int = 32,
         normalize: bool = True,
+        device: str = None,
     ):
         """
         Initialize embedder
@@ -24,85 +35,66 @@ class TextEmbedder:
             model_name: Name of the Sentence Transformer model
             batch_size: Batch size for encoding
             normalize: Whether to normalize embeddings
+            device: Device to run on ('cpu', 'cuda', 'mps', or None for auto-detect)
         """
         self.model_name = model_name
         self.batch_size = batch_size
         self.normalize = normalize
         
-        logger.info(f"Loading embedding model: {model_name}")
+        device = device or _auto_detect_device()
+        logger.info(f"Loading embedding model: {model_name} on {device}")
         
-        # Explicitly set device to CPU to avoid meta tensor errors
-        # This prevents issues when models are loaded with device_map="auto"
         import torch
         import os
-        device = 'cpu'  # Use CPU for embeddings to avoid GPU/meta device issues
         
         # Temporarily disable device_map to prevent meta tensor loading
         old_device_map = os.environ.get('HF_DEVICE_MAP', None)
         old_accelerate_device_map = os.environ.get('ACCELERATE_DEVICE_MAP', None)
         
         try:
-            # Remove device_map environment variables if set
             if old_device_map:
                 del os.environ['HF_DEVICE_MAP']
             if old_accelerate_device_map:
                 del os.environ['ACCELERATE_DEVICE_MAP']
             
-            # Load model with explicit device and disable device_map
-            # This ensures the model loads directly on CPU without meta tensors
-            self.model = SentenceTransformer(
-                model_name,
-                device=device
-            )
+            self.model = SentenceTransformer(model_name, device=device)
             
-            # Verify model is on CPU and not meta device
-            # Test with a dummy encode to ensure model is fully loaded
             try:
                 test_embedding = self.model.encode("test", convert_to_numpy=True, show_progress_bar=False)
                 logger.debug("Model loaded successfully and tested")
             except Exception as test_error:
                 if 'meta' in str(test_error).lower():
-                    logger.warning(f"Model still on meta device, attempting reinitialization: {test_error}")
-                    # Force reload by clearing cache and reloading
+                    logger.warning(f"Model on meta device, reinitializing: {test_error}")
                     import gc
                     del self.model
                     gc.collect()
-                    torch.cuda.empty_cache() if torch.cuda.is_available() else None
-                    
-                    # Reload with explicit CPU device
-                    self.model = SentenceTransformer(
-                        model_name,
-                        device=device
-                    )
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                    self.model = SentenceTransformer(model_name, device=device)
                 else:
                     raise
         
         except Exception as e:
             logger.error(f"Error loading embedding model: {e}")
-            # Fallback: try loading without device specification
             try:
                 logger.info("Attempting fallback model loading...")
                 self.model = SentenceTransformer(model_name)
-                # Force to CPU if possible
                 if hasattr(self.model, 'to'):
                     try:
-                        self.model = self.model.to('cpu')
+                        self.model = self.model.to(device)
                     except Exception as to_error:
                         if 'meta' not in str(to_error).lower():
                             raise
-                        # If meta tensor error, just continue - model might still work
-                        logger.warning(f"Could not move model to CPU (meta tensor issue), continuing anyway: {to_error}")
+                        logger.warning(f"Could not move model (meta tensor): {to_error}")
             except Exception as fallback_error:
                 logger.error(f"Fallback model loading also failed: {fallback_error}")
                 raise RuntimeError(f"Failed to load embedding model {model_name}: {e}")
         finally:
-            # Restore original environment variables
             if old_device_map:
                 os.environ['HF_DEVICE_MAP'] = old_device_map
             if old_accelerate_device_map:
                 os.environ['ACCELERATE_DEVICE_MAP'] = old_accelerate_device_map
         
-        # Get embedding dimension
         self.dimension = self.model.get_sentence_embedding_dimension()
         logger.info(f"Embedding dimension: {self.dimension}")
     

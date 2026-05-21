@@ -13,17 +13,17 @@ NEWSPIDER_MODULE = "niruspider.spiders"
 ROBOTSTXT_OBEY = True
 USER_AGENT = "AmaniQuery/1.0 (+https://github.com/amaniquery; contact@amaniquery.ke)"
 
-# Performance settings - Optimized for Kenyan sources
-CONCURRENT_REQUESTS = 64  # Increased from 32 for better throughput
-CONCURRENT_REQUESTS_PER_DOMAIN = 16  # Increased from 8 for RSS feeds
-DOWNLOAD_DELAY = 0.5  # Reduced from 1 second for faster crawling
+# Performance settings - Balanced for polite, efficient crawling
+CONCURRENT_REQUESTS = 24  # Reduced from 64 to avoid triggering rate limits
+CONCURRENT_REQUESTS_PER_DOMAIN = 8  # Reduced from 16 to be polite to sources
+DOWNLOAD_DELAY = 1.0  # Increased from 0.5 for more polite crawling
 RANDOMIZE_DOWNLOAD_DELAY = True
 
-# AutoThrottle (dynamic delay adjustment) - More aggressive
+# AutoThrottle (dynamic delay adjustment) - Polite, adaptive
 AUTOTHROTTLE_ENABLED = True
-AUTOTHROTTLE_START_DELAY = 0.5  # Start faster
-AUTOTHROTTLE_MAX_DELAY = 3  # Reduced from 5 for quicker response
-AUTOTHROTTLE_TARGET_CONCURRENCY = 16.0  # Increased from 8.0
+AUTOTHROTTLE_START_DELAY = 1.0
+AUTOTHROTTLE_MAX_DELAY = 10
+AUTOTHROTTLE_TARGET_CONCURRENCY = 8.0
 AUTOTHROTTLE_DEBUG = False  # Set to True for debugging
 
 # Caching (for development)
@@ -33,7 +33,7 @@ HTTPCACHE_DIR = "httpcache"
 
 # Retry settings - Enhanced for reliability
 RETRY_TIMES = 5  # Increased from 3 for better resilience
-RETRY_HTTP_CODES = [500, 502, 503, 504, 408, 429, 403]  # Added 403 (Forbidden)
+RETRY_HTTP_CODES = [500, 502, 503, 504, 408, 429]  # 403 removed — Forbidden means blocked, retrying is futile
 RETRY_PRIORITY_ADJUST = -1  # Lower priority for retries
 
 # Download timeout
@@ -43,8 +43,8 @@ DOWNLOAD_TIMEOUT = 45  # Increased from 30 for slower sources
 ITEM_PIPELINES = {
     "niruspider.pipelines.DeduplicationPipeline": 50,  # Run first to filter duplicates
     "niruspider.pipelines.DataValidationPipeline": 100,
-    "niruspider.pipelines.QualityScoringPipeline": 110,  # Disabled temporarily - was dropping items
-    "niruspider.pipelines.VectorStorePipeline": 150,  # Disabled - process separately with process_all.py
+    "niruspider.pipelines.QualityScoringPipeline": 110,  # Enabled - filters low-quality articles at min_quality_score=0.3
+    "niruspider.pipelines.VectorStorePipeline": 150,  # Disabled - processing done separately via process_all.py
     "niruspider.pipelines.PDFDownloadPipeline": 200,
     "niruspider.pipelines.FileStoragePipeline": 300,
 }

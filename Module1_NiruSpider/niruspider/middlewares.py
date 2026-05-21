@@ -1,29 +1,23 @@
 """
 NiruSpider - Custom Middlewares
 """
-import random
-import time
 from scrapy import signals
+from scrapy.http import Response
 from loguru import logger
 
 
 class PoliteDelayMiddleware:
     """
-    Add extra politeness - random delays to avoid patterns
-    Enhanced with per-domain rate limiting via Redis
+    Rate-limiting middleware using Redis-based per-domain tracking.
+    Does NOT use time.sleep() — relies on Scrapy's built-in DOWNLOAD_DELAY + AUTOTHROTTLE
+    for actual request pacing. Redis tracking is for cross-pod coordination.
     """
     
-    def __init__(self, delay_range=(1.0, 3.0), rate_limiter=None):
-        self.delay_range = delay_range
+    def __init__(self, rate_limiter=None):
         self.rate_limiter = rate_limiter
     
     @classmethod
     def from_crawler(cls, crawler):
-        # Get delay settings
-        base_delay = crawler.settings.getfloat("DOWNLOAD_DELAY", 2.0)
-        delay_range = (base_delay * 0.5, base_delay * 1.5)
-        
-        # Try to initialize rate limiter
         rate_limiter = None
         try:
             from ..rate_limiter import RateLimiter
@@ -33,22 +27,24 @@ class PoliteDelayMiddleware:
         except Exception as e:
             logger.debug(f"Rate limiter not available: {e}")
         
-        middleware = cls(delay_range, rate_limiter=rate_limiter)
+        middleware = cls(rate_limiter=rate_limiter)
         crawler.signals.connect(middleware.spider_opened, signal=signals.spider_opened)
         return middleware
     
     def spider_opened(self, spider):
         if self.rate_limiter and self.rate_limiter.redis_client:
-            spider.logger.info("PoliteDelayMiddleware: Using Redis-based rate limiting")
+            spider.logger.info("PoliteDelayMiddleware: Redis rate tracking active")
         else:
-            spider.logger.info(f"PoliteDelayMiddleware: Random delays between {self.delay_range[0]:.1f}s and {self.delay_range[1]:.1f}s")
+            spider.logger.info("PoliteDelayMiddleware: No Redis — relying on Scrapy AUTOTHROTTLE")
     
     def process_request(self, request, spider):
-        # Use rate limiter if available
         if self.rate_limiter and self.rate_limiter.redis_client:
-            self.rate_limiter.wait_if_needed(request.url)
-        else:
-            # Fallback to random delay
-            delay = random.uniform(*self.delay_range)
-            time.sleep(delay)
+            allowed = self.rate_limiter.allow_request(request.url)
+            if not allowed:
+                spider.logger.debug(f"Rate limit hit for {request.url}, deferring")
+                return Response(
+                    url=request.url,
+                    status=429,
+                    request=request
+                )
         return None

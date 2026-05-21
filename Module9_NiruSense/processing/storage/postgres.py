@@ -4,6 +4,7 @@ from typing import Optional, Dict, Any
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from datetime import datetime
 from ..config import settings
+from ..monitoring import logger
 
 class PostgresClient:
     """PostgreSQL client with connection pooling and retry logic"""
@@ -128,6 +129,73 @@ class PostgresClient:
             await self.pool.close()
             self.pool = None
     
+    async def get_document(self, doc_id: str) -> Optional[Dict[str, Any]]:
+        """Get a document by its UUID"""
+        try:
+            async with self.pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    "SELECT id, url, raw_content, normalized_content, source_domain, published_at, created_at FROM documents WHERE id = $1",
+                    doc_id
+                )
+                if not row:
+                    return None
+                return {
+                    "id": str(row["id"]),
+                    "url": row["url"],
+                    "raw_content": row["raw_content"],
+                    "normalized_content": row["normalized_content"],
+                    "source": row["source_domain"],
+                    "published_at": row["published_at"].isoformat() if row["published_at"] else None,
+                    "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+                }
+        except Exception as e:
+            logger.error(f"Failed to get document {doc_id}: {e}")
+            return None
+
+    async def get_document_by_url(self, url: str) -> Optional[Dict[str, Any]]:
+        """Get a document by its source URL"""
+        try:
+            async with self.pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    "SELECT id, url, raw_content, normalized_content, source_domain, published_at, created_at FROM documents WHERE url = $1",
+                    url
+                )
+                if not row:
+                    return None
+                return {
+                    "id": str(row["id"]),
+                    "url": row["url"],
+                    "raw_content": row["raw_content"],
+                    "normalized_content": row["normalized_content"],
+                    "source": row["source_domain"],
+                    "published_at": row["published_at"].isoformat() if row["published_at"] else None,
+                    "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+                }
+        except Exception as e:
+            logger.error(f"Failed to get document by url {url}: {e}")
+            return None
+
+    async def get_analysis(self, doc_id: str) -> Dict[str, Any]:
+        """Get all analysis results for a document"""
+        try:
+            async with self.pool.acquire() as conn:
+                rows = await conn.fetch(
+                    "SELECT agent_id, result_json, model_version, execution_time_ms, created_at FROM analysis_results WHERE document_id = $1",
+                    doc_id
+                )
+                result = {}
+                for row in rows:
+                    result[row["agent_id"]] = {
+                        "result": row["result_json"],
+                        "model_version": row["model_version"],
+                        "execution_time_ms": row["execution_time_ms"],
+                        "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+                    }
+                return result
+        except Exception as e:
+            logger.error(f"Failed to get analysis for {doc_id}: {e}")
+            return {}
+
     async def cleanup_old_data(self, days: int = 90):
         """
         Cleanup old documents and analysis results

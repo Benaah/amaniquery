@@ -63,6 +63,12 @@ class ToolName(str, Enum):
     URL_FETCH = "url_fetch"
     YOUTUBE_SEARCH = "youtube_search"
     TWITTER_SEARCH = "twitter_search"
+    FILE_WRITE = "file_write"
+    EMAIL_DRAFT = "email_draft"
+    BILL_STATUS = "bill_status"
+    HANSARD = "hansard"
+    FEES_CALCULATOR = "fees_calculator"
+    LEGAL_CITATION = "legal_citation"
 
 
 class ClarificationStatus(str, Enum):

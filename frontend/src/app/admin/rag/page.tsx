@@ -1,15 +1,8 @@
 "use client"
 
-/**
- * RAG Settings - Admin Page
- * 
- * Configure retrieval-augmented generation pipeline settings
- */
-
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
@@ -24,32 +17,41 @@ import {
   Database,
   TrendingUp,
   Settings,
-  CheckCircle
+  CheckCircle,
+  Loader2
 } from "lucide-react"
+import { toast } from "sonner"
+import { useAuth } from "@/lib/auth-context"
 
 interface RAGConfig {
-  // Retrieval settings
   topK: number
   useReranking: boolean
   rerankTopK: number
-  
-  // Query expansion
   useHyDE: boolean
   useMultiQuery: boolean
   queryVariants: number
-  
-  // Hybrid search
   useHybridSearch: boolean
-  hybridAlpha: number // 0 = all BM25, 1 = all vector
-  
-  // Caching
+  hybridAlpha: number
   enableSemanticCache: boolean
   cacheTTLHours: number
-  
-  // Performance
   parallelRetrieval: boolean
   maxNamespaces: number
 }
+
+interface BackendRAGConfig {
+  top_k: number
+  use_reranking: boolean
+  rerank_top_k: number
+  use_hyde: boolean
+  use_multi_query: boolean
+  use_hybrid_search: boolean
+  hybrid_alpha: number
+  parallel_retrieval: boolean
+  enable_semantic_cache: boolean
+  cache_ttl_hours: number
+}
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
 const DEFAULT_CONFIG: RAGConfig = {
   topK: 5,
@@ -66,9 +68,68 @@ const DEFAULT_CONFIG: RAGConfig = {
   maxNamespaces: 5
 }
 
+function toBackend(frontend: RAGConfig): BackendRAGConfig {
+  return {
+    top_k: frontend.topK,
+    use_reranking: frontend.useReranking,
+    rerank_top_k: frontend.rerankTopK,
+    use_hyde: frontend.useHyDE,
+    use_multi_query: frontend.useMultiQuery,
+    use_hybrid_search: frontend.useHybridSearch,
+    hybrid_alpha: frontend.hybridAlpha,
+    parallel_retrieval: frontend.parallelRetrieval,
+    enable_semantic_cache: frontend.enableSemanticCache,
+    cache_ttl_hours: frontend.cacheTTLHours,
+  }
+}
+
+function fromBackend(backend: BackendRAGConfig): RAGConfig {
+  return {
+    ...DEFAULT_CONFIG,
+    topK: backend.top_k,
+    useReranking: backend.use_reranking,
+    rerankTopK: backend.rerank_top_k,
+    useHyDE: backend.use_hyde,
+    useMultiQuery: backend.use_multi_query,
+    useHybridSearch: backend.use_hybrid_search,
+    hybridAlpha: backend.hybrid_alpha,
+    parallelRetrieval: backend.parallel_retrieval,
+    enableSemanticCache: backend.enable_semantic_cache,
+    cacheTTLHours: backend.cache_ttl_hours,
+  }
+}
+
 export default function RAGSettingsPage() {
   const [config, setConfig] = useState<RAGConfig>(DEFAULT_CONFIG)
   const [isSaving, setIsSaving] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
+  const { user } = useAuth()
+
+  useEffect(() => {
+    const loadConfig = async () => {
+      setIsLoading(true)
+      try {
+        const sessionToken = localStorage.getItem("session_token")
+        const response = await fetch(`${API_URL}/api/v1/admin/rag/config`, {
+          headers: {
+            "Content-Type": "application/json",
+            "X-Session-Token": sessionToken || "",
+          },
+        })
+        if (!response.ok) {
+          throw new Error("Failed to load configuration")
+        }
+        const data: BackendRAGConfig = await response.json()
+        setConfig(fromBackend(data))
+      } catch (error) {
+        console.error("Failed to load RAG config:", error)
+        toast.error("Failed to load configuration")
+      } finally {
+        setIsLoading(false)
+      }
+    }
+    loadConfig()
+  }, [])
 
   const updateConfig = <K extends keyof RAGConfig>(key: K, value: RAGConfig[K]) => {
     setConfig(prev => ({ ...prev, [key]: value }))
@@ -76,9 +137,40 @@ export default function RAGSettingsPage() {
 
   const handleSave = async () => {
     setIsSaving(true)
-    // TODO: Save to backend
-    await new Promise(r => setTimeout(r, 1000))
-    setIsSaving(false)
+    try {
+      const sessionToken = localStorage.getItem("session_token")
+      const body = toBackend(config)
+      const response = await fetch(`${API_URL}/api/v1/admin/rag/config`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Session-Token": sessionToken || "",
+        },
+        body: JSON.stringify(body),
+      })
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}))
+        throw new Error(err.detail || "Failed to save configuration")
+      }
+      const data: BackendRAGConfig = await response.json()
+      setConfig(fromBackend(data))
+      toast.success("Configuration saved successfully")
+    } catch (error) {
+      console.error("Failed to save RAG config:", error)
+      toast.error(error instanceof Error ? error.message : "Failed to save configuration")
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  if (isLoading) {
+    return (
+      <div className="container mx-auto py-6 space-y-6">
+        <div className="flex items-center justify-center py-20">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      </div>
+    )
   }
 
   return (

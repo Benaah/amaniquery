@@ -105,6 +105,24 @@ services:
   # Redis Cache
   redis:
     image: redis:alpine
+    container_name: amaniquery_redis
+    command: redis-server --port 6379 --maxmemory 512mb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - amaniquery_network
+    restart: unless-stopped
+
+  # Scheduler Service (separate from redis)
+  scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: amaniquery_scheduler
     command: python start_scheduler.py
     environment:

@@ -12,6 +12,11 @@ from fastapi.responses import FileResponse, StreamingResponse
 from loguru import logger
 from pydantic import BaseModel
 
+# Lazy import for tool schema (avoids circular imports at module level)
+_tool_schema_loaded = False
+_registry_openai_tools = []
+_registry_tool_schemas = []
+
 router = APIRouter(prefix="/api/v1/chat", tags=["Chat"])
 
 
@@ -53,6 +58,15 @@ class ChatMessageResponse(BaseModel):
     token_count: Optional[int] = None
     model_used: Optional[str] = None
     sources: Optional[List[Dict[str, Any]]] = None
+    attachments: Optional[List[Dict[str, Any]]] = None
+
+
+class CompletionsCreate(BaseModel):
+    """Chat completions request (used by frontend sendMessage)"""
+    session_id: str
+    message: str
+    use_hybrid: bool = False
+    is_research: bool = False
     attachments: Optional[List[Dict[str, Any]]] = None
 
 
@@ -134,8 +148,56 @@ def get_amaniq_v2_graph():
     
 
 # =============================================================================
+# TOOL SCHEMA ACCESS
+# =============================================================================
+
+def _load_tool_schemas():
+    """Lazy-load tool schemas from the global ToolRegistry."""
+    global _tool_schema_loaded, _registry_openai_tools, _registry_tool_schemas
+    if _tool_schema_loaded:
+        return
+
+    try:
+        from Module4_NiruAPI.agents.tools.tool_schema import get_registry_openai_tools, get_registry_schemas
+        from Module4_NiruAPI.agents.tools.tool_registry import ToolRegistry
+        registry = ToolRegistry()
+        _registry_openai_tools = get_registry_openai_tools(registry)
+        _registry_tool_schemas = get_registry_schemas(registry)
+        _tool_schema_loaded = True
+        logger.info(f"Loaded {len(_registry_openai_tools)} tool schemas for API")
+    except Exception as e:
+        logger.warning(f"Failed to load tool schemas: {e}")
+
+
+def get_openai_tools() -> List[Dict[str, Any]]:
+    """Get all tools in OpenAI-compatible format."""
+    _load_tool_schemas()
+    return _registry_openai_tools
+
+
+# =============================================================================
 # HELPER FUNCTIONS
 # =============================================================================
+
+def _get_tool_description(tool_name: str) -> str:
+    """Get a human-readable description for a tool by name."""
+    descriptions = {
+        "kb_search": "Searching knowledge base for legal documents",
+        "web_search": "Searching the web for information",
+        "news_search": "Searching recent news articles",
+        "calculator": "Performing calculations",
+        "url_fetch": "Fetching content from URL",
+        "youtube_search": "Searching YouTube",
+        "twitter_search": "Searching X/Twitter",
+        "file_write": "Writing results to file",
+        "email_draft": "Drafting email",
+        "bill_status": "Looking up bill status",
+        "hansard": "Retrieving parliamentary debates",
+        "fees_calculator": "Calculating statutory fees",
+        "legal_citation": "Formatting legal citation",
+    }
+    return descriptions.get(tool_name, f"Running {tool_name}")
+
 
 def get_current_user_id(request: Request) -> Optional[str]:
     """Get current user ID from auth context if available"""
@@ -259,6 +321,155 @@ async def rename_chat_session(session_id: str, payload: Dict[str, str], request:
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# =============================================================================
+# TOOL DISCOVERY ENDPOINT
+# =============================================================================
+
+@router.get("/tools", tags=["Tools"])
+async def list_available_tools():
+    """
+    Discover all available tools in OpenAI-compatible format.
+
+    Returns tools in the standard `tools` API format used by
+    GPT-4, Gemini (via OpenAI-compat), Claude, and Moonshot AI.
+    Each tool includes name, description, and JSON Schema parameters.
+    """
+    try:
+        tools = get_openai_tools()
+        return {
+            "object": "list",
+            "data": tools,
+            "total": len(tools),
+        }
+    except Exception as e:
+        logger.error(f"Failed to list tools: {e}")
+        raise HTTPException(status_code=500, detail="Failed to load tool definitions")
+
+
+# =============================================================================
+# CHAT COMPLETIONS ENDPOINT (SSE Streaming)
+# =============================================================================
+
+@router.post("/completions")
+async def chat_completions(request: Request, body: CompletionsCreate):
+    """
+    Streaming chat completions endpoint.
+
+    Called by frontend sendMessage(). Returns SSE stream with events:
+      - tool_start:  Tool execution begins (name, query)
+      - tool_result: Tool execution result (name, status, latency_ms)
+      - sources:     Retrieved sources/citations
+      - content:     Text content token
+      - done:        Stream complete with full_answer
+      - error:       Error occurred
+
+    Uses AmaniQ v2 graph under the hood.
+    """
+    chat_manager = get_chat_manager()
+    user_id = get_current_user_id(request)
+
+    # Ensure session exists
+    session = chat_manager.get_session(body.session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    # Add user message to history
+    chat_manager.add_message(
+        session_id=body.session_id,
+        content=body.message,
+        role="user",
+    )
+
+    # Auto-generate title if needed
+    if not session.title or session.title == "New Chat":
+        try:
+            chat_manager.generate_session_title(body.session_id)
+        except Exception as e:
+            logger.warning(f"Failed to auto-generate session title: {e}")
+
+    async def event_stream():
+        full_answer = ""
+        try:
+            graph = get_amaniq_v2_graph()
+
+            # Build conversation history
+            messages = chat_manager.get_messages(body.session_id, limit=5)
+            conversation_history = [
+                {"role": msg.role, "content": msg.content}
+                for msg in messages
+            ]
+
+            initial_state = {
+                "current_query": body.message,
+                "original_question": body.message,
+                "messages": conversation_history + [{"role": "user", "content": body.message}],
+                "thread_id": body.session_id,
+                "user_id": user_id,
+            }
+
+            # Run the graph
+            config = {"configurable": {"thread_id": body.session_id}}
+            final_state = await graph.ainvoke(initial_state, config=config)
+
+            supervisor_decision = final_state.get("supervisor_decision", {})
+            tool_plan = supervisor_decision.get("tool_plan", []) or final_state.get("tool_plan", [])
+            tool_results = final_state.get("tool_results", [])
+
+            # Emit tool_start events
+            for tc in tool_plan:
+                tool_name = tc.get("tool_name", tc.get("tool", "unknown"))
+                yield f"data: {json.dumps({'type': 'tool_start', 'tool_name': tool_name, 'query': tc.get('query', '')})}\n\n"
+
+            # Emit tool_result events
+            for tr in tool_results:
+                yield f"data: {json.dumps({'type': 'tool_result', 'tool_name': tr.get('tool_name', ''), 'status': tr.get('status', ''), 'latency_ms': tr.get('latency_ms', 0)})}\n\n"
+
+            # Emit sources
+            citations = final_state.get("citations", [])
+            if citations:
+                yield f"data: {json.dumps({'type': 'sources', 'sources': citations})}\n\n"
+
+            # Emit content (the full answer as one chunk for now — can be split for true streaming)
+            answer = final_state.get("final_response", "")
+            if answer:
+                full_answer = answer
+                yield f"data: {json.dumps({'type': 'content', 'content': answer})}\n\n"
+
+            # Emit completion
+            yield f"data: {json.dumps({'type': 'done', 'full_answer': full_answer, 'sources': citations})}\n\n"
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"[Completions] Error: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
+        finally:
+            # Save assistant message
+            if full_answer.strip():
+                chat_manager.add_message(
+                    session_id=body.session_id,
+                    content=full_answer,
+                    role="assistant",
+                    model_used="AmaniQ-v2",
+                )
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+# =============================================================================
+# SESSION MESSAGES ENDPOINT
+# =============================================================================
+
 @router.post("/sessions/{session_id}/messages", response_model=ChatMessageResponse)
 async def add_chat_message(session_id: str, message: ChatMessageCreate, request: Request):
     """Add a message to a chat session"""
@@ -373,12 +584,20 @@ async def _handle_streaming_message(
             final_state = await graph.ainvoke(initial_state, config=config)
             
             # Extract result from final state
+            supervisor_decision = final_state.get("supervisor_decision", {})
+            tool_plan = supervisor_decision.get("tool_plan", []) or final_state.get("tool_plan", [])
+            tool_results = final_state.get("tool_results", [])
+            
             amaniq_result = {
                 "answer": final_state.get("final_response", ""),
                 "sources": final_state.get("citations", []),
                 "confidence": final_state.get("response_confidence", 0.0),
-                "persona": final_state.get("supervisor_decision", {}).get("persona"),
+                "persona": supervisor_decision.get("persona"),
                 "intent": final_state.get("intent"),
+                "tool_plan": tool_plan,
+                "tool_results": tool_results,
+                "tool_execution_latency_ms": final_state.get("tool_execution_latency_ms", 0),
+                "tool_success_rate": final_state.get("tool_success_rate", 0),
             }
             
             # Format for chat response
@@ -392,7 +611,11 @@ async def _handle_streaming_message(
                     "persona": amaniq_result.get("persona"),
                     "intent": amaniq_result.get("intent"),
                 },
-                "answer_stream": None  # Non-streaming for now
+                "tool_plan": amaniq_result.get("tool_plan", []),
+                "tool_results": amaniq_result.get("tool_results", []),
+                "tool_execution_latency_ms": amaniq_result.get("tool_execution_latency_ms", 0),
+                "tool_success_rate": amaniq_result.get("tool_success_rate", 0),
+                "answer_stream": None,  # Non-streaming for now
             }
             logger.info(f"[Chat] AmaniQ v2 completed with confidence {amaniq_result.get('confidence', 0):.2f}")
         except Exception as e:
@@ -432,12 +655,41 @@ async def _handle_streaming_message(
     async def generate_stream():
         full_answer = ""
         try:
-            # Send sources first
+            # Send tool execution events first (Gemini-like tool cards)
+            tool_plan = result.get("tool_plan", [])
+            tool_results = result.get("tool_results", [])
+            
+            if tool_plan:
+                for tc in tool_plan:
+                    tool_name = tc.get("tool_name", tc.get("tool", "unknown"))
+                    query = tc.get("query", "")
+                    tool_event = {
+                        "type": "tool_start",
+                        "tool_name": tool_name,
+                        "query": query,
+                        "description": _get_tool_description(tool_name),
+                    }
+                    yield f"data: {json.dumps(tool_event)}\n\n"
+            
+            if tool_results:
+                for tr in tool_results:
+                    tool_event = {
+                        "type": "tool_result",
+                        "tool_name": tr.get("tool_name", "unknown"),
+                        "query": tr.get("query", ""),
+                        "status": tr.get("status", "unknown"),
+                        "latency_ms": tr.get("latency_ms", 0),
+                        "cached": tr.get("cached", False),
+                        "error": tr.get("error"),
+                    }
+                    yield f"data: {json.dumps(tool_event)}\n\n"
+            
+            # Send sources
             sources_data = {
                 "type": "sources",
                 "sources": result.get("sources", []),
                 "retrieved_chunks": result.get("retrieved_chunks", 0),
-                "model_used": result.get("model_used", "unknown")
+                "model_used": result.get("model_used", "unknown"),
             }
             yield f"data: {json.dumps(sources_data)}\n\n"
             

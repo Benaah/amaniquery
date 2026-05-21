@@ -9,7 +9,7 @@ from loguru import logger
 import os
 
 # Add project root to path
-project_root = Path(__file__).parent.parent.parent.parent
+project_root = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 
@@ -151,29 +151,40 @@ class CrawlerMonitor:
             return {"sources": []}
         
         try:
-            from sqlalchemy import func
+            from sqlalchemy import func, text
             from Module3_NiruDB.database_storage import RawDocument
             
             cutoff_date = datetime.utcnow() - timedelta(days=days)
             
             db = self.db_storage.get_db_session()
             
-            # Get source statistics
-            source_stats = db.query(
-                RawDocument.source_name,
-                func.count(RawDocument.id).label('total_articles'),
-                func.max(RawDocument.crawl_date).label('last_crawl'),
-                func.avg(
-                    func.cast(
-                        func.json_extract_path_text(
-                            RawDocument.metadata_json, 'quality_score'
-                        ),
-                        db.Float
-                    )
-                ).label('avg_quality_score')
-            ).filter(
-                RawDocument.crawl_date >= cutoff_date
-            ).group_by(RawDocument.source_name).all()
+            # Try PostgreSQL JSON path extraction, fallback to None
+            try:
+                source_stats = db.query(
+                    RawDocument.source_name,
+                    func.count(RawDocument.id).label('total_articles'),
+                    func.max(RawDocument.crawl_date).label('last_crawl'),
+                    func.avg(
+                        func.cast(
+                            func.json_extract_path_text(
+                                RawDocument.metadata_json, 'quality_score'
+                            ),
+                            db.Float
+                        )
+                    ).label('avg_quality_score')
+                ).filter(
+                    RawDocument.crawl_date >= cutoff_date
+                ).group_by(RawDocument.source_name).all()
+            except Exception:
+                # Fallback for SQLite (no json_extract_path_text)
+                source_stats = db.query(
+                    RawDocument.source_name,
+                    func.count(RawDocument.id).label('total_articles'),
+                    func.max(RawDocument.crawl_date).label('last_crawl'),
+                    text("NULL").label('avg_quality_score')
+                ).filter(
+                    RawDocument.crawl_date >= cutoff_date
+                ).group_by(RawDocument.source_name).all()
             
             db.close()
             

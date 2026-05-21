@@ -13,12 +13,31 @@ class STTHandler:
         Initialize STT handler
         
         Args:
-            provider: STT provider (openai, assemblyai, kimi)
+            provider: STT provider (openai, assemblyai, kimi, nvidia_nim)
             config: Provider-specific configuration
         """
         self.provider = provider
         self.config = config
+        self._client = None
         logger.info(f"STT handler initialized with provider: {provider}")
+        
+        if provider == "nvidia_nim":
+            self._init_nim()
+    
+    def _init_nim(self):
+        try:
+            from .providers.nim_audio_provider import get_nim_provider
+            self._client = get_nim_provider()
+            logger.info("NVIDIA NIM STT client loaded")
+        except Exception as e:
+            logger.warning(f"Failed to load NVIDIA NIM STT: {e}")
+    
+    def transcribe(self, audio_path: str, language: str = "en") -> str:
+        """Transcribe audio file to text"""
+        if self.provider == "nvidia_nim" and self._client:
+            return self._client.transcribe(audio_path, language)
+        logger.warning(f"STT transcribe not implemented for {self.provider}")
+        return ""
 
 
 class TTSHandler:
@@ -29,12 +48,31 @@ class TTSHandler:
         Initialize TTS handler
         
         Args:
-            provider: TTS provider (openai, silero, kimi)
+            provider: TTS provider (openai, silero, kimi, nvidia_nim)
             config: Provider-specific configuration
         """
         self.provider = provider
         self.config = config
+        self._client = None
         logger.info(f"TTS handler initialized with provider: {provider}")
+        
+        if provider == "nvidia_nim":
+            self._init_nim()
+    
+    def _init_nim(self):
+        try:
+            from .providers.nim_audio_provider import get_nim_provider
+            self._client = get_nim_provider()
+            logger.info("NVIDIA NIM TTS client loaded")
+        except Exception as e:
+            logger.warning(f"Failed to load NVIDIA NIM TTS: {e}")
+    
+    def synthesize(self, text: str, output_path: str, voice: str = "", language: str = "en") -> str:
+        """Synthesize text to audio file"""
+        if self.provider == "nvidia_nim" and self._client:
+            return self._client.synthesize(text, output_path, voice, language)
+        logger.warning(f"TTS synthesize not implemented for {self.provider}")
+        return ""
 
 
 def create_stt_handler(provider: str, config: Dict) -> STTHandler:

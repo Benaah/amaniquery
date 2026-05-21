@@ -11,8 +11,12 @@ class TikTokPlatform(BasePlatform):
             name="TikTok",
             display_name="TikTok",
             char_limit=2200,
+            supports_threads=False,
+            supports_images=True,
             supports_video=True,
-            requires_auth=False 
+            posting_supported=False,
+            requires_auth=False,
+            features=["hashtags", "mentions", "links", "video"],
         )
 
     def format_post(
@@ -23,11 +27,15 @@ class TikTokPlatform(BasePlatform):
         include_hashtags: bool = True,
         style: Optional[str] = None,
     ) -> Dict:
-        return self.formatter.format_post(
+        result = self.formatter.format_post(
             answer=answer,
             sources=sources,
-            query=query
+            query=query,
+            include_hashtags=include_hashtags,
         )
+        if style:
+            result["style"] = style
+        return result
 
     def generate_share_link(self, content: str, url: Optional[str] = None) -> str:
         # TikTok doesn't have a simple "web intent" for text posting like Twitter/Threads

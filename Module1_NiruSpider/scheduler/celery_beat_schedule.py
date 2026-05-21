@@ -72,6 +72,40 @@ beat_schedule = {
         "args": ("kenya_law",),
         "options": {"queue": "crawling"},
     },
+
+    # Crawl Constitution sources weekly at 4 AM on Monday
+    "crawl-constitution-weekly": {
+        "task": "run_crawler",
+        "schedule": crontab(minute=0, hour=4, day_of_week="1"),
+        "args": ("constitution",),
+        "options": {"queue": "crawling"},
+    },
+
+    # ============== NEW SPIDERS ==============
+
+    # Crawl Kenya Gazette daily at 5 AM
+    "crawl-kenya-gazette-daily": {
+        "task": "run_crawler",
+        "schedule": crontab(minute=0, hour=5),
+        "args": ("kenya_gazette",),
+        "options": {"queue": "crawling"},
+    },
+
+    # Crawl Africa Check Kenya fact-checks daily at 6 AM
+    "crawl-fact-check-daily": {
+        "task": "run_crawler",
+        "schedule": crontab(minute=0, hour=6),
+        "args": ("fact_check",),
+        "options": {"queue": "crawling"},
+    },
+
+    # Crawl The Conversation Africa analysis daily at 7 AM
+    "crawl-africa-analysis-daily": {
+        "task": "run_crawler",
+        "schedule": crontab(minute=0, hour=7),
+        "args": ("africa_analysis",),
+        "options": {"queue": "crawling"},
+    },
     
     # ============== DATA PROCESSING PIPELINE ==============
     

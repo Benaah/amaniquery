@@ -55,6 +55,7 @@ export interface Message {
     interactive_widgets?: InteractiveWidget[]
     github_diff?: GithubDiff
     persona?: "wanjiku" | "wakili" | "mwanahabari"
+    research_bundle?: ResearchBundle
 }
 
 export interface Source {
@@ -96,6 +97,7 @@ export interface StreamMetadata {
     token_count?: number
     model_used?: string
     sources?: Source[]
+    research_bundle?: ResearchBundle
 }
 
 export type SharePlatform = "twitter" | "linkedin" | "facebook" | "whatsapp" | "telegram" | "email" | "threads" | "bluesky" | "tiktok"
@@ -189,5 +191,15 @@ export interface StreamToolEvent {
     status?: string
     latency_ms?: number
     error?: string
+}
+
+export interface ResearchBundle {
+    bundle_id: string
+    has_pdf: boolean
+    has_docx: boolean
+    download_urls: {
+        pdf?: string
+        docx?: string
+    }
 }
 

@@ -385,18 +385,30 @@ class AfricasTalkingSMSService:
     
     def validate_webhook_signature(self, request_data: str, signature: str) -> bool:
         """
-        Validate webhook signature for security
+        Validate Africa's Talking webhook HMAC-SHA256 signature.
         
         Args:
-            request_data: Raw request body
+            request_data: Raw request body as string
             signature: X-Africastalking-Signature header value
             
         Returns:
             True if signature is valid
         """
-        # TODO: Implement HMAC signature validation
-        # For now, basic validation
-        return True
+        import hashlib
+        import hmac
+        webhook_token = os.getenv("AFRICASTALKING_WEBHOOK_TOKEN") or os.getenv("AFRICASTALKING_API_KEY")
+        if not webhook_token:
+            logger.warning("AFRICASTALKING_WEBHOOK_TOKEN not set — skipping signature validation")
+            return True
+        if not signature:
+            logger.warning("Empty webhook signature — rejecting")
+            return False
+        expected = hmac.new(
+            webhook_token.encode(),
+            request_data.encode(),
+            hashlib.sha256,
+        ).hexdigest()
+        return hmac.compare_digest(expected, signature.lower())
     
     def format_kenyan_phone(self, phone_number: str) -> str:
         """

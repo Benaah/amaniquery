@@ -51,7 +51,19 @@ except ImportError:
     logger.warning("litellm not installed. LLM calls will fail or use fallback.")
     litellm = None
 
-# Initialize ElevenLabs
+# Initialize VibeVoice (local, free TTS)
+try:
+    from Module6_NiruVoice.vibevoice_tts import VibeVoiceTTS
+    vibevoice_tts = VibeVoiceTTS()
+except ImportError:
+    try:
+        from vibevoice_tts import VibeVoiceTTS
+        vibevoice_tts = VibeVoiceTTS()
+    except ImportError:
+        logger.warning("VibeVoice not installed. TTS will use ElevenLabs fallback.")
+        vibevoice_tts = None
+
+# Initialize ElevenLabs (paid fallback)
 try:
     from elevenlabs.client import AsyncElevenLabs
     elevenlabs_client = AsyncElevenLabs(api_key=os.getenv("ELEVENLABS_API_KEY"))
@@ -62,13 +74,62 @@ except ImportError:
 # Audio Cache Configuration
 AUDIO_CACHE_DIR = Path(os.getenv("AUDIO_CACHE_DIR", "public/audio"))
 
-# Mock edge_whisper for now (Replace with actual implementation or API client)
 class EdgeWhisper:
+    def __init__(self):
+        self.openai_api_key = os.getenv("OPENAI_API_KEY")
+        self._openai_client = None
+        self._local_model = None
+
+    async def _transcribe_openai(self, audio_bytes: bytes) -> str:
+        import openai
+        if not self._openai_client:
+            self._openai_client = openai.AsyncOpenAI(api_key=self.openai_api_key)
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as tmp:
+            tmp.write(audio_bytes)
+            tmp_path = tmp.name
+        try:
+            with open(tmp_path, "rb") as audio_file:
+                transcript = await self._openai_client.audio.transcriptions.create(
+                    model="whisper-1",
+                    file=audio_file,
+                    response_format="text",
+                )
+            return transcript.strip()
+        finally:
+            os.unlink(tmp_path)
+
+    async def _transcribe_local(self, audio_bytes: bytes) -> str:
+        from faster_whisper import WhisperModel
+        if not self._local_model:
+            self._local_model = WhisperModel("base", device="cpu", compute_type="int8")
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as tmp:
+            tmp.write(audio_bytes)
+            tmp_path = tmp.name
+        try:
+            segments, _ = self._local_model.transcribe(tmp_path, beam_size=5)
+            return " ".join(seg.text for seg in segments).strip()
+        finally:
+            os.unlink(tmp_path)
+
     async def invoke(self, audio_bytes: bytes) -> Dict[str, str]:
-        # TODO: Implement actual Whisper call (OpenAI, Azure, or local)
-        # For now, return a placeholder if no actual implementation is provided
-        await asyncio.sleep(0.1)
-        return {"text": "This is a placeholder transcript."}
+        if self.openai_api_key:
+            try:
+                text = await asyncio.wait_for(self._transcribe_openai(audio_bytes), timeout=30.0)
+                if text:
+                    return {"text": text}
+            except Exception as e:
+                logger.warning(f"OpenAI Whisper failed, trying local fallback: {e}")
+        try:
+            text = await asyncio.wait_for(self._transcribe_local(audio_bytes), timeout=60.0)
+            if text:
+                return {"text": text}
+        except ImportError:
+            logger.warning("faster-whisper not installed. Install with: pip install faster-whisper")
+        except Exception as e:
+            logger.error(f"Local Whisper failed: {e}")
+        return {"text": "", "error": "all_transcribers_failed"}
 
 edge_whisper = EdgeWhisper()
 
@@ -203,34 +264,47 @@ async def safe_llm(state):
             "offline_mode": True
         }
 
-# ── 5. Safe TTS with Browser Fallback ─────────────────────────────────
+# ── 5. Safe TTS with VibeVoice Primary + ElevenLabs Fallback ──────────
 @graph.add_node("safe_tts")
 async def safe_tts(state):
     if state.get("offline_mode") or state.get("final_audio"):
         return state
 
+    # Try VibeVoice first (local, free)
+    if vibevoice_tts:
+        try:
+            audio_bytes = await asyncio.wait_for(
+                vibevoice_tts.synthesize(state["answer"]),
+                timeout=10.0
+            )
+            if audio_bytes:
+                logger.info("VibeVoice TTS succeeded")
+                return {"final_audio": audio_bytes}
+        except Exception as e:
+            logger.warning(f"VibeVoice TTS failed, falling back to ElevenLabs: {e}")
+    else:
+        logger.info("VibeVoice not available, using ElevenLabs fallback")
+
+    # Fallback: ElevenLabs (paid)
     try:
         if elevenlabs_client:
-            # Generate audio
             audio_generator = await asyncio.wait_for(
                 elevenlabs_client.generate(
                     text=state["answer"], 
                     model="eleven_turbo_v2_5",
-                    voice="Rachel" # Specify a voice
+                    voice="Rachel"
                 ),
                 timeout=6.0
             )
-            # Consume generator to get bytes
             audio_bytes = b"".join([chunk async for chunk in audio_generator])
             return {"final_audio": audio_bytes}
         else:
             raise ImportError("elevenlabs not installed")
     except Exception as e:
         logger.error(f"TTS failed: {e}")
-        # Return text only → frontend uses Web Speech API
         return {
             "final_audio": None,
-            "answer": state["answer"], # + " [Soma hii kwa sauti yako]" - let frontend handle UI
+            "answer": state["answer"],
             "tts_failed": True
         }
 

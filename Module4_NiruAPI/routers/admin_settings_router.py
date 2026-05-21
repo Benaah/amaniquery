@@ -4,14 +4,16 @@ Admin Settings Router - Knowledge Bases, Models, RAG Configuration
 Provides API endpoints for admin settings, pulling real data from vector store.
 """
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from typing import List, Dict, Optional, Any
 from pydantic import BaseModel
-from datetime import datetime
+from datetime import datetime, date
 from loguru import logger
 import os
 import sys
+import time
 from pathlib import Path
+from collections import defaultdict
 
 # Add parent path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -19,6 +21,33 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from Module3_NiruDB.vector_store import VectorStore
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
+
+# In-memory query tracking with daily reset
+_query_stats = {
+    "date": date.today(),
+    "count": 0,
+    "total_latency_ms": 0.0,
+    "total_cache_hits": 0,
+    "total_queries": 0,
+}
+
+
+def track_query(latency_ms: float = 0.0, cache_hit: bool = False):
+    """Record a RAG query for statistics tracking."""
+    global _query_stats
+    today = date.today()
+    if _query_stats["date"] != today:
+        _query_stats = {
+            "date": today,
+            "count": 0,
+            "total_latency_ms": 0.0,
+            "total_cache_hits": 0,
+            "total_queries": 0,
+        }
+    _query_stats["count"] += 1
+    _query_stats["total_latency_ms"] += latency_ms
+    _query_stats["total_cache_hits"] += 1 if cache_hit else 0
+    _query_stats["total_queries"] += 1
 
 
 # ============ Models ============
@@ -148,6 +177,48 @@ async def get_knowledge_base(kb_id: str):
     )
 
 
+class CreateKnowledgeBaseRequest(BaseModel):
+    name: str
+    type: str = "legal"
+    description: str = ""
+    chunk_size: int = 512
+    embedding_model: str = "text-embedding-3-small"
+
+
+@router.post("/knowledge-bases", status_code=201)
+async def create_knowledge_base(req: CreateKnowledgeBaseRequest):
+    """Create a new knowledge base namespace"""
+    kb_id = req.name.lower().replace(" ", "_").replace("-", "_")
+    if kb_id in KNOWLEDGE_BASES:
+        raise HTTPException(status_code=409, detail=f"Knowledge base '{kb_id}' already exists")
+    KNOWLEDGE_BASES[kb_id] = {
+        "name": req.name,
+        "description": req.description,
+        "type": req.type,
+    }
+    logger.info(f"Created knowledge base: {kb_id}")
+    return KnowledgeBaseResponse(
+        id=kb_id,
+        name=req.name,
+        description=req.description,
+        type=req.type,
+        document_count=0,
+        status="active",
+        last_updated=datetime.utcnow().isoformat()
+    )
+
+
+@router.delete("/knowledge-bases/{kb_id}", status_code=204)
+async def delete_knowledge_base(kb_id: str):
+    """Delete a knowledge base"""
+    if kb_id not in KNOWLEDGE_BASES:
+        raise HTTPException(status_code=404, detail=f"Knowledge base {kb_id} not found")
+    if kb_id in ("kenya_law", "kenya_news", "parliament", "general"):
+        raise HTTPException(status_code=403, detail="Cannot delete system knowledge bases")
+    del KNOWLEDGE_BASES[kb_id]
+    logger.info(f"Deleted knowledge base: {kb_id}")
+
+
 # ============ AI Models ============
 
 # Prioritize Moonshot and Gemini as per user request
@@ -271,11 +342,32 @@ async def update_rag_config(config: RAGConfigUpdate):
 
 @router.get("/rag/stats")
 async def get_rag_stats():
-    """Get RAG pipeline statistics"""
+    """Get RAG pipeline statistics with real query tracking"""
+    global _query_stats
+    today = date.today()
+    if _query_stats["date"] != today:
+        _query_stats = {
+            "date": today,
+            "count": 0,
+            "total_latency_ms": 0.0,
+            "total_cache_hits": 0,
+            "total_queries": 0,
+        }
+    count = _query_stats["count"]
+    avg_latency = (
+        _query_stats["total_latency_ms"] / _query_stats["total_queries"]
+        if _query_stats["total_queries"] > 0
+        else 0.0
+    )
+    cache_hit_rate = (
+        _query_stats["total_cache_hits"] / _query_stats["total_queries"]
+        if _query_stats["total_queries"] > 0
+        else 0.0
+    )
     return {
-        "queries_today": 0,  # TODO: Implement actual tracking
-        "avg_latency_ms": 0,
-        "cache_hit_rate": 0,
+        "queries_today": count,
+        "avg_latency_ms": round(avg_latency, 2),
+        "cache_hit_rate": round(cache_hit_rate, 4),
         "active_namespaces": len(KNOWLEDGE_BASES),
         "reranking_enabled": RAG_CONFIG["use_reranking"],
         "hyde_enabled": RAG_CONFIG["use_hyde"]

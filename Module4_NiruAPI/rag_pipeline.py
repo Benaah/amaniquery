@@ -1352,177 +1352,97 @@ class RAGPipeline:
         max_tokens: int = 1500,
         start_time: float = None
     ) -> Dict:
-        """Query all available models and combine responses"""
+        """
+        Sequential fallback chain — tries ONE model at a time.
+        Replaces the old parallel-all-models ensemble that cost N+1 LLM calls.
+        Fallback order: primary → moonshot → openai/gpt-4o-mini → anthropic/claude-haiku.
+        """
         if start_time is None:
             start_time = time.time()
-        
-        # Generate responses from all models
-        responses = self._generate_ensemble_responses(query, temperature, max_tokens)
-        
-        if not responses:
+
+        clients = self._get_ensemble_clients()
+        if not clients:
             return {
                 "answer": "I couldn't generate a response. Please try again.",
                 "sources": [],
                 "query_time": time.time() - start_time,
                 "retrieved_chunks": 0,
-                "model_used": "ensemble",
+                "model_used": "none",
             }
-        
-        # Combine responses into concise answer
-        combined_answer = self._combine_ensemble_responses(responses, query)
-        
-        return {
-            "answer": combined_answer,
-            "sources": [],
-            "query_time": time.time() - start_time,
-            "retrieved_chunks": 0,
-            "model_used": f"ensemble({len(responses)} models)",
-            "ensemble_responses": len(responses)
-        }
-    
-    def _generate_ensemble_responses(
-        self,
-        query: str,
-        temperature: float = 0.7,
-        max_tokens: int = 1500
-    ) -> Dict[str, str]:
-        """Generate responses from all available models in parallel"""
-        import concurrent.futures
-        
-        system_prompt = """You are AmaniQuery, an AI assistant specialized in Kenyan law, parliamentary proceedings, and current affairs.
 
-Provide a concise, accurate answer to the question. Focus on factual information and be brief."""
-        
-        user_prompt = f"""Question: {query}
+        # Build a cost-ordered fallback chain
+        primary = self.llm_provider
+        fallback_order = [primary]
+        for candidate in ["moonshot", "openai", "nvidia_nim", "anthropic", "gemini"]:
+            if candidate != primary and candidate in clients:
+                fallback_order.append(candidate)
 
-Provide a concise answer based on your knowledge of Kenyan law and current affairs."""
-        
-        responses = {}
-        
-        def query_model(provider: str, client_info: Dict):
-            """Query a single model"""
+        system_prompt = (
+            "You are AmaniQuery, an AI assistant specialized in Kenyan law, "
+            "parliamentary proceedings, and current affairs. "
+            "Provide a concise, accurate answer. Be brief and factual."
+        )
+        user_prompt = f"Question: {query}\n\nProvide a concise answer based on your knowledge."
+
+        last_error = None
+        for provider in fallback_order:
+            info = clients[provider]
             try:
-                client = client_info["client"]
-                model = client_info["model"]
-                
-                if provider in ["openai", "moonshot", "nvidia_nim", "openrouter"]:
-                    response = client.chat.completions.create(
+                client = info["client"]
+                model = info["model"]
+
+                if provider in ("openai", "moonshot", "nvidia_nim", "openrouter"):
+                    resp = client.chat.completions.create(
                         model=model,
-                        messages=[
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": user_prompt}
-                        ],
+                        messages=[{"role": "system", "content": system_prompt},
+                                  {"role": "user", "content": user_prompt}],
                         temperature=temperature,
-                        max_tokens=max_tokens
+                        max_tokens=max_tokens,
                     )
-                    return response.choices[0].message.content
-                
+                    answer = resp.choices[0].message.content
                 elif provider == "anthropic":
-                    response = client.messages.create(
+                    resp = client.messages.create(
                         model=model,
                         max_tokens=max_tokens,
                         temperature=temperature,
                         system=system_prompt,
-                        messages=[{"role": "user", "content": user_prompt}]
+                        messages=[{"role": "user", "content": user_prompt}],
                     )
-                    return response.content[0].text
-                
+                    answer = resp.content[0].text
                 elif provider == "gemini":
                     import google.generativeai as genai
-                    full_prompt = f"{system_prompt}\n\n{user_prompt}"
-                    response = client.generate_content(
-                        full_prompt,
+                    resp = client.generate_content(
+                        f"{system_prompt}\n\n{user_prompt}",
                         generation_config=genai.types.GenerationConfig(
-                            temperature=temperature,
-                            max_output_tokens=max_tokens
-                        )
+                            temperature=temperature, max_output_tokens=max_tokens
+                        ),
                     )
-                    return response.text
-                
+                    answer = resp.text
+                else:
+                    continue
+
+                if answer:
+                    logger.info(f"Fallback chain: {provider} answered (tried {fallback_order.index(provider)+1}/{len(fallback_order)})")
+                    return {
+                        "answer": answer,
+                        "sources": [],
+                        "query_time": time.time() - start_time,
+                        "retrieved_chunks": 0,
+                        "model_used": f"fallback({provider})",
+                    }
             except Exception as e:
-                logger.warning(f"Ensemble: {provider} failed: {e}")
-                return None
-        
-        # Query all models in parallel
-        with concurrent.futures.ThreadPoolExecutor(max_workers=len(self._get_ensemble_clients())) as executor:
-            futures = {
-                executor.submit(query_model, provider, client_info): provider
-                for provider, client_info in self._get_ensemble_clients().items()
-            }
-            
-            for future in concurrent.futures.as_completed(futures):
-                provider = futures[future]
-                try:
-                    response = future.result()
-                    if response:
-                        responses[provider] = response
-                except Exception as e:
-                    logger.warning(f"Ensemble: Error getting {provider} response: {e}")
-        
-        logger.info(f"Ensemble: Generated {len(responses)} responses")
-        return responses
-    
-    def _combine_ensemble_responses(self, responses: Dict[str, str], query: str) -> str:
-        """Intelligently combine multiple model responses into a concise answer"""
-        if len(responses) == 1:
-            return list(responses.values())[0]
-        
-        # Use the primary model to synthesize responses
-        nim_like = ["openai", "moonshot", "nvidia_nim"]
-        if self.llm_provider in nim_like and self.llm_provider in responses:
-            synthesizer = self.client
-            model = self.model
-        elif "openai" in responses:
-            synthesizer = self._get_ensemble_clients()["openai"]["client"]
-            model = self._get_ensemble_clients()["openai"]["model"]
-        elif "moonshot" in responses:
-            synthesizer = self._get_ensemble_clients()["moonshot"]["client"]
-            model = self._get_ensemble_clients()["moonshot"]["model"]
-        elif "nvidia_nim" in responses:
-            synthesizer = self._get_ensemble_clients()["nvidia_nim"]["client"]
-            model = self._get_ensemble_clients()["nvidia_nim"]["model"]
-        else:
-            # Fallback: return the longest response
-            return max(responses.values(), key=len)
-        
-        # Prepare synthesis prompt
-        responses_text = "\n\n".join([
-            f"**{provider.upper()}:**\n{response}"
-            for provider, response in responses.items()
-        ])
-        
-        synthesis_prompt = f"""You are synthesizing responses from multiple AI models to answer a question about Kenyan law.
+                last_error = e
+                logger.warning(f"Fallback chain: {provider} failed: {e}")
+                continue
 
-Original Question: {query}
-
-Responses from multiple models:
-{responses_text}
-
-Create a concise, accurate combined response that:
-1. Integrates the best information from all responses
-2. Removes redundancy and contradictions
-3. Maintains factual accuracy
-4. Is well-structured and easy to read
-5. Follows the format: Summary → Key Points → Important Details
-
-Combined Response:"""
-        
-        try:
-            if hasattr(synthesizer, 'chat'):
-                # OpenAI/Moonshot format
-                response = synthesizer.chat.completions.create(
-                    model=model,
-                    messages=[{"role": "user", "content": synthesis_prompt}],
-                    temperature=0.3,  # Lower temperature for synthesis
-                    max_tokens=2000
-                )
-                return response.choices[0].message.content
-            else:
-                # Fallback: return longest response
-                return max(responses.values(), key=len)
-        except Exception as e:
-            logger.warning(f"Ensemble synthesis failed: {e}, returning longest response")
-            return max(responses.values(), key=len)
+        logger.error(f"All {len(fallback_order)} fallback models failed. Last error: {last_error}")
+        return {
+            "answer": "I'm having trouble generating a response right now. Please try again later.",
+            "sources": [],
+            "query_time": time.time() - start_time,
+            "retrieved_chunks": 0,
+            "model_used": "error",
+        }
     
     def _create_simple_stream(self, text: str):
         """Create a simple stream from text"""
@@ -1567,40 +1487,18 @@ Combined Response:"""
         max_tokens: int = 1500,
         start_time: float = None
     ) -> Dict:
-        """Query all models, combine responses, and stream the result"""
-        if start_time is None:
-            start_time = time.time()
-        
-        # Generate responses from all models
-        responses = self._generate_ensemble_responses(query, temperature, max_tokens)
-        
-        if not responses:
-            return {
-                "answer": "I couldn't generate a response. Please try again.",
-                "sources": [],
-                "query_time": time.time() - start_time,
-                "retrieved_chunks": 0,
-                "model_used": "ensemble",
-                "stream": False,
-            }
-        
-        # Combine responses
-        combined_answer = self._combine_ensemble_responses(responses, query)
-        
-        # Create a streaming response from the combined answer
-        # Chunk the combined answer and stream it
-        answer_stream = self._create_simple_stream(combined_answer)
-        
-        query_time = time.time() - start_time
-        
+        """Stream fallback via sequential fallback chain — never more than one LLM call."""
+        result = self._query_with_ensemble(query, temperature, max_tokens, start_time)
+        answer = result.get("answer", "")
+        qtime = result.get("query_time", 0)
+        model = result.get("model_used", "fallback")
         return {
-            "answer_stream": answer_stream,
+            "answer_stream": self._create_simple_stream(answer),
             "sources": [],
-            "query_time": query_time,
+            "query_time": qtime,
             "retrieved_chunks": 0,
-            "model_used": f"ensemble({len(responses)} models)",
+            "model_used": model,
             "stream": True,
-            "ensemble_responses": len(responses)
         }
     
     def query_stream(

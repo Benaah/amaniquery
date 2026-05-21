@@ -68,7 +68,7 @@ if PYDANTIC_AVAILABLE:
             if not v:
                 raise ValueError("At least one provider must be specified")
             valid_stt = ["openai", "assemblyai", "deepgram", "nvidia_nim"]
-            valid_tts = ["openai", "silero", "elevenlabs", "nvidia_nim"]
+            valid_tts = ["openai", "silero", "elevenlabs", "nvidia_nim", "vibevoice"]
             # Check if all providers are valid (relaxed for future providers)
             return v
         
@@ -236,7 +236,7 @@ def _load_config_from_env(cls) -> VoiceAgentConfig:
     
     # STT/TTS providers (support multiple)
     stt_provider_str = os.getenv("VOICE_STT_PROVIDER", "openai")
-    tts_provider_str = os.getenv("VOICE_TTS_PROVIDER", "openai")
+    tts_provider_str = os.getenv("VOICE_TTS_PROVIDER", "vibevoice")
     
     # Parse provider lists (comma-separated) or single provider
     stt_providers = [p.strip().lower() for p in stt_provider_str.split(",")]

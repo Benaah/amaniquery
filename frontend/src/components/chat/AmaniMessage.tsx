@@ -15,7 +15,9 @@ import {
   Pencil,
   AlertTriangle,
   RefreshCw,
-  Square
+  Square,
+  FileText,
+  FileDown
 } from "lucide-react"
 import { Textarea } from "@/components/ui/textarea"
 import ReactMarkdown from "react-markdown"
@@ -332,6 +334,33 @@ export function AmaniMessage({
                 </ReactMarkdown>
               )
             })}
+          </div>
+        )}
+
+        {message.research_bundle && (
+          <div className="flex flex-wrap gap-2 mt-4 pt-3 border-t border-border/50">
+            {message.research_bundle.has_pdf && message.research_bundle.download_urls.pdf && (
+              <a
+                href={message.research_bundle.download_urls.pdf}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+              >
+                <FileText className="w-3.5 h-3.5" />
+                Download PDF
+              </a>
+            )}
+            {message.research_bundle.has_docx && message.research_bundle.download_urls.docx && (
+              <a
+                href={message.research_bundle.download_urls.docx}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+              >
+                <FileDown className="w-3.5 h-3.5" />
+                Download DOCX
+              </a>
+            )}
           </div>
         )}
       </div>

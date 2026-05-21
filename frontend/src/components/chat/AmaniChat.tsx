@@ -7,7 +7,7 @@ import { AmaniMessageList } from "./AmaniMessageList"
 import { AmaniInput } from "./AmaniInput"
 import { ChatHeader } from "./ChatHeader"
 
-import type { Source, StreamToolEvent } from "./types"
+import type { Source, StreamToolEvent, ResearchBundle } from "./types"
 import type {
   Message,
   ChatSession,
@@ -472,6 +472,18 @@ export function AmaniChat({
                   streamingSourcesRef.current = sources
                   setStreamingSources(sources)
                 }
+                if (parsed.bundle) {
+                  const bundle = parsed.bundle as ResearchBundle
+                  if (bundle.download_urls) {
+                    if (bundle.download_urls.pdf) {
+                      bundle.download_urls.pdf = `${API_BASE_URL}${bundle.download_urls.pdf}`
+                    }
+                    if (bundle.download_urls.docx) {
+                      bundle.download_urls.docx = `${API_BASE_URL}${bundle.download_urls.docx}`
+                    }
+                  }
+                  metadata.research_bundle = bundle
+                }
                 setIsThinking(false)
                 continue
               }
@@ -510,7 +522,8 @@ export function AmaniChat({
           created_at: new Date().toISOString(),
           sources: sources,
           token_count: metadata.token_count,
-          model_used: metadata.model_used
+          model_used: metadata.model_used,
+          research_bundle: metadata.research_bundle,
         }
 
         setMessages(prev => [...prev, assistantMessage])

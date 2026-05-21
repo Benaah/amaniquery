@@ -3,9 +3,11 @@ Research Router - Research and report generation endpoints for AmaniQuery
 """
 import json
 import asyncio
+import os
 from typing import Optional, Dict, List, Any
+from pathlib import Path
 from fastapi import APIRouter, HTTPException, Form
-from fastapi.responses import Response
+from fastapi.responses import Response, FileResponse
 from loguru import logger
 from pydantic import BaseModel
 
@@ -26,6 +28,7 @@ class ResearchRouterState:
     report_generator = None
     cache_manager = None
     chat_manager = None
+    research_bundle_service = None
 
 _state = ResearchRouterState()
 
@@ -231,25 +234,30 @@ async def generate_pdf_report(
     **Returns:**
     - PDF file as downloadable content
     """
-    if research_module is None:
-        raise HTTPException(status_code=503, detail="Research module not available")
+    bundle_service = _state.research_bundle_service
+    if bundle_service is None:
+        raise HTTPException(status_code=503, detail="Research bundle service not available")
 
     try:
         analysis_data = json.loads(analysis_results)
-
-        import tempfile
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp_file:
-            pdf_path = research_module.generate_pdf_report(analysis_data, tmp_file.name)
-        
-        with open(pdf_path, 'rb') as f:
-            pdf_content = f.read()
-        
-        return Response(
-            content=pdf_content,
-            media_type="application/pdf",
-            headers={"Content-Disposition": f"attachment; filename={report_title.replace(' ', '_')}.pdf"}
+        query = analysis_data.get("original_query", "Legal Research Report")
+        bundle_dict = await bundle_service.conduct_research(
+            query=query,
+            context=analysis_data,
+            generate_pdf=True,
+            generate_docx=False,
         )
+        if bundle_dict.get("status") != "completed":
+            raise RuntimeError(bundle_dict.get("error", "Research failed"))
+        bundle = bundle_service.get_bundle(bundle_dict["bundle_id"])
+        if not bundle or not bundle.pdf_path:
+            raise RuntimeError("PDF generation failed")
 
+        return FileResponse(
+            path=bundle.pdf_path,
+            media_type="application/pdf",
+            filename=f"{report_title.replace(' ', '_')}.pdf",
+        )
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="Invalid JSON in analysis_results")
     except Exception as e:
@@ -268,25 +276,30 @@ async def generate_word_report(
     **Returns:**
     - Word document (.docx) as downloadable content
     """
-    if research_module is None:
-        raise HTTPException(status_code=503, detail="Research module not available")
+    bundle_service = _state.research_bundle_service
+    if bundle_service is None:
+        raise HTTPException(status_code=503, detail="Research bundle service not available")
 
     try:
         analysis_data = json.loads(analysis_results)
-
-        import tempfile
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.docx') as tmp_file:
-            word_path = research_module.generate_word_report(analysis_data, tmp_file.name)
-        
-        with open(word_path, 'rb') as f:
-            word_content = f.read()
-        
-        return Response(
-            content=word_content,
-            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            headers={"Content-Disposition": f"attachment; filename={report_title.replace(' ', '_')}.docx"}
+        query = analysis_data.get("original_query", "Legal Research Report")
+        bundle_dict = await bundle_service.conduct_research(
+            query=query,
+            context=analysis_data,
+            generate_pdf=False,
+            generate_docx=True,
         )
+        if bundle_dict.get("status") != "completed":
+            raise RuntimeError(bundle_dict.get("error", "Research failed"))
+        bundle = bundle_service.get_bundle(bundle_dict["bundle_id"])
+        if not bundle or not bundle.docx_path:
+            raise RuntimeError("DOCX generation failed")
 
+        return FileResponse(
+            path=bundle.docx_path,
+            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            filename=f"{report_title.replace(' ', '_')}.docx",
+        )
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="Invalid JSON in analysis_results")
     except Exception as e:
@@ -297,17 +310,21 @@ async def generate_word_report(
 @router.get("/status")
 async def get_research_status():
     """Get the status of research and report generation capabilities"""
-    import os
+    module_available = (_state.research_module is not None or
+                        _state.agentic_research_module is not None)
     
     return {
-        "research_module_available": (research_module is not None) or (agenticresearch_module is not None),
-        "agentic_research_available": agenticresearch_module is not None,
-        "report_generator_available": report_generator is not None,
+        "research_module_available": module_available,
+        "agentic_research_available": _state.agentic_research_module is not None,
+        "report_generator_available": _state.report_generator is not None,
+        "bundle_service_available": _state.research_bundle_service is not None,
         "gemini_api_configured": bool(os.getenv("GEMINI_API_KEY")),
         "available_endpoints": [
             "/research/analyze-legal-query",
             "/research/generate-legal-report",
             "/research/legal-research",
+            "/research/conduct",
+            "/research/download/{bundle_id}/{format}",
             "/research/generate-pdf-report",
             "/research/generate-word-report",
             "/reports/legal-query",
@@ -316,8 +333,110 @@ async def get_research_status():
             "/reports/compliance",
             "/reports/technical-audit",
             "/reports/impact-assessment"
-        ] if (research_module is not None or agenticresearch_module is not None) else []
+        ] if module_available else []
     }
+
+
+# =============================================================================
+# UNIFIED RESEARCH FLOW ENDPOINTS
+# =============================================================================
+
+@router.post("/conduct")
+async def conduct_research(
+    query: str = Form(...),
+    context: Optional[str] = Form(None),
+    session_id: Optional[str] = Form(None),
+    generate_pdf: bool = Form(True),
+    generate_docx: bool = Form(True),
+):
+    """
+    Conduct full research and get results bundled with downloadable documents.
+
+    **Parameters:**
+    - query: The research question or query
+    - context: Optional additional context (JSON string)
+    - session_id: Optional chat session ID for saving to chat
+    - generate_pdf: Whether to auto-generate PDF (default: true)
+    - generate_docx: Whether to auto-generate DOCX (default: true)
+
+    **Returns:**
+    - Research bundle with analysis, download URLs for PDF/DOCX
+    """
+    bundle_service = _state.research_bundle_service
+    if bundle_service is None:
+        raise HTTPException(status_code=503, detail="Research bundle service not available")
+
+    try:
+        context_data = None
+        if context:
+            try:
+                context_data = json.loads(context)
+            except json.JSONDecodeError:
+                context_data = {"additional_info": context}
+
+        result = await bundle_service.conduct_research(
+            query=query,
+            context=context_data,
+            session_id=session_id,
+            generate_pdf=generate_pdf,
+            generate_docx=generate_docx,
+        )
+
+        if session_id:
+            module = _state.agentic_research_module or _state.research_module
+            if module:
+                analysis = result.get("analysis", {})
+                chat_result = {
+                    "answer": analysis.get("query_interpretation", str(result)),
+                    "sources": result.get("sources", []),
+                    "model_used": "research-bundle",
+                }
+                save_query_to_chat(session_id, query, chat_result)
+
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in unified research: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/download/{bundle_id}/{format}")
+async def download_research_bundle(bundle_id: str, format: str):
+    """
+    Download a generated research document.
+
+    **Parameters:**
+    - bundle_id: The bundle ID from /research/conduct response
+    - format: "pdf" or "docx"
+
+    **Returns:**
+    - The requested document file
+    """
+    bundle_service = _state.research_bundle_service
+    if bundle_service is None:
+        raise HTTPException(status_code=503, detail="Research bundle service not available")
+
+    file_path = bundle_service.get_bundle_download_path(bundle_id, format)
+    if file_path is None:
+        raise HTTPException(status_code=404, detail="Bundle not found or expired")
+
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="File no longer available")
+
+    media_types = {
+        "pdf": "application/pdf",
+        "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    }
+    media_type = media_types.get(format, "application/octet-stream")
+    filename = f"research_{bundle_id}.{format}"
+
+    return FileResponse(
+        path=file_path,
+        media_type=media_type,
+        filename=filename,
+    )
 
 
 # =============================================================================

@@ -19,6 +19,14 @@ except ImportError:
     PROFILE_STORE_AVAILABLE = False
     logger.warning("UserProfileStore not available")
 
+# Aggressive semantic cache
+try:
+    from ..services.aggressive_cache import get_aggressive_cache, AggressiveSemanticCache
+    AGGRESSIVE_CACHE_AVAILABLE = True
+except ImportError:
+    AGGRESSIVE_CACHE_AVAILABLE = False
+    logger.warning("AggressiveSemanticCache not available")
+
 
 
 router = APIRouter(prefix="/api/v1", tags=["Query"])
@@ -77,6 +85,19 @@ class QueryRouterState:
     user_profile_store: Optional[UserProfileStore] = None  # Added for profiles
 
 _state = QueryRouterState()
+
+# Aggressive semantic cache instance (initialized once)
+_aggressive_cache: Optional[AggressiveSemanticCache] = None
+
+
+def get_aggressive_cache_instance() -> Optional[AggressiveSemanticCache]:
+    global _aggressive_cache
+    if _aggressive_cache is None and AGGRESSIVE_CACHE_AVAILABLE:
+        try:
+            _aggressive_cache = get_aggressive_cache()
+        except Exception as e:
+            logger.warning(f"Failed to init aggressive cache: {e}")
+    return _aggressive_cache
 
 
 def get_rag_pipeline():
@@ -296,28 +317,40 @@ async def query(request: QueryRequest):
                 )
                 return result
 
-        # Execute with caching
-        if _state.cache_manager and not use_vision_rag:
-            # Determine TTL type based on query content
-            ttl_type = "default"
-            q_lower = request.query.lower()
-            if "finance bill" in q_lower or "tax" in q_lower:
-                ttl_type = "trending"
-            elif "constitution" in q_lower or "act" in q_lower or "law" in q_lower:
-                ttl_type = "wakili"
-            elif "news" in q_lower or "update" in q_lower:
-                ttl_type = "mwanahabari"
-            elif "how to" in q_lower or "calculate" in q_lower:
-                ttl_type = "widget"
-            
-            # Use get_or_compute for stampede protection
-            result = await cache_manager.get_or_compute(
-                request.query, 
-                compute_response, 
-                ttl_type
-            )
+        # Aggressive semantic caching — check before compute, write after
+        agg_cache = get_aggressive_cache_instance() if not use_vision_rag else None
+
+        # Step 1: Try aggressive semantic cache first (normalized + semantic matching)
+        if agg_cache:
+            cached = agg_cache.get(request.query)
+            if cached is not None:
+                logger.info(f"Aggressive cache HIT for: {request.query[:60]}...")
+                result = cached
+            else:
+                # Step 2: Compute
+                result = await compute_response()
+                # Auto-write every response
+                if result.get("answer"):
+                    agg_cache.set(request.query, result)
+                    logger.debug(f"Aggressive cache WRITE for: {request.query[:60]}...")
         else:
-            result = await compute_response()
+            # Fallback: use existing CacheManager with get_or_compute
+            if _state.cache_manager and not use_vision_rag:
+                ttl_type = "default"
+                q_lower = request.query.lower()
+                if "finance bill" in q_lower or "tax" in q_lower:
+                    ttl_type = "trending"
+                elif "constitution" in q_lower or "act" in q_lower or "law" in q_lower:
+                    ttl_type = "wakili"
+                elif "news" in q_lower or "update" in q_lower:
+                    ttl_type = "mwanahabari"
+                elif "how to" in q_lower or "calculate" in q_lower:
+                    ttl_type = "widget"
+                result = await _state.cache_manager.get_or_compute(
+                    request.query, compute_response, ttl_type
+                )
+            else:
+                result = await compute_response()
         
         # Save to chat if session_id provided
         if request.session_id:

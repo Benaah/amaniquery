@@ -1,6 +1,6 @@
 {
   "name": "amaniquery-mobile",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
   "scripts": {
     "android": "expo run:android",
@@ -10,28 +10,27 @@
     "test": "jest"
   },
   "dependencies": {
-
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-navigation/bottom-tabs": "^7.8.6",
     "@react-navigation/native": "^6.1.9",
-    "@react-navigation/stack": "^7.6.7",
-    "react": "18.2.0",
     "@react-navigation/stack": "^6.3.20",
     "expo": "^54.0.29",
     "expo-constants": "^18.0.12",
     "expo-dev-client": "^6.0.20",
+    "expo-file-system": "^18.0.18",
+    "expo-media-library": "^18.0.11",
+    "expo-notifications": "^18.0.16",
     "expo-splash-screen": "^31.0.12",
     "expo-status-bar": "^3.0.9",
-
     "react": "19.1.0",
     "react-native": "0.81.5",
     "react-native-document-picker": "^9.1.1",
     "react-native-gesture-handler": "~2.30.0",
     "react-native-markdown-display": "^7.0.0-alpha.2",
-    "react-native-push-notification": "^8.1.1",
     "react-native-reanimated": "~4.1.1",
     "react-native-safe-area-context": "~5.6.0",
     "react-native-screens": "~4.16.0",
+    "react-native-share": "^11.0.4",
     "react-native-vector-icons": "^10.0.3"
   },
   "devDependencies": {

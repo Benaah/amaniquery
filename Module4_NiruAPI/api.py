@@ -45,7 +45,9 @@ from Module4_NiruAPI.config_manager import ConfigManager
 from Module4_NiruAPI.report_generator import ReportGenerator
 from Module4_NiruAPI.cache import get_cache_manager, CacheManager
 from Module4_NiruAPI.crawler_manager import CrawlerManager
+from Module4_NiruAPI.services.aggressive_cache import get_aggressive_cache
 from Module4_NiruAPI.services.notification_service import NotificationService
+from Module4_NiruAPI.services.research_bundle import ResearchBundleService
 from Module4_NiruAPI.agents.tools.autocomplete import AutocompleteTool
 
 # Routers - External modules
@@ -86,6 +88,7 @@ crawler_manager: Optional[CrawlerManager] = None
 research_module: Optional[ResearchModule] = None
 agentic_research_module: Optional[AgenticResearchModule] = None
 report_generator: Optional[ReportGenerator] = None
+research_bundle_service: Optional[ResearchBundleService] = None
 config_manager: Optional[ConfigManager] = None
 notification_service: Optional[NotificationService] = None
 hybrid_rag_pipeline = None
@@ -223,7 +226,7 @@ async def lifespan(app: FastAPI):
     global agentic_research_module, report_generator, config_manager
     global notification_service, hybrid_rag_pipeline, autocomplete_tool
     global vision_storage, vision_rag_service, database_storage, cache_manager
-    global amaniq_v2_agent, tool_registry
+    global amaniq_v2_agent, tool_registry, research_bundle_service
     global nirusense_pipeline, nirusense_health_checker, nirusense_metrics
     global nirusense_scheduler, nirusense_settings, nirusense_orchestrator_task
     global nirusense_orchestrator_thread
@@ -379,6 +382,25 @@ async def lifespan(app: FastAPI):
         cache_manager = get_cache_manager(config_manager)
         logger.info("Cache manager initialized")
         
+        # Initialize Aggressive Semantic Cache with warmup
+        try:
+            agg_cache = get_aggressive_cache()
+            logger.info("Aggressive semantic cache initialized")
+            # Warm up with common Kenyan legal queries in background
+            def warmup_worker():
+                try:
+                    import time as t
+                    t.sleep(5)  # Defer warmup to let server finish starting
+                    agg_cache.warmup()
+                    logger.info("Aggressive semantic cache warmup complete")
+                except Exception as e:
+                    logger.warning(f"Cache warmup failed: {e}")
+            import threading as _th
+            warmup_thread = _th.Thread(target=warmup_worker, daemon=True)
+            warmup_thread.start()
+        except Exception as e:
+            logger.warning(f"Aggressive semantic cache not available: {e}")
+        
         # Start Redis Pub/Sub listener for invalidation
         if cache_manager and cache_manager.redis_client and hasattr(cache_manager.redis_client, 'pubsub'):
             def redis_listener():
@@ -447,6 +469,19 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Report generator not available: {e}")
         report_generator = None
+
+    # Initialize Research Bundle Service
+    try:
+        research_bundle_service = ResearchBundleService(
+            research_module=research_module,
+            agentic_research_module=agentic_research_module,
+            report_generator=report_generator,
+            cache_manager=cache_manager,
+        )
+        logger.info("Research bundle service initialized")
+    except Exception as e:
+        logger.warning(f"Research bundle service not available: {e}")
+        research_bundle_service = None
     
     # Initialize authentication module (if enabled)
     auth_enabled = os.getenv("ENABLE_AUTH", "false").lower() == "true"
@@ -741,6 +776,7 @@ def _inject_router_dependencies():
     chat_router_module._state.vector_store = vector_store
     chat_router_module._state.amaniq_v2_agent = amaniq_v2_agent  # Inject the full agent, not just the graph
     chat_router_module._state.amaniq_v2_graph = amaniq_v2_agent.graph if amaniq_v2_agent else None
+    chat_router_module._state.research_bundle_service = research_bundle_service
     
     # Verify critical dependencies
     if amaniq_v2_agent is None:
@@ -767,6 +803,7 @@ def _inject_router_dependencies():
     research_router_module._state.report_generator = report_generator
     research_router_module._state.cache_manager = cache_manager
     research_router_module._state.chat_manager = chat_manager
+    research_router_module._state.research_bundle_service = research_bundle_service
     
     # Set dependencies on SMS router
     sms_router_module.sms_pipeline = sms_pipeline

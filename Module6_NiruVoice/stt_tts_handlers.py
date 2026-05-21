@@ -48,7 +48,7 @@ class TTSHandler:
         Initialize TTS handler
         
         Args:
-            provider: TTS provider (openai, silero, kimi, nvidia_nim)
+            provider: TTS provider (vibevoice, openai, silero, kimi, nvidia_nim)
             config: Provider-specific configuration
         """
         self.provider = provider
@@ -56,8 +56,23 @@ class TTSHandler:
         self._client = None
         logger.info(f"TTS handler initialized with provider: {provider}")
         
-        if provider == "nvidia_nim":
+        if provider == "vibevoice":
+            self._init_vibevoice()
+        elif provider == "nvidia_nim":
             self._init_nim()
+    
+    def _init_vibevoice(self):
+        try:
+            from .vibevoice_tts import VibeVoiceTTS
+            self._client = VibeVoiceTTS()
+            logger.info("VibeVoice TTS client loaded")
+        except ImportError:
+            try:
+                from vibevoice_tts import VibeVoiceTTS
+                self._client = VibeVoiceTTS()
+                logger.info("VibeVoice TTS client loaded")
+            except Exception as e:
+                logger.warning(f"Failed to load VibeVoice TTS: {e}")
     
     def _init_nim(self):
         try:
@@ -67,9 +82,21 @@ class TTSHandler:
         except Exception as e:
             logger.warning(f"Failed to load NVIDIA NIM TTS: {e}")
     
-    def synthesize(self, text: str, output_path: str, voice: str = "", language: str = "en") -> str:
+    def synthesize(self, text: str, output_path: str = "", voice: str = "", language: str = "en") -> str:
         """Synthesize text to audio file"""
-        if self.provider == "nvidia_nim" and self._client:
+        if self.provider == "vibevoice" and self._client:
+            import asyncio
+            try:
+                audio_bytes = asyncio.run(self._client.synthesize(text, voice=voice or None))
+                if output_path:
+                    with open(output_path, "wb") as f:
+                        f.write(audio_bytes)
+                    return output_path
+                return str(len(audio_bytes))
+            except Exception as e:
+                logger.error(f"VibeVoice synthesis failed: {e}")
+                return ""
+        elif self.provider == "nvidia_nim" and self._client:
             return self._client.synthesize(text, output_path, voice, language)
         logger.warning(f"TTS synthesize not implemented for {self.provider}")
         return ""

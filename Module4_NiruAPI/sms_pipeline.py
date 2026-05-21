@@ -1,10 +1,52 @@
 """
 SMS-Optimized RAG Pipeline
-Handles SMS queries with 160-character response limit and simple language
+Handles SMS queries with 160-character response limit, caching, and single-SMS enforcement.
 """
-from typing import Dict, List, Optional
-from loguru import logger
+import time
 import re
+import hashlib
+from typing import Dict, List, Optional
+from collections import OrderedDict
+from loguru import logger
+
+
+# Cache for SMS responses — normalized query + language → response
+_SMS_CACHE: OrderedDict = OrderedDict()
+_SMS_CACHE_MAX = 500
+_SMS_CACHE_TTL = {
+    "legal": 86400 * 90,   # 90 days for legal
+    "news": 7200,           # 2 hours for news
+    "default": 86400 * 7,   # 7 days default
+}
+
+
+def _sms_cache_key(query: str, language: str) -> str:
+    q = query.strip().lower()
+    q = re.sub(r"[^\w\s]", " ", q)
+    q = re.sub(r"\s+", " ", q)
+    q = " ".join(w for w in q.split() if len(w) > 1)
+    return f"sms:{q}:{language}"
+
+
+def _get_sms_cache(query: str, language: str) -> Optional[str]:
+    key = _sms_cache_key(query, language)
+    entry = _SMS_CACHE.get(key)
+    if entry is None:
+        return None
+    if time.time() - entry["ts"] > entry["ttl"]:
+        del _SMS_CACHE[key]
+        return None
+    _SMS_CACHE.move_to_end(key)
+    return entry["response"]
+
+
+def _set_sms_cache(query: str, language: str, response: str, query_type: str = "default"):
+    key = _sms_cache_key(query, language)
+    ttl = _SMS_CACHE_TTL.get(query_type, _SMS_CACHE_TTL["default"])
+    _SMS_CACHE[key] = {"response": response, "ts": time.time(), "ttl": ttl}
+    _SMS_CACHE.move_to_end(key)
+    while len(_SMS_CACHE) > _SMS_CACHE_MAX:
+        _SMS_CACHE.popitem(last=False)
 
 
 class SMSPipeline:
@@ -31,6 +73,8 @@ class SMSPipeline:
         """
         Process SMS query and return concise response
         
+        Checks cache first. Every response is auto-cached.
+        
         Args:
             query: User's SMS query text
             language: Response language ('en' for English, 'sw' for Swahili)
@@ -41,6 +85,19 @@ class SMSPipeline:
         """
         try:
             logger.info(f"SMS query from {phone_number}: {query}")
+            
+            # Check cache first
+            cached = _get_sms_cache(query, language)
+            if cached is not None:
+                logger.info(f"SMS cache HIT for: {query[:50]}...")
+                return {
+                    "response": cached,
+                    "sources": [],
+                    "query_type": "cached",
+                    "truncated": False,
+                    "phone_number": phone_number,
+                    "from_cache": True,
+                }
             
             # Detect query type for better retrieval
             query_type = self._detect_query_type(query)

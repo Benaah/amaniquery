@@ -103,25 +103,66 @@ export default function KnowledgeBaseSettingsPage() {
     }
   }
 
-  const handleCreate = () => {
-    toast.success("Creating knowledge base...")
-    console.log("Create knowledge base payload:", formData)
+  const handleCreate = async () => {
+    if (!formData.name.trim()) {
+      toast.error("Name is required")
+      return
+    }
     setIsCreating(false)
-    setFormData({
-      name: "",
-      type: "legal",
-      description: "",
-      chunkSize: 512,
-      embeddingModel: "text-embedding-3-small",
-    })
+    try {
+      const sessionToken = localStorage.getItem("session_token")
+      const response = await fetch(`${API_URL}/api/v1/admin/knowledge-bases`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Session-Token": sessionToken || "",
+        },
+        body: JSON.stringify({
+          name: formData.name,
+          type: formData.type,
+          description: formData.description,
+          chunk_size: formData.chunkSize,
+          embedding_model: formData.embeddingModel,
+        }),
+      })
+      if (response.ok) {
+        toast.success("Knowledge base created")
+        setFormData({
+          name: "",
+          type: "legal",
+          description: "",
+          chunkSize: 512,
+          embeddingModel: "text-embedding-3-small",
+        })
+        await fetchKnowledgeBases()
+      } else {
+        const err = await response.text()
+        toast.error(err || "Failed to create knowledge base")
+      }
+    } catch {
+      toast.error("Failed to create knowledge base")
+    }
   }
 
-  const handleDelete = () => {
-    toast.error("Delete not implemented yet")
-  }
-
-  const handleComingSoon = (feature: string) => {
-    toast.info(`${feature} — Coming soon`)
+  const handleDelete = async (id: string) => {
+    try {
+      const sessionToken = localStorage.getItem("session_token")
+      const response = await fetch(`${API_URL}/api/v1/admin/knowledge-bases/${id}`, {
+        method: "DELETE",
+        headers: {
+          "X-Session-Token": sessionToken || "",
+        },
+      })
+      if (response.ok || response.status === 204) {
+        toast.success("Knowledge base deleted")
+        await fetchKnowledgeBases()
+      } else {
+        const err = await response.text()
+        toast.error(err || "Failed to delete knowledge base")
+      }
+    } catch {
+      toast.error("Failed to delete knowledge base")
+    }
   }
 
   const getTypeIcon = (type: string) => {
@@ -346,25 +387,29 @@ export default function KnowledgeBaseSettingsPage() {
                           <Button
                             variant="ghost"
                             size="icon"
-                            onClick={() => handleComingSoon("Upload")}
+                            onClick={() => toast.info("Document upload coming in next release")}
                           >
                             <Upload className="h-4 w-4" />
                           </Button>
                           <Button
                             variant="ghost"
                             size="icon"
-                            onClick={() => handleComingSoon("Refresh")}
+                            onClick={async () => {
+                              toast.info("Refreshing knowledge base...")
+                              await fetchKnowledgeBases()
+                              toast.success("Knowledge base refreshed")
+                            }}
                           >
                             <RefreshCw className="h-4 w-4" />
                           </Button>
                           <Button
                             variant="ghost"
                             size="icon"
-                            onClick={() => handleComingSoon("Settings")}
+                            onClick={() => toast.info("Settings coming in next release")}
                           >
                             <Settings className="h-4 w-4" />
                           </Button>
-                          <Button variant="ghost" size="icon" onClick={handleDelete}>
+                          <Button variant="ghost" size="icon" onClick={() => handleDelete(kb.id)}>
                             <Trash2 className="h-4 w-4 text-red-500" />
                           </Button>
                         </div>

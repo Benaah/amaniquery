@@ -44,8 +44,8 @@ class CacheConfig:
     """Advanced cache configuration"""
     l1_capacity: int = 1000
     l2_capacity: int = 10000
-    semantic_threshold: float = 0.92
-    vector_threshold: float = 0.85
+    semantic_threshold: float = 0.85
+    vector_threshold: float = 0.80
     default_ttl: int = 3600 * 12  # 12 hours
     enable_compression: bool = True
     enable_predictive_cache: bool = True
@@ -732,7 +732,7 @@ def _generate_cache_key(args: tuple, kwargs: dict) -> str:
 class RAGCache:
     """Specialized cache for RAG query-result pairs with semantic similarity"""
     
-    def __init__(self, capacity: int = 1000, semantic_threshold: float = 0.9):
+    def __init__(self, capacity: int = 1000, semantic_threshold: float = 0.85):
         self.cache = BlazingFastCache(CacheConfig(l1_capacity=capacity, semantic_threshold=semantic_threshold))
         self.query_embeddings = {}  # Store query embeddings for similarity
         self.capacity = capacity

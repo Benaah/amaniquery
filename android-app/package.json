@@ -17,7 +17,7 @@
     "@react-navigation/stack": "^7.6.7",
     "react": "18.2.0",
     "@react-navigation/stack": "^6.3.20",
-    "expo": "^54.0.29",
+    "expo": "^56.0.3",
     "expo-constants": "^18.0.12",
     "expo-dev-client": "^6.0.20",
     "expo-splash-screen": "^31.0.12",
